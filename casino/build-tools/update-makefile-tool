@@ -1,0 +1,529 @@
+#!/bin/bash
+#---------------------------------------------------#
+# Script to re-generate Makefiles when dependencies #
+# change.                                           #
+#                                                   #
+# PLR 09.2005                                       #
+#---------------------------------------------------#
+set +u
+export LANG=POSIX
+
+########################### FUNCTIONS ###########################
+function cat_partial {
+ # Dump the contents of file $3 between lines containing "$1" and "$2".
+ local string0="$1" string1="$2" file=$3 saved_IFS="$IFS" line mode=0
+ export IFS=""
+ { [ -z "$string0" ] && mode=1
+ while ((mode==0)) ; do
+  read -r line || break ; [ "$line" = "$string0" ] && mode=1
+ done
+ ((mode==0)) && { export IFS="$saved_IFS" ; return 1 ; }
+ [ -z "$string1" ] && mode=2
+ while ((mode==1)) ; do
+  read -r line || break ; [ "$line" = "$string1" ] && mode=0 || echo "$line"
+ done
+ ((mode!=2)) && { export IFS="$saved_IFS" ; return $mode ; }
+ while : ; do
+  read -r line || break ; echo "$line"
+ done ; } <$file
+ export IFS="$saved_IFS" ; return 0
+}
+
+# Output field number $1 of $2-$n
+function field { local i=$1 ; shift ; echo "${@:$i:1}" ; }
+
+# Output number of fields in $*
+function nfield { echo $# ; }
+
+function cap {
+ # Turn lower case into upper case in $1.
+ local i string out="" n c
+ i=0 ; string="$1" ; n=${#string}
+ while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+  case "$c" in
+  a) c=A ;; b) c=B ;; c) c=C ;; d) c=D ;; e) c=E ;; f) c=F ;; g) c=G ;;
+  h) c=H ;; i) c=I ;; j) c=J ;; k) c=K ;; l) c=L ;; m) c=M ;; n) c=N ;;
+  o) c=O ;; p) c=P ;; q) c=Q ;; r) c=R ;; s) c=S ;; t) c=T ;; u) c=U ;;
+  v) c=V ;; w) c=W ;; x) c=X ;; y) c=Y ;; z) c=Z ;;
+  esac
+  out="$out$c"
+ done
+ echo "$out"
+}
+
+# Output $1 spaces
+function space { (($1>0)) && printf "%${1}s" "" ; }
+
+function bspl {
+ # Backspace destructively for the length of string $1
+ local i=0 n=${#1} bspchain
+ while ((i<n)) ; do i=$((i+1)) ; bspchain="$bspchain\b" ; done
+ bspchain="$bspchain$(space $n)$bspchain" ; echo -en "$bspchain"
+}
+
+function extract_modules {
+ # Extract the modules in f90 file (open on /dev/stdin)
+ local line mods typ mod f1 f2 f3 i=0 m=0
+ while : ; do
+  read f1 f2 f3 line || break ; f1=$(cap $f1)
+  if ((m==0)) ; then
+   case $f1 in
+   MODULE|PROGRAM) typ="$f1" ; mod="$f2" ; m=1 ;;
+   SUBROUTINE|FUNCTION) f2=${f2%%(*} ; typ="$f1" ; mod="$f2" ; m=1 ;;
+   REAL*|CHARACTER*|INTEGER*|LOGICAL) f2=$(cap $f2)
+    [ "$f2" = FUNCTION ] && { f3=${f3%%(*} ; typ="$f2" ; mod="$f3" ; m=1 ; } ;;
+   esac
+  elif [ "$f1" = END ] ; then
+   [ "$f1 $(cap $f2) $f3" = "END $typ $mod" ] && { mods="$mods$mod " ; m=0 ; }
+  fi
+ done
+ ((m==1)) && mods="${mods}ERROR $modname"
+ echo "$mods"
+}
+
+function extract_includes {
+ # Extract the names of included files in an f90 file (open on /dev/stdin)
+ local line files file f1 f2
+ while : ; do
+  read f1 f2 line || break ; f1=$(cap $f1)
+  case "$f1" in
+  INCLUDE) file="${f2//\"/}" ; file="${file//\'/}" ; files="$files$file " ;;
+  esac
+ done
+ echo "$files"
+}
+
+function in_list {
+ # Like which_field, but only set return value, no other output
+ local str="$1"
+ while (($#>1)) ; do shift ; [ "$str" = "$1" ] && return 0 ; done ; return 1
+}
+
+function which_field {
+ # Output the field number of string $1 in $2-$n, or 0 if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+function rem_list_num {
+ # Remove item number $1 from $2-$n
+ local i=$1 item out=""
+ shift
+ ((i>1)) && out="${@:1:$((i-1))}"
+ shift $i
+ (($#>0)) && out="$out $*"
+ echo "$out"
+}
+
+function usage_and_quit {
+ echo "Usage: ${0##*/} [-f <makefile>] [--nomods] [--ignore <file>] [--help]"
+ exit 1
+}
+
+function copy_mfile_chunk {
+ # Copy chunk of the Makefile, or give an error if appropriate
+ local mark1="$1" ; mark2="$2"
+ [ ! -z "$mark1" ] && echo "$mark1" >> $makefile_out
+ if ! cat_partial "$mark1" "$mark2" $makefile_in >> $makefile_out ; then
+  [ -z "$mark1" ] && errstop "Line '$mark2' not found in $makefile_in."
+  [ -z "$mark2" ] && errstop "Line '$mark1' not found in $makefile_in."
+  errstop "Lines '$mark1' and/or '$mark2' not found in $makefile_in."
+ fi
+ [ ! -z "$mark2" ] && echo "$mark2" >> $makefile_out
+}
+
+function find_use {
+ # Find USE statements in file $1
+ local file=$1 j f1 f2 f3 line used="" mod
+ { while read f1 f2 f3 line ; do
+  [ "$f1" = '!$' ] && mod=${f3%%,*} || mod=${f2%%,*}
+  in_list $mod $system_modules || used="$used $mod"
+ done ; } < <(grep -E '^ *(!\$)? *USE ' $file)
+ echo $used
+}
+
+function errstop {
+ echo ; echo "Error: $1"
+ [ ! -z "$makefile_out" ] && [ -e "$makefile_out" ] && rm -f $makefile_out
+ exit 1
+}
+
+########################## END FUNCTIONS ########################
+
+# Modules to be ignored because they are to be found in system libraries.
+system_modules="omp_lib"
+
+# Read the command line
+makefile_in="Makefile" ; ignorelist=""
+while (($#>0)) ; do
+ case "$1" in
+ -f|--makefile) shift ; (($#<1)) && usage_and_quit ; makefile_in=$1 ;;
+ --ignore) shift ; (($#<1)) && usage_and_quit ; ignorelist="$ignorelist $1" ;;
+ -h|--help) usage_and_quit ;;
+ *) usage_and_quit ;;
+ esac
+ shift
+done
+
+# Begin
+echo "File is '$makefile_in'." ; makefile_out=$makefile_in.temp_$$
+# Check files
+[ ! -s $makefile_in ] && errstop "$makefile_in not present or empty."
+[ -e $makefile_out ] && rm -f $makefile_out
+[ -z "$(/bin/ls *.f90 2> /dev/null)" ] && errstop "No f90 files found."
+
+# Determine if we want the module-structure analyzed
+domods=0
+grep -cE "^# Module structure$" $makefile_in >& /dev/null \
+ && grep -cE "^# End module structure$" $makefile_in >& /dev/null \
+ && domods=1
+
+# Analyze module structure of files
+i=0
+echo -n "Analyzing structure... < gathering"
+for file in *.f90 ; do
+ in_list $file $ignorelist && continue
+ i=$((i+1)) ; filename=${file%.f90}
+ echo -n " ($filename)"
+ linemods=$(grep -E "MODULE|SUBROUTINE|FUNCTION|PROGRAM" $file\
+  | extract_modules)
+ if in_list ERROR $linemods ; then
+  nf=$(nfield $linemods) ; pu_name=$(field $nf $linemods)
+  errstop "Cannot find end of program unit $pu_name in $filename."
+ fi
+ lineincs=$(grep -E "INCLUDE" $file | extract_includes)
+ name[$i]="$filename"
+ mods[$i]="$linemods"
+ incs[$i]="$lineincs"
+ if (($(nfield ${mods[$i]})==0)) ; then
+  # Discard empty (or non-f90) files
+  name[$i]="" ; mods[$i]="" ; incs[$i]="" ; i=$((i-1))
+ fi
+ bspl " ($filename)"
+done
+bspl " < gathering"
+n=$i
+
+# Discard source files included by other files.
+i=0 ; while ((i<n)) ; do i=$((i+1))
+ j=0 ; while ((j<n)) ; do j=$((j+1))
+  ((i==j)) && continue
+  if [ ! -z "${incs[$j]}" ] ; then
+   for inc in ${incs[$j]} ; do
+    if [ "${name[$i]}.f90" = "$inc" ] ; then
+     k=$i ; while ((k<n)) ; do k=$((k+1))
+      name[$((k-1))]="${name[$k]}"
+      mods[$((k-1))]="${mods[$k]}"
+      incs[$((k-1))]="${incs[$k]}"
+     done
+     n=$((n-1)) ; i=$((i-1))
+     continue 2
+    fi
+   done
+  fi
+ done
+done
+
+# Detect number of _noopt source files
+n_noopt=0
+i=0 ; while ((i<n)) ; do i=$((i+1))
+ [[ "${name[$i]}" == *_noopt ]] && n_noopt=$((n_noopt+1))
+done
+
+# Copy Makefile
+echo -n " > writing"
+touch $makefile_out
+copy_mfile_chunk "" "# Object-file list"
+
+# Dump object files
+echo -n " (object-file list)"
+line="OBJ ="
+i=0 ; comms_done=0 ; shm_done=0
+while ((i<n)) ; do i=$((i+1)) ; temp=${name[$i]}
+ line2=""
+ if [ "$temp" = comms_serial ] || [ "$temp" = comms_parallel_mpi1 ] \
+  || [ "$temp" = comms_parallel_mpi2 ] ; then
+  ((comms_done==1)) && continue
+  line2="\$(OBJDIR)/\$(COMMS_FILE)"
+  comms_done=1
+ elif [ "$temp" = shalloc_smp ] || [ "$temp" = shalloc_nonsmp ] ; then
+  ((shm_done==1)) && continue
+  line2="\$(OBJDIR)/\$(SHM_FILE)"
+  shm_done=1
+ elif [ "$temp" != cputime ] && [[ "$temp" != *_noopt ]] ; then
+  line2="\$(OBJDIR)/$temp.o"
+ fi
+ if [ ! -z "$line2" ] ; then
+  [ -z "$line" ] || echo "$line \\" >> "$makefile_out"
+  line="$line2"
+ fi
+done
+[ -z "$line" ] || echo "$line" >> "$makefile_out"
+
+# Dump no-opt object files
+if ((n_noopt>0)) ; then
+ line="OBJ_NOOPT ="
+ i=0 ; while ((i<n)) ; do i=$((i+1)) ; temp=${name[$i]}
+  line2=""
+  [[ "$temp" == *_noopt ]] && line2="\$(OBJDIR)/$temp.o"
+  if [ ! -z "$line2" ] ; then
+   [ -z "$line" ] || echo "$line \\" >> "$makefile_out"
+   line="$line2"
+  fi
+ done
+ [ -z "$line" ] || echo "$line" >> "$makefile_out"
+fi
+bspl " (object-file list)"
+
+if ((domods==1)) ; then
+ echo -n " (module structure)"
+ # Copy Makefile
+ copy_mfile_chunk "# End object-file list" "# Module structure"
+ # Dump module structure
+ i=0
+ while ((i<n)) ; do i=$((i+1))
+  k=$(nfield ${mods[$i]})
+  string="${name[$i]}_mods ="
+  j=0
+  while ((j<k)) ; do j=$(($j+1))
+   temp=$(field $j ${mods[$i]})
+   temp2="$string $temp"
+   if ((${#temp2}>75)) ; then
+    echo "$string \\" >> $makefile_out
+    temp2="$temp"
+   fi
+   string="$temp2"
+  done
+  echo "$string" >> $makefile_out
+ done
+ bspl " (module structure)"
+ # Copy Makefile
+ copy_mfile_chunk "# End module structure" "# Module dependencies"
+else # no mods
+ # Copy Makefile
+ copy_mfile_chunk "# End object-file list" "# Module dependencies"
+fi
+bspl " > writing"
+echo " Done."
+
+# Analyze module dependencies of files
+echo -n "Analyzing dependencies... "
+i=0 ; while ((i<n)) ; do i=$((i+1))
+ echo -n "${name[$i]} < gathering"
+ # Find USE statements
+ used=""
+ for f in ${name[$i]}.f90 ${incs[$i]} ; do
+  [ -e "$f" ] || continue
+  used1=$(find_use $f)
+  for u in $used1 ; do
+   in_list $u $used || used="$used$u "
+  done
+ done
+ nmatch=$(nfield $used)
+ k=0 ; m=0
+ j=0 ; while ((j<nmatch)) ; do j=$((j+1))
+  # Analyze each USE stament
+  use_mod=$(field $j $used) ; found_mod=0 ; found_o=0
+  # Find out whether the module has already been used
+  l=0 ; while ((l<m)) ; do l=$((l+1))
+   [ "${dep_mod[$l]}" = "$use_mod" ] && { found_mod=1 ; break ; }
+  done
+  ((found_mod==1)) && continue # module found before
+  echo -n " ($use_mod)"
+  # Find container name for module
+  if [ "$use_mod" = comms ] ; then
+   # comms is a special case
+   use_o=comms
+  elif [ "$use_mod" = shalloc ] ; then
+   # shalloc is a special case
+   use_o=shalloc
+  else
+   use_o=""
+   l=0 ; while ((l<n)) ; do l=$((l+1))
+    in_list $use_mod ${mods[$l]} && { use_o="${name[$l]}" ; break ; }
+   done
+   [ -z "$use_o" ] && errstop "module $use_mod not found"
+  fi
+  # Find out whether the container has already been used, or whether it
+  # coincides with current container (in which case nothing is recorded)
+  if [ "$use_o" = "${name[$i]}" ] ; then
+   found_o=1 ; found_mod=1
+  else
+   l=0 ; while ((l<k)) ; do l=$((l+1))
+    [ "${dep_o[$l]}" = "$use_o" ] && { found_o=1 ; break ; }
+   done
+  fi
+  ((found_mod==0)) && { m=$((m+1)) ; dep_mod[$m]=$use_mod ; }
+  ((found_o==0)) && { k=$((k+1)) ; dep_o[$k]=$use_o ; }
+  bspl " ($use_mod)"
+ done
+ bspl " < gathering"
+ echo -n " > writing"
+ ndep_mod=$m ; ndep_o=$k
+ alldeps[$i]=""
+ if ((ndep_o!=0)) ; then
+  # Sort modules alphabetically
+  j=0 ; while ((j<ndep_mod-1)) ; do j=$((j+1))
+   nmin=$j ; min="${dep_mod[$j]}"
+   k=$j ; while ((k<ndep_mod)) ; do k=$((k+1))
+    temp="${dep_mod[$k]}" ; [[ "$temp" < "$min" ]] && { nmin=$k ; min=$temp ; }
+   done
+   dep_mod[$nmin]=${dep_mod[$j]} ; dep_mod[$j]=$min
+  done
+  # Sort objects alphabetically
+  j=0 ; while ((j<ndep_o-1)) ; do j=$((j+1))
+   nmin=$j ; min="${dep_o[$j]}"
+   k=$j ; while ((k<ndep_o)) ; do k=$((k+1))
+    temp="${dep_o[$k]}" ; [[ "$temp" < "$min" ]] && { nmin=$k ; min=$temp ; }
+   done
+   dep_o[$nmin]=${dep_o[$j]} ; dep_o[$j]=$min
+  done
+  # Print out module dependencies
+  if ((domods==1)) ; then
+   string="${name[$i]}_depmod ="
+   j=0 ; while ((j<ndep_mod)) ; do j=$((j+1))
+    depmod=${dep_mod[$j]}
+    temp2="$string $depmod"
+    if ((${#temp2}>75)) ; then
+     echo "$string \\" >> $makefile_out
+     temp2="$depmod"
+    fi
+    string="$temp2"
+   done
+   echo "$string" >> $makefile_out
+  fi
+  # Print out object dependencies and make rule
+  fileo=${name[$i]}.o ; file=${name[$i]} ; filecap=$(cap $file)
+  echo "${filecap}_DEP = \\" >> $makefile_out
+  j=0 ; while ((j<ndep_o)) ; do j=$((j+1))
+   alldeps[$i]="${alldeps[$i]} ${dep_o[$j]}"
+   depo=${dep_o[$j]}.o
+   [ "$depo" = comms.o ] && depo="\$(COMMS_FILE)"
+   [ "$depo" = shalloc.o ] && depo="\$(SHM_FILE)"
+   ((j==ndep_o)) && echo "\$(OBJDIR)/$depo" >> $makefile_out \
+    || echo "\$(OBJDIR)/$depo \\"  >> $makefile_out
+  done
+  echo -n "\$(OBJDIR)/$fileo :" >> $makefile_out
+  for f in $file.f90 ${incs[$i]} ; do
+   [ -e "$f" ] || continue
+   echo -n " \$(SRCDIR)/$f" >> $makefile_out
+  done
+  echo " \$(${filecap}_DEP)" >> $makefile_out
+ else
+  fileo=${name[$i]}.o ; file=${name[$i]}
+  echo -n "\$(OBJDIR)/$fileo :" >> $makefile_out
+  for f in $file.f90 ${incs[$i]} ; do
+   [ -e "$f" ] || continue
+   echo -n " \$(SRCDIR)/$f" >> $makefile_out
+  done
+  echo >> $makefile_out
+ fi
+ echo "${fileo}_name = $file" >> $makefile_out
+ ((i<n)) && echo >> $makefile_out
+ bspl "${name[$i]} > writing"
+done
+echo "Done."
+
+# Copy rest of Makefile
+copy_mfile_chunk "# End module dependencies" ""
+
+# Consistency check:
+# Build a list of the modules at each compilation level by pretending
+# we are 'compiling' the sources. Using a 'done' list (initially empty),
+# loop over the not-done files and record whose dependencies are satisfied
+# at the current level. These files are added to the list, and optionally
+# printed out. In the event of cyclic dependencies or missing files, we will
+# reach a level at which no files can be compiled, in which case we report
+# the failure and refuse to generate the Makefile.
+# NB, determining the exact cause of the redundancy is a bit harder to do.
+# NB2, missing files should have been caught by the module-analyzer above,
+# so we only trap cyclic dependencies in reality.
+echo "Simulating compilation..."
+echo " Level  Files"
+remainder="" ; iremainder="" ; donelist=""
+i=0 ; while ((i<n)) ; do i=$((i+1))
+ remainder="$remainder ${name[$i]}"
+ iremainder="$iremainder $i"
+done
+ilevel=0 ; while : ; do ilevel=$((ilevel+1)) # loop over compilation levels
+ jcurlist="" ; curlist=""
+ j=0 ; for file in $remainder ; do j=$(($j+1))
+  i=$(field $j $iremainder) ; can_compile=1
+  for dep in ${alldeps[$i]} ; do
+   if [ "$dep" = comms ] ; then
+    ! in_list comms_serial $donelist\
+     || ! in_list comms_parallel_mpi1 $donelist\
+     || ! in_list comms_parallel_mpi2 $donelist\
+     && { can_compile=0 ; break ; }
+   elif [ "$dep" = shalloc ] ; then
+    ! in_list shalloc_smp $donelist || ! in_list shalloc_nonsmp $donelist\
+     && { can_compile=0 ; break ; }
+   else
+    ! in_list $dep $donelist && { can_compile=0 ; break ; }
+   fi
+  done
+  ((can_compile==0)) && continue
+  curlist="$curlist $file"
+  jcurlist="$j $jcurlist" # decreasing order
+ done
+ if [ -z "$curlist" ] ; then
+  echo
+  echo "The dependency tree seems to be broken. This may be due to"
+  echo " - cyclic dependencies (file1 depends on file2 depends on file1,"
+  echo "   either directly or via any number of intermediate files)"
+  echo " - unsatisfied dependencies (i.e., missing files; not likely since the"
+  echo "   module-dependency list was built successfully)"
+  echo
+  echo "The problem lies within the following set of files:"
+  string=""
+  for item in $remainder ; do
+   temp2="$string $item"
+   if ((${#temp2}>79)) ; then
+    echo "$string"
+    temp2=" $item"
+   fi
+   string="$temp2"
+  done
+  echo "$string"
+  errstop "Broken dependency tree."
+ fi
+ # Print list (breaking over-sized lines)
+ string=$(printf '  %-5s' $ilevel)
+ for item in $curlist ; do
+  temp2="$string $item"
+  if ((${#temp2}>79)) ; then
+   echo "$string"
+   temp2=$(printf '  %-5s %-s' "" $item)
+  fi
+  string="$temp2"
+ done
+ echo "$string"
+ donelist="$donelist $curlist"
+ for j in $jcurlist ; do
+  remainder=$(rem_list_num $j $remainder)
+  iremainder=$(rem_list_num $j $iremainder)
+ done
+ (($(nfield $remainder)==0)) && break
+done
+echo "Dependency tree is consistent."
+
+# Overwrite the Makefile if changes found, making a backup of the file if
+# no backup Makefile.old exists.
+if ! cmp $makefile_out $makefile_in >& /dev/null ; then
+ if [ -e $makefile_in.old ] ; then
+  mv -f $makefile_out $makefile_in
+  echo "Changes detected. $makefile_in.old already present: no backup copy\
+ made."
+ else
+  mv -f $makefile_in $makefile_in.old
+  mv -f $makefile_out $makefile_in
+  echo "Changes detected. Backup copy of $makefile_in kept in $makefile_in.old."
+ fi
+else
+ rm -f $makefile_out
+ echo "No changes detected. $makefile_in not overwritten."
+fi
+echo "Process complete."

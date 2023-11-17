@@ -1,0 +1,40 @@
+Notes for using runpwscf on specific machines
+=============================================
+
+Darwin - woodcrest partition
+----------------------------
+
+You need to load the OpenMPI library on login (on the bindloe nodes the default
+environment picks up the Qlogic MPI libraries which are the best choice for
+running on the older Woodcrest/Qlogic InfiniPath sector of the cluster.)
+
+So have the following in your bashrc:
+
+module purge
+module load default-infinipath
+module load openmpi
+
+Espresso/PWSCF will then be compiled with OpenMPI by using the
+standard './configure ; make all'.
+
+This is suboptimal, but because of the way runpwscf deals with architecture
+issues both CASINO and PWSCF must use the same MPI library.
+
+We cannot switch CASINO to using the QLogic MPI library since it does not
+support MPI-2 which CASINO requires.
+
+
+Jaguar
+------
+
+Note that as of July 2011 the standard Quantum Espresso/PWSCF 4.3.1 will no
+longer compile with the pathscale compiler using
+
+./configure ARCH=crayxt4
+make all
+
+stopping at the configure stage bitching about the linking to C programs.
+
+Until someone further investigates further, the best way to get round this
+is to use the PGI compiler..
+

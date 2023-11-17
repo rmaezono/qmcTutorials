@@ -1,0 +1,93 @@
+#!/bin/bash
+# Automatically-generated wrapper for 'tahelper' utility.
+# Generation info:
+# - when    : 20:30:25, 08/ 9/2023
+# - where   : meiwaku23pc07.local
+# - CASINO_ARCH: macos-gnu-parallel
+# - ENVIRONMENT_COMMAND: export MPI=OpenMPI TCM_IFORT_VER=11.1-011
+
+# Chaselink functions
+function next_field {
+ local str="$1"
+ while (($#>2)) ; do shift
+  [[ "$1" == "$str" ]] && { echo "$2" ; return ; }
+ done
+}
+
+function readlink_custom {
+ type -P readlink >& /dev/null && readlink "$1"  || next_field "->" $(/bin/ls -l "$1" 2>/dev/null)
+}
+
+function chase_link {
+ # Find the physical file corresponding to $1, possibly
+ # by following a chain of soft links
+ local file="$1" dir linkto linkdir
+ while [[ "$file" == */ ]] ; do file=${file%/} ; done
+ dir=${file%/*}/ ; dir=$(cd "$dir" ; pwd) ; [[ "$dir" != */ ]]  && dir="$dir/"
+ file=$dir${file##*/}
+ while : ; do
+  [ ! -L "$file" ] && { echo "$file" ; return ; }
+  linkto=$(readlink_custom "$file") ; linkdir=${linkto%/*}/
+  dir=$(cd "$dir" ; cd "$linkdir" ; pwd) ; [[ "$dir" != */ ]]   && dir="$dir/"
+  file="$dir${linkto##*/}"
+ done
+}
+# End of chaselink functions
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+# Check CASINO_ARCH is set.
+[ -z "$CASINO_ARCH" ] && { echo "CASINO_ARCH unset." ; exit 1 ; }
+# Get expected path/name of binary from path/name of this script
+actual0=$(chase_link $0)
+fname=${actual0##*/}
+fpath0="${actual0%/*}"
+fpath="$(cd "$fpath0" ; pwd)/utils/$CASINO_ARCH"
+# Get expected arch path
+farchpath="$(cd "$fpath0/.." ; pwd)/arch"
+# "Remembered" path/name of binary
+rpath="/Users/maezono/work/setupMaezono/casino/bin_qmc/utils/$CASINO_ARCH"
+rname="tahelper"
+# "Remembered" arch path
+rarchpath="/Users/maezono/work/setupMaezono/casino/arch"
+# "Remembered" environment command
+renvcmd='export MPI=OpenMPI TCM_IFORT_VER=11.1-011'
+# Check binary path exists
+if [ ! -d "$fpath" ] && [ ! -d "$rpath" ] ; then
+ echo "Wrapper failed to find bindir for CASINO_ARCH=$CASINO_ARCH ."
+ echo "Try typing 'make' under CASINO/utils ." ; exit 1
+fi
+# Locate arch directory
+archpath="$farchpath"
+[ -e "$archpath/taglib.sh" ] && [ -e "$archpath/data/$CASINO_ARCH.arch" ] || archpath="$rarchpath"
+[ -e "$archpath/taglib.sh" ] && [ -e "$archpath/data/$CASINO_ARCH.arch" ] || archpath=""
+# Search for binary (most likely: this script's path with remembered filename)
+for bin in "$fpath/$rname" "$fpath/$fname" "$rpath/$rname"  "$rpath/$fname" ; do
+ [ -e "$bin" ] && [ -x "$bin" ] && break || bin=""
+done
+# Check whether binary was found
+if [ -z "$bin" ] ; then
+ echo "Wrapper failed to find $fname for CASINO_ARCH=$CASINO_ARCH ."
+ echo "Try typing 'make' under CASINO/utils ." ; exit 1
+fi
+# Set environment
+if [ -z "$archpath" ] || [ ! -e "$archpath/data/$CASINO_ARCH.arch" ] ; then
+ envcmd="$renvcmd"
+else
+ source "$archpath/taglib.sh"
+ quickload_tags_make UTILS_MODE "$archpath/data/$CASINO_ARCH.arch"
+ if [ "$UTILS_MODE" = native ] ; then
+  quickload_tags_make ENVIRONMENT_COMMAND_NATIVE   "$archpath/data/$CASINO_ARCH.arch"
+  envcmd="$ENVIRONMENT_COMMAND_NATIVE"
+ else
+  quickload_tags_make ENVIRONMENT_COMMAND "$archpath/data/$CASINO_ARCH.arch"
+  envcmd="$ENVIRONMENT_COMMAND"
+ fi
+fi
+eval "$envcmd"
+# Run binary
+$bin "$@"

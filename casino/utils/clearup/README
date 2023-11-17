@@ -1,0 +1,8 @@
+##############
+#  CLEARUP   #
+# NDD, 2002. #
+##############
+
+# Script for clearing up junk files / output produced by CASINO
+# before one starts afresh. It attempts to "reset" directories
+# to suitable starting points.

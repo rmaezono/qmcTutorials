@@ -1,0 +1,77 @@
+MOLDEN2QMC
+----------
+
+Mike Deible, University of Pittsburgh 
+3/2014
+
+Converts MOLDEN files produced by a variety of external Gaussian basis set 
+codes to CASINO gwfn.data format.
+
+This is supposed to provide some level of support for at least the following
+software packages: 
+
+MOLPRO, ORCA, PSI-4, TURBOMOLE, C4
+
+Please look at the file CASINO/examples/generic/gauss_dfg/RESULTS to determine
+the current level of support for each code.
+
+According to information available on the interwebs, the MOLDEN format is also
+supposedly supported in some sense by ACESII, MOLCAS, DALTON, Jaguar, CADPAC,
+GEOMOP, and HONDO (whatever they might be) thus it may ultimately be possible
+to provide some sort of connection with these codes too if someone should 
+desire it. 
+
+Please contact Mike Deible (mjd87@pitt.edu) or Mike Towler (mdt26@cam.ac.uk)
+for further information or to report errors.
+
+
+Some notes:
+
+1.  Not all of the information that CASINO needs is dumped into a MOLDEN
+    file by every quantum chemistry code. (MOLPRO is the exception.)
+    Because of this, some post-processing after running the converter
+    may be necessary. For example, the nuclear-nuclear repulsion enegy
+    needs to be retrieved from the quantum chemistry output.  The converter
+    will remind you of this, but if you convert your file and try to run CASINO
+    without first looking at the produced gwfn.data file, CASINO may not work.
+
+2.  It is VERY IMPORTANT to run a simple VMC run without a Jastrow factor, and 
+    be absolutly certain that the VMC energy and the HF energy agree within the 
+    error bar.  (If DFT is being used, the VMC energy should be LESS THAN the 
+    DFT energy.)
+
+3.  For PP calculations, any atom with Z > 18, it is assumed that the PP 
+    removes only the noble gas core (i.e., krypton has a valence charge of 18, 
+    not 8 as if the d electrons were removed.)
+
+4.  This script does not currently support sp functions, though I left the 
+    space for them if someone is inclined to go add them.  
+
+------------------------- NOTES ON PARTICULAR PROGRAMS -------------------------
+
+    The original idea for a MOLDEN converter was that it would produce a 
+    gwfn.data file for any quantum chemistry package, instead of writing a 
+    converter for each individual code. Unfortunately, all MOLDEN files are 
+    NOT created equally, and so this converter has been tailored to particular 
+    codes. Each MOLDEN file has its own subtleties.
+
+********************************** ORCA ****************************************
+
+1.  If ORCA was run on Windows, the produced MOLDEN file will have Windows end 
+    of line characters, which means the python script cannot read it. This is 
+    simple enough to fix, by simply typing 'dos2unix FILE_NAME'. At some point 
+    in the future, I will try to get python to strip the end of line 
+    characters, but until then, dos2unix works fine.
+
+2.  For whatever reason, ORCA prints the diffuse functions of an augmented 
+    Dunning basis set grouped together, instead of grouped by shell type. This 
+    causes the VMC and HF energies to be disagree. I'm fairly certain this is 
+     a bug that I have yet to uncover, not an issue with the ORCA output, but 
+     be wary.
+
+********************************** Psi-4 ***************************************
+
+1.  Sometimes, this code prints multiple copies of the MOLDEN file to the same 
+    file. If this happens, the best choice is the last instance of this file. 
+    The converter will stop if this problem is detected. Again, check 
+    CAREFULLY that the qauntum chemistry results match with the VMC results.  

@@ -1,0 +1,1092 @@
+#!/bin/bash
+# Offer options to install CASINO
+
+set +u
+shopt -s extglob
+
+########################### START FUNCTIONS ###########################
+main() {
+ local has_newvar has_arch has_valid has_compiled options option iopt choice
+ local bullet description allow arch list_match command any_env_changes narch
+ local list_syntax editor_installed syntax_installed bin binlist c check_for
+ local grep_for has_any has_all has_none editor f d syntax_do_install version
+ local editor_list="vim emacs gedit nano"
+ local editor_binlist_vim="vi vim gvim"
+ local editor_check_for_vim="$HOME/.vim/syntax/esdf.vim"
+ local editor_grep_for_vim=""
+ local editor_binlist_emacs="emacs xemacs"
+ local editor_check_for_emacs="$HOME/.emacs"
+ local editor_grep_for_emacs="${casino_dir##*/}/data/syntax/emacs/casino.el"
+ local editor_binlist_gedit="gedit"
+ local editor_check_for_gedit="$HOME/.local/share/gtksourceview-3.0/\
+language-specs/esdf.lang"
+ local editor_grep_for_gedit=""
+ local editor_binlist_nano="nano"
+ local editor_check_for_nano="$HOME/.nanorc"
+ local editor_grep_for_nano=""
+
+ # Parse command line for any options
+ while (($#>0)) ; do
+  case "$1" in
+  --debug-compiler|-d) debug_compiler_output=/dev/stdout ;;
+  --nfork=*)
+   check_number_N "${1#--nfork=}" || errstop "nfork must be a positive integer."
+   ((${1#--nfork=}<1)) && errstop "nfork must be greater than zero."
+   ((${1#--nfork=}>nfork)) && errstop "nfork=$nfork cannot be increased."
+   nfork=${1#--nfork=} ;;
+  --help|-h)
+   pretty_print 0 0 "This is an interactive script to install, set-up and\
+    amend the configuration of your CASINO installation. No command-line\
+    options are normally required.  Try --nfork=1 if you experience crashes\
+    during auto-detection or compilation.  A --debug-compiler option is\
+    available for debugging the compiler probing process (this is of no\
+    interest to regular users)."
+   exit ;;
+  *) pretty_print 1 10 "WARNING: command-line option '$1' ignored." ; echo ;;
+  esac
+  shift
+ done
+ # Load 'prompt' locally so that it works on local variables
+ eval $(type prompt | tail -n +2)
+ # Build list of existing CASINO_ARCHs
+ build_file_list
+ # Load host information
+ get_host_params
+ # Print title
+ heading "CASINO INSTALLER"
+ pretty_print 1 1 "This installer will help you set up CASINO on your machine,\
+  including detecting the correct parameters and compiling the code.  You\
+  can re-run this installer any time you like to amend your configuration."
+ echo
+ pretty_print 1 1 "Multiple alternative configurations are supported.  This\
+  includes setting up CASINO for use with multiple compilers.  This also\
+  includes set-ups where multiple machines share the installation directory,\
+  such as different-architecture queues on the same cluster, or workstations\
+  sharing their home directories over a networked file system.  For the\
+  latter case, run this installer on one machine of each relevant type to\
+  set it up."
+ echo
+ any_env_changes=0
+ while : ; do
+  pretty_print 1 1 "Current status:"
+  # Does the user have an automatically-generated .bashrc.casino file?
+  if [ -z "$CASINO_AUTOINSTALLED" ] ; then
+   # Does the user have a CASINO_ARCH defined?
+   has_newvar=1 ; has_arch=0 ; has_valid=0 ; has_compiled=0
+   if [ -z "$CASINO_ARCH" ] && [ ! -z "$QMC_ARCH" ] ; then
+    has_newvar=0
+    if [ -z "$QMC_ID" ] ; then
+     CASINO_ARCH=$QMC_ARCH
+    else
+     CASINO_ARCH=$QMC_ARCH.$QMC_ID
+    fi
+   fi
+   if [ ! -z "$CASINO_ARCH" ] ; then
+    has_arch=1
+    if in_line $CASINO_ARCH.arch $filelist ; then
+     has_valid=1
+     has_compiled=$(cd "$casino_dir/src" >& /dev/null\
+      && make -q "$casino_dir/bin_qmc/$CASINO_ARCH/opt/casino" >& /dev/null\
+      && cd "$casino_dir/utils" >& /dev/null && make -q utils >& /dev/null\
+      && echo 1 || echo 0)
+    else
+     has_valid=0
+    fi
+   else
+    has_arch=0
+   fi
+   ((has_arch==1)) && pretty_print 1 3 "- You have configured CASINO by hand"
+   if ((has_valid==0)) ; then
+    CASINO_AVAILABLE_ARCHS=""
+    options="a p n"
+   else
+    CASINO_AVAILABLE_ARCHS="$CASINO_ARCH"
+    options="c a p n"
+   fi
+   case $has_arch.$has_valid.$has_newvar.$has_compiled in
+   0.*)
+    pretty_print 1 3 "- You do not have a CASINO_ARCH defined." ;;
+   1.0.0.*)
+    pretty_print 1 3 "- You have a QMC_ARCH defined, but it does not translate\
+     into a current CASINO_ARCH ($CASINO_ARCH)." ;;
+   1.0.1.*)
+    pretty_print 1 3 "- You have a CASINO_ARCH defined, but it could not be\
+     found in the database ($CASINO_ARCH)." ;;
+   1.1.0.0)
+    pretty_print 1 3 "- You have a QMC_ARCH defined which translates into a\
+     current CASINO_ARCH ($CASINO_ARCH), but have not fully compiled it." ;;
+   1.1.0.1)
+    pretty_print 1 3 "- You have a QMC_ARCH defined which translates into a\
+     current CASINO_ARCH ($CASINO_ARCH), and have fully compiled it." ;;
+   1.1.1.0)
+    pretty_print 1 3 "- You have a valid CASINO_ARCH defined ($CASINO_ARCH),\
+     but have not fully compiled it." ;;
+   1.1.1.1)
+    pretty_print 1 3 "- You have a valid CASINO_ARCH defined ($CASINO_ARCH),\
+     and have fully compiled it." ;;
+   esac
+   CASINO_AUTOINSTALLED=yes
+   any_env_changes=1
+  else # CASINO_AUTOINSTALLED defined
+   # Use information from the environment defined in .bashrc.casino
+   if [ -z "$CASINO_AVAILABLE_ARCHS" ] ; then
+    pretty_print 1 3 "- You seem to have no CASINO_ARCH defined."
+    options="a p n"
+   else
+    pretty_print 1 3 "- You have the following CASINO_ARCHs defined:"
+    for arch in $CASINO_AVAILABLE_ARCHS ; do
+     has_valid=0 ; has_compiled=0
+     if in_line $arch.arch $filelist ; then
+      has_valid=1
+      has_compiled=$(cd "$casino_dir/src" >& /dev/null\
+       && CASINO_ARCH=$arch make -q "$casino_dir/bin_qmc/$arch/opt/casino"\
+       >& /dev/null && cd "$casino_dir/utils"\
+       && CASINO_ARCH=$arch make -q utils >& /dev/null && echo 1 || echo 0)
+     fi
+     description=""
+     if ((has_valid==0)) ; then
+      description="$description [UNKNOWN]"
+     else
+      case $has_compiled in
+      0) description="$description [not fully compiled]" ;;
+      1) description="$description [fully compiled]" ;;
+      esac
+     fi
+     [ "$CASINO_ARCH" = "$arch" ] && description="$description [current]"
+     pretty_print 3 5 "- $arch$description"
+    done
+    if (($(nfield $CASINO_AVAILABLE_ARCHS)>1)) ; then
+     options="c s a p n"
+    else
+     options="c a p n"
+    fi
+   fi
+  fi
+  echo
+  pretty_print 1 1 "Choose an option:"
+  allow=""
+  for option in $options ; do
+   allow="$allow $option"
+   case $option in
+   c)
+    pretty_print 1 5 "[$option] Compile CASINO for already-configured\
+     CASINO_ARCHs" ;;
+   a)
+    pretty_print 1 5 "[$option] Auto-detect valid CASINO_ARCHs for this\
+     machine" ;;
+   p)
+    pretty_print 1 5 "[$option] Pick a specific CASINO_ARCH for this\
+     machine" ;;
+   s)
+    pretty_print 1 5 "[$option] Sort/remove configured CASINO_ARCHs" ;;
+   n)
+    pretty_print 1 5 "[$option] Create a new CASINO_ARCH for this machine\
+     interactively" ;;
+   esac
+  done
+  option=y ; allow="$allow $option"
+  pretty_print 1 5 "[$option] Install CASINO syntax highlighting for various\
+   text editors"
+  if [ ! -z "$host_DISTRIBUTION" ] ; then
+   option=i ; allow="$allow $option"
+   pretty_print 1 5 "[$option] Install required software using package manager\
+    (requires root access)"
+  fi
+  option=r ; allow="$allow $option"
+  pretty_print 1 5 "[$option] Restore the CASINO distribution directory to \
+  its original state"
+  if ((any_env_changes==1)) ; then
+   option=q ; allow="$allow $option"
+   pretty_print 1 5 "[$option] Save configuration to .bashrc.casino file and\
+    quit the installer"
+   option=x ; allow="$allow $option"
+   pretty_print 1 5 "[$option] Quit the installer without saving"
+  else
+   option=q ; allow="$allow $option"
+   pretty_print 1 5 "[$option] Save (unmodified) configuration to\
+    .bashrc.casino file and quit"
+   option=x ; allow="$allow $option"
+   pretty_print 1 5 "[$option] Quit the installer"
+  fi
+  prompt choice allow="$allow" || { echo ; continue ; }
+  case "$choice" in
+  c) # compile
+   pretty_print 1 1 "The following CASINO_ARCHs are configured (it is\
+    possible that not all of them can be compiled from this machine depending\
+    on your set-up):"
+   echo
+   iopt=0 ; allow=""
+   for arch in $CASINO_AVAILABLE_ARCHS ; do
+    iopt=$((iopt+1)) ; allow="$allow $iopt"
+    pretty_print 1 1 "[$iopt] $arch"
+   done
+   echo
+   pretty_print 1 1 "At the prompt below enter the numbers corresponding to\
+    the CASINO_ARCHs you would like to compile, separated by spaces."
+   echo
+   pretty_print 1 1 "You can specify which optional compile-time features to\
+    enable by appending ':<feature>' to each number. Available <features> \
+    include:"
+   pretty_print 1 3 "- 'Openmp' for building OpenMP support"
+   pretty_print 1 3 "- 'Shm' for building the SMP shared-memory blips facility"
+   pretty_print 1 3 "- 'OpenmpShm' for building a version with both features\
+    enabled"
+   echo
+   pretty_print 1 1 "Enter what to compile (e.g., '1 1:Shm 2 3:Openmp\
+     2:OpenmpShm'), or leave empty to go back to main menu without compiling\
+     anything:"
+   if (($(nfield $CASINO_AVAILABLE_ARCHS)==1)) ; then
+    prompt arch_list default=1 || { echo ; continue ; }
+   else
+    prompt arch_list || { echo ; continue ; }
+   fi
+   for choice in $arch_list ; do
+    iarch=${choice%%:*}
+    in_line $iarch $allow || { pretty_print 1 1 "Wrong choice '$choice'" ;\
+     continue ; }
+    arch="$(field $iarch $CASINO_AVAILABLE_ARCHS)"
+    target="${choice#$iarch}"
+    target="${target#:}"
+    clear_tags
+    load_tags "$arch.arch"
+    eval_tag CORES_PER_NODE
+    check_number_N $CORES_PER_NODE || CORES_PER_NODE=1
+    check_number_N "$nfork" && ((CORES_PER_NODE>nfork))\
+     && CORES_PER_NODE=$nfork
+    eval_tag MAKE_EXECUTABLE
+    [ -z  "$MAKE_EXECUTABLE" ]  && MAKE_EXECUTABLE="make"
+    echo
+    echo "======== COMPILING CASINO FOR $arch ========"
+    ( cd "$casino_dir" && CASINO_ARCH=$arch $MAKE_EXECUTABLE \
+     -j$CORES_PER_NODE $target )
+    echo "====== DONE COMPILING CASINO FOR $arch ======"
+    echo
+   done ;;
+  a) # autodetection
+   trap abort INT QUIT TERM
+   autodetect_arch --no-output
+   trap - INT QUIT TERM
+   list_match="$list_match_host_distro $list_match_host $list_match_distro\
+    $list_match_other"
+   case "$(nfield $list_match)" in
+   0)
+    pretty_print 1 1 "No matching CASINO_ARCHs found."
+    echo ;;
+   1)
+    arch=$(unpad $list_match)
+    pretty_print 1 1 "Found one matching CASINO_ARCH: $arch."
+    echo
+    clear_tags
+    load_tags "$arch.arch"
+    lesser_heading "$arch"
+    for tag in DESCRIPTION TYPE MAINTAINER DATE KERNEL OS ARCH COMMENT\
+     ; do
+     eval "tagval=\"\$$tag\""
+     [ -z "$tagval" ] || pretty_print 1 5 "$tag: $tagval"
+    done
+    echo
+    clear_tags
+    pretty_print 1 1 "Would you like to add this CASINO_ARCH for use on this\
+     machine (yes/no)?"
+    prompt choice allow="yes no" default=yes || { echo ; continue ; }
+    in_line $arch $CASINO_AVAILABLE_ARCHS\
+     || CASINO_AVAILABLE_ARCHS="$CASINO_AVAILABLE_ARCHS $arch" ;;
+   *)
+    while : ; do
+     pretty_print 1 1 "Found the following matching CASINO_ARCHs:"
+     iopt=0
+     if [ ! -z "$list_match_host_distro" ] ; then
+      for arch in $list_match_host_distro ; do
+       iopt=$((iopt+1))
+       if [ "$arch" = "$CASINO_ARCH" ] ; then
+        pretty_print 1 5 "[$iopt] $arch [matches hostname and distribution\
+         explicitly] [current]"
+       else
+        pretty_print 1 5 "[$iopt] $arch [matches hostname and distribution\
+         explicitly]"
+       fi
+      done
+     fi
+     if [ ! -z "$list_match_host" ] ; then
+      for arch in $list_match_host ; do
+       iopt=$((iopt+1))
+       if [ "$arch" = "$CASINO_ARCH" ] ; then
+        pretty_print 1 5 "[$iopt] $arch [matches hostname explicitly] [current]"
+       else
+        pretty_print 1 5 "[$iopt] $arch [matches hostname explicitly]"
+       fi
+      done
+     fi
+     if [ ! -z "$list_match_distro" ] ; then
+      for arch in $list_match_distro ; do
+       iopt=$((iopt+1))
+       if [ "$arch" = "$CASINO_ARCH" ] ; then
+        pretty_print 1 5 "[$iopt] $arch [matches distribution explicitly]\
+        [current]"
+       else
+        pretty_print 1 5 "[$iopt] $arch [matches distribution explicitly]"
+       fi
+      done
+     fi
+     if [ ! -z "$list_match_other" ] ; then
+      for arch in $list_match_other ; do
+       iopt=$((iopt+1))
+       if [ "$arch" = "$CASINO_ARCH" ] ; then
+        pretty_print 1 5 "[$iopt] $arch [possible match] [current]"
+       else
+        pretty_print 1 5 "[$iopt] $arch [possible match]"
+       fi
+      done
+      echo
+      pretty_print 1 1 "NOTE: 'Explicit matches' were almost certainly designed\
+      for this machine, and will almost certainly work. 'Possible matches'\
+      represent closely related machines, which might or might not work. If\
+      they don't, then it is possible that they can be made to work by minor\
+      tweaking of the corresponding arch file in CASINO/arch/data. If not,\
+      try creating a new CASINO_ARCH for this machine interactively (option\
+      [n] in the initial install menu)."
+     fi
+     echo
+     pretty_print 1 1 "Enter the number of the CASINO_ARCH you would like\
+      to enable on this machine. You can enter multiple numbers separated\
+      with spaces. Type 'info' followed by one or more numbers to display\
+      additional information about each CASINO_ARCH. Leave empty to skip."
+     prompt choice || { echo ; continue 2 ; }
+     if [ ! -z "$choice" ] ; then
+      set -- $choice
+      case "$1" in
+      info)
+       shift
+       for iarch in $* ; do
+        if check_number_N $iarch && ((iarch>0)) && ((iarch<=iopt)) ; then
+         arch=$(field $iarch $list_match)
+         clear_tags
+         load_tags "$arch.arch"
+         lesser_heading "$arch"
+         for tag in DESCRIPTION TYPE MAINTAINER DATE KERNEL OS ARCH COMMENT\
+          ; do
+          eval "tagval=\"\$$tag\""
+          [ -z "$tagval" ] || pretty_print 1 5 "$tag: $tagval"
+         done
+         echo
+         clear_tags
+        else
+         pretty_print 1 1 "Wrong choice '$iarch'."
+         echo
+        fi
+       done
+       continue ;;
+      *)
+       for iarch in $* ; do
+        check_number_N $iarch && ((iarch>0)) && ((iarch<=iopt)) \
+         || { pretty_print 1 1 "Wrong choice '$iarch', try again." ; echo ;\
+         continue 2 ; }
+       done
+       for iarch in $* ; do
+        arch=$(field $iarch $list_match)
+        in_line $arch $CASINO_AVAILABLE_ARCHS\
+         || CASINO_AVAILABLE_ARCHS="$CASINO_AVAILABLE_ARCHS $arch"
+       done ;;
+      esac
+      [ -z "$CASINO_ARCH" ] && CASINO_ARCH=$(field 1 $CASINO_AVAILABLE_ARCHS)
+      any_env_changes=1
+     fi
+     break
+    done ;;
+   esac ;;
+  p)
+   pretty_print 1 1 "Here you can enter the name of an existing CASINO_ARCH\
+    that you would like to add to this machine's configuration.  This is\
+    offered as a fall-back mechanism for the event of misdetections; it is\
+    recommended that you use the 'auto-detect' facility instead."
+   echo
+   pretty_print 1 1 "Enter the name of the existing CASINO_ARCH that\
+    you would like to add to this machine's configuration (empty to skip):"
+   prompt choice prompt="CASINO_ARCH" || { echo ; continue ; }
+   if [ -z "$choice" ] ; then
+    pretty_print 1 1 "No action taken."
+    echo ; continue
+   fi
+   if [ -f "$choice.arch" ] ; then
+    in_line $choice $CASINO_AVAILABLE_ARCHS\
+     || CASINO_AVAILABLE_ARCHS="$CASINO_AVAILABLE_ARCHS $choice"
+    pretty_print 1 1 "Added $choice to configuration."
+    echo
+   else
+    pretty_print 1 1 "File $choice.arch does not exist. No action taken."
+    echo
+   fi ;;
+  n) # create new
+   if ! gen_arch || [ -z "$gen_created_arch" ] ; then
+    pretty_print 1 1 "Generation aborted."
+    echo ; continue
+   fi
+   build_file_list
+   any_env_changes=1
+   pretty_print 1 1 "Adding this CASINO_ARCH to the configuration as the\
+    default."
+   echo
+   CASINO_AVAILABLE_ARCHS="$gen_created_arch $CASINO_AVAILABLE_ARCHS"
+   [ -z "$CASINO_ARCH" ] && CASINO_ARCH=$(field 1 $CASINO_AVAILABLE_ARCHS)
+   pretty_print 1 1 "You should email the CASINO developers the .arch file\
+    you have produced for inclusion in the distribution so that this machine\
+    is supported (for yourself and other potential users) on a fresh\
+    installation."
+   echo
+   pretty_print 1 1 "Enter the location where you would like to save a\
+    compressed (gzipped) copy of this file in order to send it to us via email\
+    [empty to skip]:"
+   t1=$([ -f ${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs ]\
+    && source ${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs >& /dev/null &&
+    echo ${XDG_DESKTOP_DIR:-$HOME/Desktop} )
+   [ -d "$t1" ] || t1=$HOME
+   t1="$t1/$gen_created_arch.arch.gz"
+   while : ; do
+    prompt choice default="$t1" || { echo ; continue ; }
+    [ -z "$choice" ] && break
+    if [ "${choice:0:1}" != / ] ; then
+     pretty_print 1 1 "File name should include absolute path starting with\
+      '/'. Try again."
+     continue
+    fi
+    if [ ! -d "$(dirname $choice)" ] || [ ! -w "$(dirname $choice)" ] ; then
+     pretty_print 1 1 "Directory $(dirname $choice) does not exist or is not\
+      writeable."
+     continue
+    fi
+    if [ -e "$choice" ] ; then
+     pretty_print 1 1 "File $choice already exists. Pick a different name."
+     continue
+    fi
+    if ! gzip -c "$gen_created_arch.arch" > "$choice" 2> /dev/null ; then
+     pretty_print 1 1 "Failed to copy the file to the specified destination.\
+      Try again."
+     continue
+    fi
+    pretty_print 1 1 "File correctly copied to $choice ."
+    echo
+    pretty_print 1 1 "Please email this file to mdt26@cam.ac.uk ."
+    echo
+    break
+   done ;;
+  s) # sort/remove
+   pretty_print 1 1 "The following CASINO_ARCHs are configured:"
+   iopt=0
+   for arch in $CASINO_AVAILABLE_ARCHS ; do
+    iopt=$((iopt+1))
+    pretty_print 1 5 "[$iopt] $arch"
+   done
+   echo
+   pretty_print 1 1 "Enter the number(s) of the CASINO_ARCHs above in the\
+    order you would like to have them set up, from most preferred to least\
+    preferred, omitting any that you would like to delete, separated by\
+    spaces [empty to skip, '0' to remove all]:"
+   while : ; do
+    prompt choice || { echo ; continue 2 ; }
+    if [ ! -z "$choice" ] ; then
+     for iarch in $choice ; do
+      check_number_N $iarch && ((iarch>=0)) && ((iarch<=iopt)) \
+       || { pretty_print 1 1 "Wrong choice '$iarch', try again." ; echo ;\
+       continue 2 ; }
+     done
+     new_available_archs=""
+     for iarch in $choice ; do
+      ((iarch==0)) && continue
+      arch=$(field $iarch $CASINO_AVAILABLE_ARCHS)
+      in_line $arch $new_available_archs\
+       || new_available_archs="$new_available_archs $arch"
+     done
+     narch=$(nfield $new_available_archs)
+     if ((narch==0)) ; then
+      pretty_print 1 1 "You have chosen to remove ALL configured CASINO_ARCHs.\
+       This will remove all configured CASINO_ARCHs from your set-up.\
+       Proceed (yes/no)?"
+      prompt choice allow="yes no" default=yes || { echo ; continue 2 ; }
+      [ "$choice" = no ] && continue
+     elif (($(nfield $CASINO_AVAILABLE_ARCHS)>narch)) ; then
+      pretty_print 1 1 "You have not selected all the CASINO_ARCHs in the\
+       above list.  Those missing will be removed from your set-up.  Proceed\
+       (yes/no)?"
+      prompt choice allow="yes no" default=yes || { echo ; continue 2 ; }
+      [ "$choice" = no ] && continue
+     fi
+     any_env_changes=1
+     CASINO_AVAILABLE_ARCHS=$new_available_archs
+     if ((narch==0)) ; then
+      CASINO_ARCH=""
+     elif [ -z "$CASINO_ARCH" ] ; then
+      CASINO_ARCH=$(field 1 $CASINO_AVAILABLE_ARCHS)
+     fi
+    fi
+    break
+   done ;;
+  y) # install syntax highlighting support
+   pretty_print 1 1 "CASINO ships with syntax-highlighting files for various\
+    editors.  The current installation status of the syntax highlighting\
+    files is:"
+   list_syntax=""
+   for editor in $editor_list ; do
+    eval "binlist=\"\$editor_binlist_$editor\" ;\
+     check_for=\"\$editor_check_for_$editor\" ;\
+     grep_for=\"\$editor_grep_for_$editor\""
+    editor_installed=0
+    for bin in $binlist ; do
+     type -P $bin >& /dev/null && editor_installed=1
+    done
+    syntax_installed=1
+    if [ -e "$check_for" ] ; then
+     if [ ! -z "$grep_for" ] ; then
+      if ! grep "$grep_for" "$check_for" >& /dev/null ; then
+       syntax_installed=0
+      fi
+     fi
+    else
+     syntax_installed=0
+    fi
+    if ((editor_installed==1)) ; then
+     if ((syntax_installed==1)) ; then
+      pretty_print 1 10 "- $editor [editor installed; syntax files installed]"
+     else
+      pretty_print 1 10 "- $editor [editor installed; syntax files NOT\
+       installed]"
+     fi
+    else
+     if ((syntax_installed==1)) ; then
+      pretty_print 1 10 "- $editor [editor NOT installed; syntax files\
+       installed]"
+     else
+      pretty_print 1 10 "- $editor [editor NOT installed; syntax files\
+       NOT installed]"
+     fi
+    fi
+    eval "editor_present_$editor=\$editor_installed ;\
+     editor_syntax_installed_$editor=\$syntax_installed"
+    ((syntax_installed==1)) && list_syntax="$list_syntax $editor"
+   done
+   echo
+   pretty_print 1 1 "At the prompt below enter a space-separated list of\
+    editors (as listed above) which you would like to have syntax\
+    highlighting for.  Editors not included in the list will have their\
+    CASINO syntax highlighting support uninstalled.  Leave empty to do\
+    nothing, enter 'ALL' to install syntax highlighting for all editors,\
+    or 'NONE' to uninstall it for all editors."
+   while : ; do
+    prompt choice || { echo ; continue 2 ; }
+    [ -z "$choice" ] && continue 2
+    has_any=0 ; has_all=0 ; has_none=0
+    for c in $choice ; do
+     if in_line $c $editor_list ; then
+      has_any=1
+     elif [ "$c" = ALL ] ; then
+      has_all=1
+     elif [ "$c" = NONE ] ; then
+      has_none=1
+     else
+      pretty_print 1 1 "'$c' is not a valid answer in this context.\
+       Try again." ; continue 2
+     fi
+    done
+    if ((has_any+has_all+has_none>1)) ; then
+     pretty_print 1 1 "Please don't mix 'ALL' / 'NONE' / specific editor\
+      names. Try again."
+     continue
+    fi
+    ((has_all==1)) && choice="$editor_list"
+    ((has_none==1)) && choice=""
+    break
+   done
+   for editor in $editor_list ; do
+    eval "syntax_installed=\$editor_syntax_installed_$editor"
+    in_line $editor $choice && syntax_do_install=1 || syntax_do_install=0
+    if ((syntax_installed==1)) ; then
+     # Uninstall previous installation
+     echo "$editor: uninstalling syntax highlighting support"
+     case "$editor" in
+     vim)
+      for f in $(/bin/ls -1 $casino_dir/data/syntax/vim) ; do
+       [[ "$f" == *.vim ]] || continue
+       [ -e "$casino_dir/data/syntax/vim/ftdetect_$f" ] || continue
+       rm -f "$HOME/.vim/ftdetect/$f"
+       rm -f "$HOME/.vim/syntax/$f"
+      done
+      rmdir "$HOME/.vim/ftdetect" >& /dev/null
+      rmdir "$HOME/.vim/syntax" >& /dev/null
+      rmdir "$HOME/.vim" >& /dev/null ;;
+     emacs)
+      sed -n '\%/data/syntax/emacs/casino%!p' "$HOME/.emacs"\
+       > "$HOME/.emacs_casino_temp$$"
+      mv -f "$HOME/.emacs_casino_temp$$" "$HOME/.emacs"
+      [ -s "$HOME/.emacs" ] || rm -f "$HOME/.emacs" ;;
+     gedit)
+      for version in 2.0 3.0 ; do
+       d="$HOME/.local/share/gtksourceview-$version/language-specs"
+       for f in $(/bin/ls -1 $casino_dir/data/syntax/gtksourceview) ; do
+        [[ "$f" == *.lang ]] || continue
+        rm -f "$d/$f"
+       done
+       rmdir "$HOME/.local/share/gtksourceview-$version/language-specs"\
+        >& /dev/null
+       rmdir "$HOME/.local/share/gtksourceview-$version" >& /dev/null
+       rmdir "$HOME/.local/share" >& /dev/null
+       rmdir "$HOME/.local" >& /dev/null
+      done ;;
+     nano)
+      grep -Ev "CASINO|arch\.nanorc|cdata\.nanorc|esdf\.nanorc" \
+       "$HOME/.nanorc" > "$HOME/.nanorc_temp$$"
+      mv -f "$HOME/.nanorc_temp$$" "$HOME/.nanorc" ;;
+     esac
+    fi
+    if ((syntax_do_install==1)) ; then
+     # Install syntax highlighting
+     echo "$editor: installing syntax highlighting support"
+     case "$editor" in
+     vim)
+      mkdir -p "$HOME/.vim/ftdetect"
+      mkdir -p "$HOME/.vim/syntax"
+      for f in $(/bin/ls -1 $casino_dir/data/syntax/vim) ; do
+       [[ "$f" == *.vim ]] || continue
+       [ -e "$casino_dir/data/syntax/vim/ftdetect_$f" ] || continue
+       ln -s "$casino_dir/data/syntax/vim/$f" "$HOME/.vim/syntax/$f"
+       ln -s "$casino_dir/data/syntax/vim/ftdetect_$f" "$HOME/.vim/ftdetect/$f"
+      done ;;
+     emacs)
+      [ -e "$HOME/.emacs" ] || touch "$HOME/.emacs"
+      cat >> "$HOME/.emacs" <<______EOF
+(if (file-readable-p "$casino_dir/data/syntax/emacs/casino.el")
+    (load "$casino_dir/data/syntax/emacs/casino.el" nil t))
+______EOF
+      ;;
+     gedit)
+      for version in 2.0 3.0 ; do
+       d="$HOME/.local/share/gtksourceview-$version/language-specs/"
+       mkdir -p "$d"
+       for f in $(/bin/ls -1 $casino_dir/data/syntax/gtksourceview) ; do
+        [[ "$f" == *.lang ]] || continue
+        ln -s "$casino_dir/data/syntax/gtksourceview/$f" "$d"/
+       done
+      done ;;
+     nano)
+      if [ ! -e "$HOME/.nanorc" ]; then
+       touch "$HOME/.nanorc"
+      fi
+      echo "## CASINO" >> "$HOME/.nanorc"
+      echo "include \"$casino_dir/data/syntax/nano/arch.nanorc\"" \
+       >> "$HOME/.nanorc"
+      echo "include \"$casino_dir/data/syntax/nano/cdata.nanorc\"" \
+       >> "$HOME/.nanorc"
+      echo "include \"$casino_dir/data/syntax/nano/esdf.nanorc\"" \
+       >> "$HOME/.nanorc"
+      ;;
+     esac
+    fi
+   done
+   echo ;;
+  i) # install requirements
+   case "$host_DISTRIBUTION" in
+   *Ubuntu*|*Mint*|*Black*Lab*) # FIXME: this affects only 11.04 and 11.10
+    pretty_print 1 10 "WARNING: Ubuntu and its derivatives: installing OpenMPI\
+     pulls in 'blcr-dkms' as a dependency, which is broken in some versions.\
+     You may have to run 'sudo apt-get remove --purge blcr-dkms' by hand later\
+     to avoid getting annoying error messages."
+    echo
+    command="sudo apt-get install make gcc gfortran g++ tcsh openmpi-bin\
+     libopenmpi-dev grace gnuplot" ;;
+   *Debian|*Parrot**)
+    command="su -c 'apt-get install make gcc gfortran g++ tcsh openmpi-bin\
+     libopenmpi-dev grace gnuplot'" ;;
+   *Fedora*|*CentOS*) # FIXME: And RHEL. And...
+    command="su -c 'yum install make gcc gcc-gfortran gcc-c++ tcsh openmpi\
+     openmpi-devel grace gnuplot'" ;;
+   *openSUSE*)
+    pretty_print 1 10 "WARNING: openSUSE: after installing the required\
+     packages you will need to log out and back in for the environment to be\
+     updated."
+    echo
+    command="sudo zypper install make gcc gcc-fortran gcc-c++ tcsh openmpi\
+     openmpi-devel xmgrace gnuplot" ;;
+   *Mandriva*)
+    command="su -c 'gurpmi make gcc gcc-gfortran gcc-c++ tcsh openmpi grace\
+     gnuplot'" ;;
+   *Gentoo*)
+    command="su -c 'emerge make gcc tcsh openmpi grace\
+     sci-visualization/gnuplot'" ;;
+   *Arch*)
+    pretty_print 1 10 "WARNING: Arch Linux: this is a rolling-release\
+     distribution with bleeding-edge packages. This may mean, for instance,\
+     that the gfortran compiler may be buggy due to lack of testing (this\
+     has happened before). Just bear this in mind before filing bugs with us."
+    echo
+    command="su -c 'pacman -S make gcc gcc-fortran tcsh openmpi grace\
+     gnuplot'" ;;
+   *)
+    command="" ;;
+   esac
+   if [ -z "$command" ] ; then
+    case "$host_DISTRIBUTION" in
+    *Slack*)
+     pretty_print 1 1 "Linux distribution '$host_DISTRIBUTION' not supported.\
+      Do not ask for support from us, we explicitly do not support Slackware\
+      due to the lack of official package management tools" ;;
+    *)
+     pretty_print 1 1 "Linux distribution '$host_DISTRIBUTION' not supported.\
+      Please file a bug report about this." ;;
+    esac
+    echo
+   else
+    pretty_print 1 1 "Linux distribution '$host_DISTRIBUTION' supported. Will\
+     now attempt to run the following command:"
+    echo
+    pretty_print 3 3 "$command"
+    echo
+    pretty_print 1 1 "You may need to enter the root password. Proceed\
+     (yes/no)?"
+    prompt choice allow="yes no" default=yes || { echo ; continue ; }
+    if [ "$choice" = yes ] ; then
+     echo
+     eval $command
+     echo
+    fi
+   fi ;;
+  r) # Restore distribution directory to original state.
+
+   if [ ! -e $casino_dir/bin_qmc ] && [ ! -e $casino_dir/lib/zlib ] \
+   && [ ! -e $casino_dir/src/zlib ] && [ ! -e $casino_dir/utils/zlib ] ; then
+    echo "Clean distribution: nothing to do."
+   else
+    if [ -e "$casino_dir/bin_qmc" ] ; then
+     echo "Removing bin_qmc."
+     rm -rf $casino_dir/bin_qmc
+    fi
+    if [ -e "$casino_dir/lib/zlib" ] ; then
+     echo "Removing lib/zlib."
+     rm -rf $casino_dir/lib/zlib
+    fi
+    if [ -e "$casino_dir/src/zlib" ] ; then
+     echo "Removing src/zlib."
+     rm -rf $casino_dir/src/zlib
+    fi
+    if [ -e "$casino_dir/utils/zlib" ] ; then
+     echo "Removing utils/zlib."
+     rm -rf $casino_dir/utils/zlib
+    fi
+    echo "Done."
+   fi
+   echo ;;
+  q) # save and exit
+   write_bashrc "$CASINO_AVAILABLE_ARCHS"
+   write_cshrc "$CASINO_AVAILABLE_ARCHS"
+   echo
+   pretty_print 1 1 "Changes will take effect automatically in newly-opened\
+    terminals.  For already-open terminals (like this one) you will need to\
+    type"
+   if [[ "$SHELL" == *csh ]] ; then
+    pretty_print 3 3 "source ~/.cshrc"
+   else
+    pretty_print 3 3 "source ~/.bashrc"
+   fi
+   pretty_print 1 1 "at the command prompt."
+   exit ;;
+  x) # exit without saving
+   exit ;;
+  esac
+ done
+}
+
+write_bashrc() {
+ # Write .bashrc.casino with available archs=$1
+ local CASINO_AVAILABLE_ARCHS="$(unpad $1)" iarch arch
+ local bfile="$HOME/.bashrc.casino"
+ echo -n " Writing ~/.bashrc.casino... "
+ if [ ! -e "$HOME/.bashrc" ] ; then
+  touch "$HOME/.bashrc"
+  chmod +x "$HOME/.bashrc"
+  echo "#!/bin/bash" >> "$HOME/.bashrc"
+ fi
+ if (($(grep -c "source \"$bfile\"" "$HOME/.bashrc")==0)) ; then
+  echo >> "$HOME/.bashrc" # because the file may end without a newline!
+  echo "[ -e \"$bfile\" ] && source \"$bfile\"" >> "$HOME/.bashrc"
+ fi
+ [ -e "$bfile" ] && rm -f "$bfile" >& /dev/null
+ touch "$bfile"
+ cat >> "$bfile" <<_EOF
+#!/bin/bash
+csh_mode=0 ; [ "\$1" = --csh ] && csh_mode=1 && shift
+set +u
+shopt -s extglob
+export CASINO_AUTOINSTALLED=yes
+export CASINO_AVAILABLE_ARCHS="$CASINO_AVAILABLE_ARCHS"
+
+# Add bin_qmc to PATH, but avoid duplicating entry.
+path_add="$casino_dir/bin_qmc"
+IFS_save="\$IFS"
+IFS=:
+for path_item in \$PATH "" ; do
+  [ "\$path_item" = "\$path_add" ] && break
+done
+IFS="\$IFS_save"
+[ -z "\$path_item" ] && export PATH="\$PATH:\$path_add"
+unset path_add path_item IFS_save
+
+_EOF
+ echo "# Function to detect basic host parameters" >> "$bfile"
+ type get_host_params | tail -n +2 >> "$bfile"
+ echo >> "$bfile"
+ echo "# Function to match a host parameters" >> "$bfile"
+ type match_host_param | tail -n +2 >> "$bfile"
+ echo >> "$bfile"
+ echo "# Function to match hostname" >> "$bfile"
+ type check_host | tail -n +2 >> "$bfile"
+ echo >> "$bfile"
+ echo "# Function to match all OS parameters" >> "$bfile"
+ type check_OS | tail -n +2 >> "$bfile"
+ echo >> "$bfile"
+ echo "# Function to unpad a string" >> "$bfile"
+ type unpad | tail -n +2 >> "$bfile"
+ cat >> "$bfile" <<_EOF
+
+# Detection code
+get_host_params
+CASINO_LOCAL_AVAILABLE_ARCHS=""
+CASINO_ARCH=""
+
+_EOF
+ iarch=0 ; for arch in $CASINO_AVAILABLE_ARCHS ; do iarch=$((iarch+1))
+  clear_tags
+  load_tags "$arch.arch"
+  cat >> "$bfile" <<__EOF
+# Code to check CASINO_ARCH=$arch ($DESCRIPTION)
+HOSTNAME="$HOSTNAME"
+DOMAIN="$DOMAIN"
+set -- \$(check_host)
+if [ "\$1" = 1 ] ; then
+ ARCH="$ARCH"
+ KERNEL="$KERNEL"
+ DISTRIBUTION="$DISTRIBUTION"
+ TYPE="$TYPE"
+ OS="$OS"
+ set -- \$(check_OS)
+ if [ "\$1" = 1 ] ; then
+  CASINO_LOCAL_AVAILABLE_ARCHS="\$CASINO_LOCAL_AVAILABLE_ARCHS $arch"
+  if [ -z "\$CASINO_ARCH" ] ; then
+__EOF
+  if [ "$CORES_PER_NODE_is_command" = 1 ] ; then
+   echo "   CORES_PER_NODE=\$(" >> "$bfile"
+   print_block_tag CORES_PER_NODE >> "$bfile"
+   echo "   )" >> "$bfile"
+   echo "   [[ \"\$CORES_PER_NODE\" == +([0-9]) ]] || CORES_PER_NODE=0"\
+    >> "$bfile"
+  else
+   echo "   CORES_PER_NODE=0" >> "$bfile"
+  fi
+  cat >> "$bfile" <<__EOF
+   if ((CORES_PER_NODE>0)) ; then
+    case "\$TYPE.\$CORES_PER_NODE" in
+    single.1)
+     CASINO_ARCH=$arch ;;
+    single.*)
+     [ -z "\$match_wrong_TYPE" ] && match_wrong_TYPE=$arch ;;
+    parallel.1|cluster.1)
+     [ -z "\$match_wrong_TYPE" ] && match_wrong_TYPE=$arch ;;
+    parallel.*|cluster.*)
+     CASINO_ARCH=$arch ;;
+    esac
+   else
+    [ -z "\$match_no_CPN" ] && match_no_CPN=$arch
+   fi
+  fi
+ fi
+fi
+
+__EOF
+ done
+
+ cat >> "$bfile" <<_EOF
+# Make a choice if we haven't yet
+if [ -z "\$CASINO_ARCH" ] ; then
+ if [ -z "\$match_wrong_TYPE" ] ; then
+  if [ -z "\$match_no_CPN" ] ; then
+   CASINO_ARCH="\$(set -- \$CASINO_AVAILABLE_ARCHS ; echo \$1)"
+  else
+   CASINO_ARCH=\$match_no_CPN
+  fi
+ else
+  CASINO_ARCH=\$match_wrong_TYPE
+ fi
+fi
+
+# CSH mode
+if ((csh_mode==1)) ; then
+ cat <<_eof
+  set bash_CASINO_LOCAL_AVAILABLE_ARCHS="\$CASINO_LOCAL_AVAILABLE_ARCHS" ; \
+  set bash_CASINO_ARCH="\$CASINO_ARCH"
+_eof
+fi
+
+# Clean up
+unset host_HOSTNAME host_DOMAIN host_ARCH host_KERNEL host_DISTRIBUTION host_OS
+unset arch_HOSTNAME arch_ARCH arch_KERNEL arch_DISTRIBUTION arch_OS
+unset arch_CPN_code
+unset HOSTNAME DOMAIN ARCH KERNEL DISTRIBUTION OS
+unset iarch
+unset csh_mode
+
+# Export required variables
+export CASINO_LOCAL_AVAILABLE_ARCHS CASINO_ARCH
+
+casinoarch() {
+ # Print available CASINO_ARCHs and switch between them.
+ local search="\$1" number i n arch ifound
+ n="\$(set -- \$CASINO_LOCAL_AVAILABLE_ARCHS ; echo \$#)"
+ case "\$n" in
+ 0)
+  if (("\$(set -- \$CASINO_AVAILABLE_ARCHS ; echo \$#)">0)) ; then
+   echo "No CASINO_ARCHs defined that are valid for this machine."
+   echo "Use the CASINO/install script to change this."
+  else
+   echo "No CASINO_ARCHs defined."
+   echo "Use the CASINO/install script to change this."
+  fi
+  if [ ! -z "\$CASINO_ARCH" ] ; then
+   echo "CASINO_ARCH currently set to \$CASINO_ARCH by hand."
+  fi
+  return ;;
+ 1)
+  echo "One CASINO_ARCH defined: \$CASINO_LOCAL_AVAILABLE_ARCHS"
+  if [ ! -z "\$CASINO_ARCH" ] ; then
+   if [ "\$CASINO_ARCH" != "\$(unpad "\$CASINO_LOCAL_AVAILABLE_ARCHS")" ] ; then
+    echo "CASINO_ARCH currently set to \$CASINO_ARCH by hand."
+    echo
+    echo "Choose an option, empty to leave:"
+    echo "[1] Switch to \$CASINO_LOCAL_AVAILABLE_ARCHS"
+    read number
+    if [ "\$number" = 1 ] ; then
+     export CASINO_ARCH="\$CASINO_LOCAL_AVAILABLE_ARCHS"
+     echo "CASINO_ARCH changed to \$CASINO_ARCH."
+    else
+     echo "CASINO_ARCH not changed."
+    fi
+   fi
+  else
+   export CASINO_ARCH="\$CASINO_LOCAL_AVAILABLE_ARCHS"
+   echo "CASINO_ARCH now set."
+  fi
+  return ;;
+ *)
+  if [ ! -z "\$search" ] ; then
+   for arch in \$CASINO_LOCAL_AVAILABLE_ARCHS ; do
+    if [ "\${arch//\$search}" != "\$arch" ] ; then
+     if [ "\$arch" != "\$CASINO_ARCH" ] ; then
+      export CASINO_ARCH=\$arch
+      echo "CASINO_ARCH changed to \$arch."
+      return
+     else
+      echo "CASINO_ARCH not changed (was already set to \$CASINO_ARCH)."
+      return
+     fi
+    fi
+   done
+   echo "No configured CASINO_ARCH matches '\$search'."
+   echo
+  fi
+  echo
+  echo "The following CASINO_ARCHs are configured on this machine:"
+  echo
+  ifound=0
+  i=0 ; for arch in \$CASINO_LOCAL_AVAILABLE_ARCHS ; do i=\$((i+1))
+   if [ "\$arch" = "\$CASINO_ARCH" ] ; then
+    echo "[\$i] \$arch [current]" ; ifound=1
+   else
+    echo "[\$i] \$arch"
+   fi
+  done
+  if ((ifound==0)) ; then
+   echo
+   if [ -z "\$CASINO_ARCH" ] ; then
+    echo "CASINO_ARCH currently unset."
+   else
+    echo "CASINO_ARCH currently set to \$CASINO_ARCH by hand."
+   fi
+  fi
+  echo
+  echo "To make permanent changes to this list, use the install script."
+  echo
+  echo "If you wish to *temporarily* switch to a different CASINO_ARCH now,"
+  echo "enter a number, or leave empty to quit:"
+  read number
+  if [[ "\$number" == +([0-9]) ]] ; then
+   if ((number<=n)) && ((number>0)) ; then
+    arch=\$(set -- \$CASINO_LOCAL_AVAILABLE_ARCHS ; echo \${*:\$number:1})
+    if [ "\$arch" != "\$CASINO_ARCH" ] ; then
+     export CASINO_ARCH=\$arch
+     echo "CASINO_ARCH changed to \$arch."
+    else
+     echo "CASINO_ARCH not changed (was already set to \$CASINO_ARCH)."
+    fi
+   else
+    echo "CASINO_ARCH not changed (incorrect option)."
+   fi
+  elif [ ! -z "\$number" ] ; then
+   echo "CASINO_ARCH not changed (incorrect option)."
+  else
+   echo "CASINO_ARCH not changed."
+  fi ;;
+ esac
+}
+_EOF
+ echo "done"
+}
+
+write_cshrc() {
+ # Write .cshrc.casino with available archs=$1
+ local CASINO_AVAILABLE_ARCHS="$(unpad $1)"
+ local bfile="$HOME/.cshrc.casino"
+ echo -n " Writing ~/.cshrc.casino... "
+ if [ ! -e "$HOME/.cshrc" ] ; then
+  touch "$HOME/.cshrc"
+  chmod +x "$HOME/.cshrc"
+  echo "#!/bin/csh" >> "$HOME/.cshrc"
+ fi
+ if (($(grep -c "source \"$bfile\"" "$HOME/.cshrc")==0)) ; then
+  echo >> "$HOME/.cshrc" # because the file may end without a newline!
+  echo "if (-e \"$bfile\") source \"$bfile\"" >> "$HOME/.cshrc"
+ fi
+ [ -e "$bfile" ] && rm -f "$bfile" >& /dev/null
+ touch "$bfile"
+ cat >> "$bfile" <<_EOF
+#!/bin/csh
+setenv CASINO_AUTOINSTALLED yes
+setenv CASINO_AVAILABLE_ARCHS "$CASINO_AVAILABLE_ARCHS"
+set path=(\$path $casino_dir/bin_qmc)
+
+# Cheat: use the bash version to do all the work
+if (-e ~/.bashrc.casino) then
+ eval \`bash ~/.bashrc.casino --csh\`
+ setenv CASINO_LOCAL_AVAILABLE_ARCHS "\$bash_CASINO_LOCAL_AVAILABLE_ARCHS"
+ setenv CASINO_ARCH "\$bash_CASINO_ARCH"
+endif
+_EOF
+ echo "done"
+}
+############################ END FUNCTIONS ############################
+
+casino_dir=$(cd $(dirname $0) >& /dev/null && pwd)
+
+# Load arch_info.sh.
+if [ ! -e "$(dirname $0)/arch/arch_info.sh" ] ; then
+ echo "$(dirname $0)/arch/arch_info.sh library not found."
+ exit 1
+fi
+source "$(dirname $0)/arch/arch_info.sh"
+init_tput
+[ -e "$(dirname $0)/arch/taglib.sh" ] || errstop\
+ "$(dirname $0)/arch/taglib.sh library not found."
+source "$(dirname $0)/arch/taglib.sh"
+initialize
+post_config
+
+# Go into directory where .arch files live and build list of files.
+[ -d "$(dirname $0)/arch/data" ]\
+ || errstop "Directory $(dirname $0)/arch/data not found"
+cd "$(dirname $0)/arch/data"
+
+main "$@"

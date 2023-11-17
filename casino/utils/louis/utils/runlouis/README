@@ -1,0 +1,88 @@
+RUNLOUIS
+========
+This is the script to run LOUIS on all supported platforms. Does pretty
+extensive error checking to prevent jobs spending two days on a batch
+queue only to crash as they start.
+
+Usage
+-----
+Sitting on the directory containing your LOUIS input deck, type:
+
+ runlouis [force|check] [opt|dev|debug] [name <proc-name>] [out <file-name>]
+          [nnodes <nnodes>] [tpn <tasks_per_node>] [home <path-to-louis>]
+          [queue <queue>] [test|short|medium|long|time <time-code>]
+          [nfile <nodes-file>]
+
+NB, all options can have double, single or no preceeding hyphens.
+
+Options
+-------
+-force
+          makes runlouis skip error checking.
+-check
+          makes runlouis end after error checking (and batch-script generation).
+-opt|dev|debug
+          defines which binary to use. Default: 'opt'.
+-name <name>
+          asigns a name to the LOUIS process. In workstations, the binary
+          is soft-linked to a file called '<name>[_<nnodes>]', which will be
+          shown when calling 'top' or 'ps'. In batch-queue machines, this
+          sets the name of the script to '<name>_<nnodes>[x<tpn>]',
+          which will be shown in 'qstat'. Default <name>=louis .
+-out <out>
+          choose the name of the output file. Default: 'out'.
+-nnodes <nnodes>
+          set the number of nodes to run the calculation on. Default: 1.
+-tpn <tpn>
+          sets the number of processes per node, to be used in parallel
+          machines with multiple CPUs per node. The default is 1, except
+          in systems where runlouis knows how many CPUs per node there are,
+          in which <tpn> is set to such value and <nnodes> is set to the
+          provided <nnodes> divided by <tpn> --therefore <tpn> needs not
+          be given in such cases.
+-home <path-to-louis>
+          sets the path to the LOUIS distribution. Default: $HOME.
+-binary <binary>
+          sets the name of the LOUIS binary to use (i.e., the name of the
+          *existing* binary; not to be confused with the '-name' option).
+          Default: 'louis'.
+-queue <queue>
+          defines the queue to submit the batch script to, if needed.
+-test|short|medium|long|time <time>
+          sets how long to run for in batch-queue machines. If provided
+          using 'time', <time> must be in the format understood by your
+          machine. Default: 'long'.
+-nfile <nfile>
+          defines the node file to use. In principle this shouldn't be
+          necessary -- runlouis should be able to find the file all by
+          itself in PBS queues.
+-account <account>
+          defines which account to use. Only has an effect on HPCx
+          (<account> being the account name to use) and on Darwin
+          (<account> being 'free' or 'paid').
+          
+
+Adding support for a new LOUIS_ARCH and/or LOUIS_ID
+===================================================
+You may need to change runlouis at one or two places:
+
+* Add your LOUIS_ARCH and/or LOUIS_ID to the architecture list in the function 
+  'get_arch_params'. If your LOUIS_ID has different attributes from the other
+  LOUIS_IDs within your LOUIS_ARCH (eg, is/is not parallel, is/is not a
+  batch queue, is/is not supported), you must add it to the 'Defined by
+  LOUIS_ID' section. Otherwise, add it to the 'Defined by generic LOUIS_ARCH'
+  section, unless your LOUIS_ARCH is already defined there.
+
+* If your system is a batch-queue machine, you must add a script-generating
+  bit in function 'generate_batch_script'. Take other LOUIS_ARCHs as templates;
+  it shouldn't be difficult to figure out how to do this.
+
+  IMPORTANT: if you are adding a LOUIS_ID, make sure to put the 'case' clause
+  with your 'LOUIS_ARCH.LOUIS_ID' *before* the clause for 'LOUIS_ARCH.*', 
+  otherwise your new code will not run. Likewise, if you're adding support for 
+  generic LOUIS_ARCH for which there are already-defined LOUIS_IDs, make sure 
+  to put the new 'case' clause for LOUIS_ARCH.* *after* the ones for 
+  LOUIS_ARCH.LOUIS_ID.
+ 
+  Send the modified runlouis and details of the LOUIS_ID to Mike Towler at
+  mdt26@cam.ac.uk

@@ -1,0 +1,495 @@
+#!/usr/local/shared/bin/perl -w
+#!/usr/bin/perl
+
+#####################################################################
+# Script to extract determinant information from GAMESS-US output   #
+# and for use in CASINO.                                            #
+#                                                                   #
+# usage: get_dets -t det/gms -r 0.00001 file_name                   #
+#                                                                   #
+# for question, contact A. Badinski at abadinski@gmail.com          #
+#####################################################################
+
+
+use Getopt::Std;
+
+#####################################################################
+# Read in option from command line.                                 #
+#####################################################################
+
+my %options = ();
+getopts("vdeEt:r:", \%options);
+
+$verbose=0;
+if($options{v}){
+    $verbose=1;
+}
+
+if($options{r}){
+ $radius=$options{r};
+}
+
+if($options{t}=~/det/){
+   read_and_process_det();
+   write_det_data();
+} elsif($options{t}=~/gms/){
+   generate_gamess_input();
+}
+
+
+sub generate_gamess_input {
+#####################################################################
+# This routine writes out the determinant occupation paterns. The   #
+# number of written out determinants is determined by the criterion #
+# that the absolute value of the determinant coefficient is larger  #
+# then a thresh hold $radius. The output is written in file         #
+# gamess.data which can then be copied into the GAMESS input file   #
+# if desired. This is usefull to obtain a selfconsistent solution   #
+# for a selection of determinants.                                  #
+#####################################################################
+
+   open(GMSFILE,">gamess.data") || die "can not open file gamess.data : $!\n" ;
+   print GMSFILE " \$GCILST \n";
+   @occ_pat_zip_all=();
+   $occ_pat_zip_all[0]='nottaken';
+   $sumcoef=0;
+   $count=0;
+   while( <> ){
+      chomp;
+      @w = split;
+       if( (/PRINTING CI COEFFICIENTS/ .. /DONE WITH DETERMINANT CI COMPUTATION/) ){
+         if( /^\s*([01]+)\s*\|\s*([01]+)\s*\|\s*(-?[0-9]\.[0-9]+)/ ){
+            if($verbose) {print "alpha betta coeff $1 $2 $3 \n";}
+            @alpha01=split '',$1;
+            @beta01 =split '',$2;
+            $coef   =$3;
+            $sumcoef=$sumcoef+$coef*$coef ;
+
+# generate the occupation pattern like 21101100
+            for ($n=0; $n<=$#alpha01; $n++) {
+               $tmp[$n]=0 ;
+               if($alpha01[$n]==1) {
+                  $tmp[$n]=1 ;
+               }
+               if($beta01[$n]==1) {
+                  if($tmp[$n]==1) {
+                     $tmp[$n]=2;
+                  } else {
+                     $tmp[$n]=1 ;
+                  }
+               }
+            }
+
+            $occ_pat_zip=join ' ',@tmp ;
+
+            $accept=1;
+            for($n=0; $n<=$#occ_pat_zip_all; $n++) {
+               if($occ_pat_zip_all[$n]=~/$occ_pat_zip/){
+                  $accept=0;
+                  $count=$count+1
+               }
+            }
+#            if( ($accept==1) && ($sumcoef < $radius ) ){
+            if( ($accept==1) && (abs($coef) > $radius ) ){
+               push @occ_pat_zip_all, $occ_pat_zip ;
+               print GMSFILE "$occ_pat_zip \n";
+               $count=$count+1
+            }
+
+            if($verbose) {print " @alpha01 \n @beta01 \n @tmp \n";}
+
+         }
+      }
+   }
+   print GMSFILE "write the number $#occ_pat_zip_all into a new second line of this file and delete this line\n" ;
+   print GMSFILE " \$END \n";
+   close(GMSFILE);
+   if($verbose) {print @occ_pat_zip_all;}
+   print "number of dets: $count \n";
+   print "number of space products: $#occ_pat_zip_all \n";
+}
+
+
+sub read_and_process_det {
+#####################################################################
+# Read from GAMESS output and process the information.              #
+#####################################################################
+
+   $idet=0;
+   $icsf=0;
+   $save_abs_coef=0;
+   while( <> ){
+      chomp;
+      @w = split;
+      read_input_det();
+      @occ_pat_ord=();
+      if(  (/----------|----------|------------/ .. /DONE WITH DETERMINANT CI COMPUTATION/) ){
+         if( /^\s*([01]+)\s*\|\s*([01]+)\s*\|\s*(-?[0-9]\.[0-9]+)/ ){
+            if($verbose) {print "alpha betta coeff $1 $2 $3 \n";}
+            $idet++;
+            @alpha01=0;
+            @beta01 =0;
+            @alpha01= split '', $1 ;
+            @beta01 = split '', $2 ;
+
+# generate the occupation pattern like 2+-0+-00 from GAMESS output
+            for ($n=0; $n<=$#alpha01; $n++) {
+               $tmp[$n]=0 ;
+               if($alpha01[$n]==1) {
+                  $tmp[$n]='+' ;
+               }
+               if($beta01[$n]==1) {
+                  if($tmp[$n]=~/\+/) {
+                     $tmp[$n]=2;
+                  } else {
+                     $tmp[$n]='-' ;
+                  }
+               }
+            }
+
+# choose the 0th element of $occ_pat_ord to be the dummy D, so that
+# 1st orbital later on corresponds to 1st element of $occ_pat_ord
+            $occ_pat_ord[0]=D;
+
+# fill core orbitals
+            for($i=1; $i<=$ncore; $i++){
+               $occ_pat_ord[$i]='2';
+            }
+
+            push @occ_pat_ord, @tmp ;
+            $occ_pat_ord_zip=join '',@occ_pat_ord;
+            if($verbose) {print "    @alpha01 \n    @beta01 \n@occ_pat_ord \n";}
+
+# generate det specification for CASINO;
+# in: $ncore,$ndoc,$nactive,$occ_pat_ord  out: @promotion_pat_tmp,$casino_phase
+            promotion_pat();
+
+# multiply determinant coefficient with right sign
+            $detcoef= $3 * $casino_phase ;
+
+            $nr_pat=$#promotion_pat_tmp+1;
+
+# put determinants together if their coefficients have the same absolute value
+            if(abs($detcoef)!=$save_abs_coef) {
+               $icsf++;
+            }
+            $save_abs_coef=abs($detcoef);
+
+# collect all derived info for $idet determinant
+            push @{$det[$idet]}, ($icsf,0,0,$detcoef,0, $occ_pat_ord_zip);
+            push @{$det[$idet]}, ($nr_pat);
+            push @{$det[$idet]}, @promotion_pat_tmp;
+         }
+      }
+   }
+   $ndet=$idet ;
+}
+
+
+sub read_input_det {
+#########################################################################
+# Read from GAMESS output.                                              #
+#########################################################################
+   chomp;
+   @w = split;
+   if(/NUMBER OF CORE ORBITALS          =/){
+      $ncore=$w[5];
+   }
+   if(/NUMBER OF ALPHA ELECTRONS        =/){
+      $alpha=$w[5];
+      $ndoc=$alpha-$ncore;
+#   }
+#   if(/NUMBER OF BETA ELECTRONS        =/){
+#      $beta=$w[5];
+   }
+   if(/NUMBER OF ACTIVE ORBITALS        =/){
+      $nactive=$w[5];
+   }
+}
+
+
+
+sub promotion_pat{
+##########################################################################
+# This subroutine converts the determinants into a format (based on the  #
+# idea of promoting individual orbitals from the ground state into the   #
+# excited state) that can be read by CASINO.                             #
+##########################################################################
+
+   @casino_up=();
+   @casino_down=();
+   @spinu=();
+   @spind=();
+
+# find and store all excited spin up (+), down (-) or up-and-down (2) electrons
+# in array spinu (if + or 2) and spind (if - or 2).
+
+# alpha electrons (spin up)
+   for($i=$ncore+$ndoc+1; $i<=$ncore+$nactive; $i++){
+      if($occ_pat_ord[$i] eq '0') {
+         next;
+      }elsif($occ_pat_ord[$i] eq '+') {
+         push @spinu, $i;
+      }elsif($occ_pat_ord[$i] eq '2') {
+         push @spinu, $i;
+       }
+   }
+
+# beta electrons (spin down)
+   for($i=$ncore+$ndoc+1; $i<=$ncore+$nactive; $i++){
+      if($occ_pat_ord[$i] eq '0') {
+         next;
+      }elsif($occ_pat_ord[$i] eq '-') {
+         push @spind, $i;
+      }elsif($occ_pat_ord[$i] eq '2') {
+         push @spind, $i;
+       }
+   }
+
+   if($verbose) {
+      print "(spinu @spinu spind @spind dim spinu $#spinu dim spind $#spind) \n";
+   }
+   $idown=0;
+   $iup=0;
+
+   if($nactive<$ndoc) {print "mismatch in excited orbitals, should not happen"; die;}
+
+   @promotion_pat_tmp=();
+
+# Now, generate determiant specification for use in CASINO:
+
+# Whenever the occupation pattern has "-" or 0, a spin up electron has been
+# promoted from that orbital.
+
+# loop is over all occupied MOs.
+   print "\n";
+   for($i=$ncore+1; $i<=$ncore+$ndoc; $i++){
+
+# initialize occupation pattern for $casino_up to equal the ground state
+      $casino_up[$i]=$i ;
+
+      if($occ_pat_ord[$i] eq '2')     { ;
+
+      }elsif($occ_pat_ord[$i] eq '+') { ;
+
+      }elsif($occ_pat_ord[$i] eq '-') {
+         $minus= join ' ',(DET, $idet, 1, PR, $i, 1, $spinu[$iup], 1);
+         print "        $minus \n" ;
+
+# modify occupation pattern for $casino_up from ground state
+         $casino_up[$i]=$spinu[$iup] ;
+         $iup++;
+         push @promotion_pat_tmp, $minus;
+
+      }elsif($occ_pat_ord[$i] eq '0') {
+         $plus =join ' ', (DET, $idet, 1, PR, $i, 1, $spinu[$iup], 1);
+         print "        $plus \n" ;
+
+# modify occupation pattern for $casino_up from ground state
+         $casino_up[$i]=$spinu[$iup] ;
+         $iup++;
+         push @promotion_pat_tmp, $plus;
+
+      }else{
+         print "this should not happen occ_pat_ord[i] $occ_pat_ord[$i]"; die;
+      }
+   }
+
+
+# beta electrons (spin down -) excited in case a "+" is found in GS
+   for($i=$ncore+1; $i<=$ncore+$ndoc; $i++){
+
+# initialize occupation pattern for $casino_down to equal the ground state
+      $casino_down[$i]=-$i ;
+
+      if($occ_pat_ord[$i] eq '2')     { ;
+
+      }elsif($occ_pat_ord[$i] eq '+') {
+         $plus= join ' ',(DET, $idet, 2, PR, $i, 1, $spind[$idown], 1);
+         print "        $plus\n" ;
+
+# modify occupation pattern for $casino_down from ground state
+        $casino_down[$i]=-$spind[$idown] ;
+
+         $idown++;
+         push @promotion_pat_tmp, $plus;
+
+      }elsif($occ_pat_ord[$i] eq '-') { ;
+
+      }elsif($occ_pat_ord[$i] eq '0') {
+         $minus=join ' ', (DET, $idet, 2, PR, $i, 1, $spind[$idown], 1);
+         print "        $minus\n" ;
+
+# modify occupation pattern for $casino_down from ground state
+         $casino_down[$i]=-$spind[$idown] ;
+
+         $idown++;
+         push @promotion_pat_tmp, $minus;
+
+      }else{
+         print "this should not happen occ_pat_ord[i] $occ_pat_ord[$i]"; die;
+      }
+   }
+
+   @casino=();
+   for($ii=$ncore+1; $ii<=$ncore+$ndoc; $ii++){
+      push @casino, $casino_up[$ii];
+   }
+   for($ii=$ncore+1; $ii<=$ncore+$ndoc; $ii++){
+      push @casino, $casino_down[$ii];
+   }
+
+#   @casino=() ;
+#   $jup=1;
+#   $jdown=1;
+#   for($ii=$ncore+1; $ii<=$ncore+$nactive; $ii++){
+#      if($casino_up[$jup] == $ii){
+#         push @casino, $casino_up[$jup];
+#         $jup++;
+#         if($jup>$ndoc){$jup=$ndoc ;}
+#      }
+#      if(-$casino_down[$jdown] == $ii){
+#         push @casino, $casino_down[$jdown];
+#         $jdown++;
+#         if($jdown>$ndoc){$jdown=$ndoc ;}
+#      }
+#   }
+
+   print "det in CASINO   ", @casino;
+   print "\n";
+
+
+# determine the right sign of the determinants used in CASINO
+   $pn=0;
+   $done=0;
+   while(!$done){
+      $swaps=0;
+      for($k=0; $k<$#casino; $k++){
+         if( ($casino[$k]<0) && ($casino[$k]<$casino[$k+1]) ) {
+            $h=$casino[$k];
+            $casino[$k]=$casino[$k+1];
+            $casino[$k+1]=$h;
+            $swaps++;
+         } elsif (($casino[$k]>0)&&($casino[$k]>$casino[$k+1])&&($casino[$k+1]>0) ) {
+            $h=$casino[$k];
+            $casino[$k]=$casino[$k+1];
+            $casino[$k+1]= $h;
+            $swaps++;
+         }
+      }
+
+# alternative form to generate a sign, for testing only
+# gives patterns like 1-1 2-2 3 -4 5 -5, not correct
+#      for($k=0; $k<$#casino; $k++){
+#         if(abs($casino[$k]) > abs($casino[$k+1])) {
+#            $h=$casino[$k];
+#            $casino[$k]=$casino[$k+1];
+#            $casino[$k+1]=$h;
+#            $swaps++;
+#         } elsif (abs($casino[$k]) == abs($casino[$k+1])) {
+#            if($casino[$k] < 0) {
+#               $casino[$k]  =-$casino[$k];
+#               $casino[$k+1]=-$casino[$k+1];
+#               $swaps++;
+#            }
+#         }
+#      }
+
+      if( $swaps == 0 ){
+         $done=1;
+      } else {
+         $pn=$pn+$swaps;
+      }
+   }
+
+   $casino_phase=(-1)**$pn;
+   print "made consistent ", @casino, "  casino_phase ", $casino_phase ;
+   print "\n";
+}
+
+
+sub write_det_data {
+########################################################################
+# Write all determinant information into the file det.data. This file  #
+# must later be copied into the gwfn.data file after the keyword:      #
+# MULTIDETERMINANT INFORMATION                                         #
+########################################################################
+
+   open(DETFILE,">det.data") || die "can not open file det.data : $!\n" ;
+
+   $naccept=1;
+
+# determine the nr. of dets with coefficients that are larger then $radius
+# and write out that number
+   for (my $idet=2; $idet<=$ndet; $idet++) {
+
+      if( abs($det[$idet][3]) > $radius )  {
+         $naccept++;
+      }
+   }
+   print DETFILE "MULTIDETERMINANT INFORMATION\n";
+   print DETFILE "----------------------------\n";
+   print DETFILE "MD\n";
+   print DETFILE  $naccept,"\n";
+
+
+# write out the coefficient for 1st determinant
+   printf DETFILE "%15.11E%5i%5i\n", $det[1][3],  $det[1][0],  0;
+
+   $naccept=1;
+   $csf_new=0;
+   $icsf=1;
+   for (my $idet=2; $idet<=$ndet; $idet++) {
+
+      if( abs($det[$idet][3]) > $radius )  {
+
+# index nr. of determinant
+         $naccept++;
+
+         if($csf_new!=$det[$idet][0]) {
+# index nr. of csf (if different determinants belong to the same
+# csf or if different determinants have the same absolute coefficients
+# the index number $icsf remains the same)
+            $icsf++;
+            $csf_new=$det[$idet][0];
+         }
+
+# print out final coefficient of $idet and use $icsf as lable to relate the
+# dets that belong to same csf and "1" is opt flag in CASINO
+         printf DETFILE "%15.11E%5i%5i\n", $det[$idet][3], $icsf, 1;
+      }
+   }
+
+# next variable is index of determinant. it starts with 2 since first one is
+# Slater determinant
+   $naccept=1;
+   for (my $idet=2; $idet<=$ndet; $idet++) {
+
+      if( abs($det[$idet][3]) > $radius )  {
+         $naccept++;
+         for (my $i=1; $i<= $det[$idet][6]; $i++) {
+
+# print out det promotion patterns for CASINO
+             @pat=split ' ', $det[$idet][6+$i];
+             $pat[1]=$naccept;
+            print DETFILE "@pat      # occ. pat. [$det[$idet][5]]\n";
+         }
+      }
+   }
+   close(DETFILE);
+}
+
+
+
+__DATA__
+usage : gamess2efp OPTIONS <output from gamess GUGA CI>
+
+  OPTIONS: -vcspPmgahnideE
+
+          v verbose
+          e efpci input (determinants)
+          E efpci input (csf)
+          P ci vector with coefficients
+          d determinants
+
+          h print this message

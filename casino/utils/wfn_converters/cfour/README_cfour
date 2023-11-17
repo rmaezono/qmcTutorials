@@ -1,0 +1,12 @@
+CFOUR MOLDEN interface
+----------------------
+
+CFOUR's implementation of MOLDEN is, uh, special.. and requires various
+vectors to be reordered before the standard CASINO molden2qmc converter
+will work.
+
+To do this, replace the file /libr/reorderdf.f in the CFOUR distribution
+with the one in this directory, then recompile.
+
+
+

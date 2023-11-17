@@ -1,0 +1,57 @@
+\documentclass[10pt,a4]{article}
+
+\setlength{\oddsidemargin}{0pt} \setlength{\evensidemargin}{0pt}
+\setlength{\textwidth}{\paperwidth} \addtolength{\textwidth}{-2truein}
+\setlength{\textheight}{\paperheight} \addtolength{\textheight}{-2truein}
+\setlength{\topmargin}{0pt} \addtolength{\topmargin}{-\headheight}
+\addtolength{\topmargin}{-\headsep}
+
+\begin{document}
+
+\title{Extrapolation of diffusion Monte Carlo energies to zero time step}
+
+\author{Neil Drummond}
+
+\maketitle
+
+Consider $N$ DMC energies $\{ e_1 \pm \sigma_{e_1} , \ldots, e_N \pm
+\sigma_{e_N} \}$ obtained at different time steps $\{ \tau_1, \ldots, \tau_N
+\}$.  Suppose the DMC energy as a function of time step can be written as
+\begin{equation} e(\tau) = \sum_{k=1}^P a_k \tau^{n_k}, \end{equation}
+where the exponents $\{ n_k \}$ are non-negative, but are not necessarily
+integers. One of the exponents must be zero: the coefficient of this term is
+the DMC energy at zero time step.  The coefficients $\{ a_k \}$ can be
+determined by minimizing the $\chi^2$ function, where
+\begin{equation} \chi^2 = \sum_{i=1}^N \left( \frac{e_i-\sum_{k=1}^P
+    a_k \tau_i^{n_k}}{\sigma_{e_i}} \right)^2. \end{equation} By demanding
+that $\partial \chi^2 / \partial a_j=0$, we find that
+\begin{equation} \sum_{k=1}^P \left( \sum_{i=1}^N
+  \frac{\tau_i^{n_j+n_k}}{\sigma_{e_i}^2} \right) a_k = \sum_{i=1}^N \frac{e_i
+  \tau_i^{n_j}}{\sigma_{e_i}^2}. \label{eqn:coeff_eqn}
+  \end{equation}
+For $j,k \in \{ 1,\ldots,P \}$, let $M_{jk} \equiv \sum_{i=1}^N
+\tau_i^{n_j+n_k} / \sigma_{e_i}^2$ and $c_j \equiv \sum_{i=1}^N e_i
+\tau_i^{n_j} / \sigma_{e_i}^2$.  Equation (\ref{eqn:coeff_eqn}) can be written
+as $M {\bf a} = {\bf c}$ and hence we can find the vector of polynomial
+coefficients ${\bf a}$ by Gaussian elimination.
+
+Note that the variance in $a_j$ is approximately given by
+\begin{eqnarray} \sigma_{a_j}^2 & \approx & \sum_{i=1}^N \sigma_{e_i}^2
+  \left( \frac{\partial a_j}{\partial e_i} \right)^2 \nonumber \\ & = &
+  \sum_{i=1}^N \sigma_{e_i}^2 \left( \sum_{k=1}^P M^{-1}_{jk}
+  \frac{\tau_i^{n_k}}{\sigma_{e_i}^2} \right)^2 \nonumber \\ & = &
+  \sum_{k=1}^P \sum_{l=1}^P M^{-1}_{jk} M^{-1}_{jl} \sum_i
+  \frac{\tau_i^{n_k+n_l}}{\sigma_{e_i}^2} = \sum_{k=1}^P \sum_{l=1}^P
+  M^{-1}_{jk} M^{-1}_{jl} M_{kl} = M^{-1}_{jj}. \end{eqnarray} This gives an
+  estimate of the standard errors in the fitted polynomial coefficients.
+
+The utility \textsc{extrapolate\_tau} carries out these calculations
+numerically.  To use this utility, first prepare a text file with three
+columns of data: the time steps, the DMC energies and the standard errors in
+the DMC energies, respectively.  Then type \textit{extrapolate\_tau} and
+follow the instructions.
+
+\end{document}
+
+
+

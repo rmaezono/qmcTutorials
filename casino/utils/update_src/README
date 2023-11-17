@@ -1,0 +1,33 @@
+# UPDATE_SRC
+# ----------
+#
+# Script to untar new CASINO distribution and update symlinks on any given 
+# machine for the majority of users who don't have access to the CASINO
+# git repository.
+#
+# Usage: update_src [-s] <CASINO version number>
+#
+# This assumes that you wish to follow MDT's practice of keeping multiple 
+# versions of CASINO in $HOME with their directories labelled by the version 
+# number e.g. CASINO_v2.13.156, with a symbolic link 'CASINO' pointing to the 
+# version you are currently using.
+#
+# This script requires the version number (2.13.156 in the above example)
+# to be supplied as a command line argument.
+#
+# If you wish to point to a 'standard' version of the code (called something
+# like CASINO_v2.13.156_standard) rather than the developer version, then
+# this can be flagged with the '-s' option. The version number should still
+# be written as e.g. 2.13.156 .
+#
+# The scripts (1) deletes any existing symbolic links called CASINO, but stops
+# if CASINO is a real directory, (2) untars a supplied CASINO_v2.13.156.tar.gz 
+# archive, (3) renames the resulting 'CASINO' directory as CASINO_v2.13.156, 
+# (4) creates a 'CASINO' symlink pointing to the CASINO_v2.13.156 directory. 
+# All appropriate error checking is performed at each stage.
+#
+# Note that you might want to put the script somewhere else in your path, as
+# it obviously won't work unless you have compiled the previous CASINO 
+# distribution that you're presumably trying to replace.
+#
+# MDT 10/2013

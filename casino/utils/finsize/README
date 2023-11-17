@@ -1,0 +1,16 @@
+!-----------------------------------------------------------------------------!
+! FINSIZE                                                                     !
+! Calculates post-calculation table of KE and XC finite-size corrections and  !
+! finite-size-corrected Ewald and/or MPC energies.                            !
+!                                                                             !
+! Previous VMC or DMC calculation should have been run with the flag          !
+! FINITE_SIZE_CORR activated in the input file.                               !
+!                                                                             !
+! This utility requires as input some structure factor data accumulated in    !
+! the expval.data file, as well as the files 'input' and 'out'.               !
+!                                                                             !
+! Note that the KE correction is not recomputed from the current              !
+! correlation.data file, but is taken from the value printed in the out file. !
+!                                                                             !
+! MDT 4.2007                                                                  !
+!-----------------------------------------------------------------------------!

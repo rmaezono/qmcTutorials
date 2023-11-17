@@ -1,0 +1,6 @@
+#-! DESCRIPTION: Mac OS
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 8.2010
+#-! KERNEL: Darwin
+#-! *CORES_PER_NODE:
+#-!  sysctl -n hw.ncpu 2>&1

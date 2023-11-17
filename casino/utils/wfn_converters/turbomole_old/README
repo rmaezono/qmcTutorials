@@ -1,0 +1,19 @@
+INGRID
+======
+Stefan Grimme, University of Muenster, 10.2001
+
+TURBOMOLE routine to write out a gwfn.data file to be used as input for CASINO.
+
+Note this is not a stand alone utility but needs to be incorporated into the
+TURBOMOLE source. Mail Stefan Grimmme at grimmes@uni-muenster.de for further
+information.
+
+For more information about TURBOMOLE see:
+www.chemie.uni-karlsruhe.de/PC/TheoChem/turbomole/
+
+MDT 1.2001
+
+
+I suspect this no longer works.
+
+MDT 7.2007

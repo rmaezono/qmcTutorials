@@ -1,0 +1,37 @@
+champ_to_casino_pp
+------------------
+
+Converts CHAMP pseudopotential format to CASINO pseudopotential format.
+
+CHAMP is Cyrus Umrigar and Claudia Filippi's QMC code. See:
+
+http://pages.physics.cornell.edu/~cyrus/champ.html
+
+CHAMP PSEUDOPOTENTIAL FORMAT:
+-----------------------------
+
+Distances in bohr, energies in hartree.
+
+Arbitrary number of comments at the top beginning with #
+
+First line:
+
+number of pseudopotential components, effective nuclear charge, r_asymp
+
+Second line:
+
+grid type, no. of grid points, first radius, exponent, exponential of exponent
+
+where grid type=1/2/3 implies linear/exponential/shifted exponential grid
+(since the r values are given explicitly, this information is redundant).
+
+Subsequent lines:
+
+radius followed by the components of the pseudopotential in order of increasing
+L. Note each component is the full pseudopotential (not the difference from
+the local component), so each component goes asymptotically to -Z_val/r.
+
+The identity of the local component is specified in the CHAMP input file (and
+arbitrarily assigned to the highest angular momentum by this converter).
+
+MDT 10.2013

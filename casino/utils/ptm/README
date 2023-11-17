@@ -1,0 +1,46 @@
+========================================================================
+                 PTM - pseudopotential data transformer
+                        Mike Towler, Sep 1999
+========================================================================
+
+NB: August 2000 - rewritten to handle new style CASINO x_pp.data format.
+Old version of ptm maintained in directory 'old'.
+
+------------------------------------------------------------------------
+
+Usage: Type 'ptm' and answer the questions.
+
+Takes as input either:
+(1) Up to 5 pp components on a radial grid in new QMC x_pp.data format
+or
+(2) Fit file containing gaussian exponents, coefficients and powers of r
+
+The fit file should be in the following format (with the freedom that
+order of coefficients and exponents can be reversed (Program detects
+automatically which it is from occurence of negative numbers).
+
+!     Nickel Rubbish pseudo    ! Title
+!     28.0 10.0                ! atomic number, effective nuclear charge
+!     3                        ! no of components of the pseudo (s,p,d etc.)
+!     2 1 4                    ! (no of Gaussians describing each component)
+!     s                        ! label
+!     1.02153800     10.55013200  -1  !  (exponent, coefficient, power of r)
+!     1.02153800     -1.01208800   2
+!     p                               ! label
+!     1.40000000     16.41825700   0
+!     d                               ! label
+!     2.73853000     -0.58105000  -2
+!     2.73853000     -6.35383400  -1
+!     2.73853000      6.65505900   0
+!     2.73853000    -11.00888000   2
+
+PTM cam perform the following transformations on x_pp.data files:
+(1) Multiply or divide data by a power of r
+(2) Calculate differences between different components to work out
+    non-local projections
+(3) Convert to xmgr format
+
+and the following transformations on the fit file
+(1) perform the Gaussian expansion and plot results on radial grid
+wth options to subtract Z/r and to convert between Hartree and Rydbergs
+The result can be plotted as x_pp.data or xmgr plot.

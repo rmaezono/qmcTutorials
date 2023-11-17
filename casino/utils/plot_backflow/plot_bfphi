@@ -1,0 +1,139 @@
+#!/bin/bash
+#-------------------------------------------------------------#
+# Script to plot the Phi term in backflow.data using GNUplot  #
+#                                                             #
+# PLR 04.2005 Coped with addition of Theta term               #
+# PLR 02.2005 Initial version v0.10                           #
+#-------------------------------------------------------------#
+# Check that GNUplot is present and that we are have an available DISPLAY
+if [ ! which gnuplot &> /dev/null ] ; then {
+ echo "GNUplot not found. You need this program to run plot_bfphi."
+ exit ; }
+fi
+if [ -z "$DISPLAY" ] ; then {
+ echo "The DISPLAY environment variable is not defined."
+ echo "plot_bfphi runs under X only."
+ exit ; }
+fi
+
+############################ Functions ############################
+function check_real {
+ # Check string matches a real number
+ local r=$1 d i=-1 err=0 sign_possible=1 dot_possible=1 exp_possible=-1
+ local exp_missing=0 any_digit=0
+ while (( $i < ${#r}-1 )) ; do {
+  i=$(($i+1)) ; d=${r:$i:1}
+  case $d in
+  1|2|3|4|5|6|7|8|9|0)
+   sign_possible=0
+   if (( $exp_possible < 1 )) ; then any_digit=1 ; fi
+   if (( $exp_possible == -1 )) ; then {
+    exp_possible=1 ; }
+   elif (( $exp_missing == 1 )) ; then {
+    exp_missing=0 ; }
+   fi ;;
+  -|+) if (( $sign_possible == 0 )) ; then err=1 ; else sign_possible=0 ; fi ;;
+  .) if (( $dot_possible == 0 )) ; then err=1 ; else dot_possible=0 ; fi ;;
+  d|D|e|E) if (( $exp_possible != 1 )) ; then err=1 ; else {
+    exp_possible=0 ; sign_possible=1 ; exp_missing=1 ; }
+   fi ;;
+  esac
+  if (( $err == 1 )) ; then {
+   echo "$r is not a valid real number."
+   return 1 ; }
+  fi ; }
+ done
+ if (( $exp_missing == 1 )) || (( $any_digit == 0 )) ; then {
+  echo "$r is not a valid real number."
+  return 1 ; }
+ fi
+}
+########################## End functions ##########################
+
+# Parse command line
+echo "plot_bfphi: Generate a plot of the backflow displacement field due to\
+ Phi."
+echo "Usage:    plot_bfphi [-ps|-eps|-png|-jpeg] [bfphi_file]"
+echo
+while (( $# > 0 )) ; do {
+ case $1 in
+ -ps) gnuout='set terminal postscript landscape colour'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.ps' ;;
+ -eps) gnuout='set terminal postscript eps colour'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.eps' ;;
+ -png) gnuout='set terminal png'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.png' ;;
+ -jpeg|-jpg) gnuout='set terminal jpeg'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.jpg' ;;
+ *) if [ ! -z "$bfphi" ] ; then echo "Unrecognized option $1" ; exit ; fi
+  bfphi=$1 ;;
+ esac
+ shift ; }
+done
+if [ -z $bfphi ] ; then bfphi="bfphi_1_1.dat" ; fi
+outfile=$bfphi$fmt
+# Check for bfphi file
+if [ ! -e $bfphi ] || [ ! -s $bfphi ] ; then {
+ echo "File $bfphi not present or is empty."
+ exit 0 ; }
+fi
+# Check for input file
+useinput=1
+if [ ! -e input ] || [ ! -s input ] ; then {
+ echo "File input not present or is empty."
+ useinput=0 ; }
+else {
+ # Check for plot_backflow block
+ if (( `grep -c "%block plot_backflow" input` != 1 )) ; then {
+  echo "Block plot_backflow not present in input."
+  useinput=0 ; }
+ fi ; }
+fi
+# Get riI
+if (( $useinput == 1 )) ; then {
+ lineno=`grep -n "%block plot_backflow" input | sed "s/:.*//"`
+ lineno=$(($lineno+3))
+ sedn="${lineno}p"
+ riI=`sed -n "$sedn" input`
+ if ! check_real $riI ; then {
+  riI="ignore" ; echo "Not plotting electron 'i'." ; }
+ fi ; }
+else {
+ echo "Supply the 'riI' associated with this plot [Enter to ignore]."
+ echo
+ read riI
+ if ! check_real $riI ; then {
+  riI="ignore" ; echo "Not plotting electron 'i'." ; }
+ fi ; }
+fi
+# Generate temp files
+if [ ! -z "$fmt" ] ; then rm -f $outfile >& /dev/null ; fi
+rm -f .gnubatch.plotbf .elecpos.plotbf .nucpos.plotbf >& /dev/null
+echo "0 0" > .nucpos.plotbf
+if [[ "$riI" != "ignore" ]] ; then {
+ echo "$riI 0" > .elecpos.plotbf
+ echo "plot '$bfphi' using 1:2:3:4 with vectors title 'Phi(rj)' ,\
+ '.elecpos.plotbf' title 'Electron i' , '.nucpos.plotbf' title 'Ion'"\
+ > .gnubatch.plotbf ; }
+else {
+ echo "plot '$bfphi' using 1:2:3:4 with vectors title 'Phi(rj)' ,\
+ '.nucpos.plotbf' title 'Ion'" > .gnubatch.plotbf ; }
+fi
+echo "pause -1" >> .gnubatch.plotbf
+echo "Use <right-mouse-button> for zoom-in, and the key-bindings:"
+echo "[A]utoscale  [G]ridlines  [R]uler  [M]ouse-position  [B]orders"
+echo "When finished, give focus to this terminal and press Enter."
+if [ ! -z "$fmt" ] ; then {
+ echo "$gnuout" >> .gnubatch.plotbf
+ echo "set output '$outfile'" >> .gnubatch.plotbf
+ echo "replot" >> .gnubatch.plotbf
+ echo "The image will then be saved to $outfile." ; }
+fi
+gnuplot .gnubatch.plotbf >& /dev/null
+# When finished, clear files
+rm -f .gnubatch.plotbf .elecpos.plotbf .nucpos.plotbf >& /dev/null
+echo "Done."

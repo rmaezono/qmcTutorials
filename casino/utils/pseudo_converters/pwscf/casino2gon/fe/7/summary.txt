@@ -1,0 +1,60 @@
+* Iron
+  Z = 26  Z_val = 14
+
+* Units: Hartrees
+
+* Core radii
+
+  l value                 core radii (au)
+  -------                 ---------------
+     s                         2.00   
+     p                         1.19   
+     d                         1.19   
+
+* Localisation radii, (r_loc, |V_l - V_l'|<10^-5 for r>r_loc and all l,l')
+
+  Pseudopotential Type       r_loc (au)
+  --------------------      -----------
+  Localised (Grid)             2.34   
+
+
+
+* Eigenvalues of the 3p(6)3d(6)4s(2) state
+
+                LS Coupling [5D]             jj Coupling [AV] 
+  l value    All-el HF    Pseudo HF       All-el DF    Pseudo HF
+  -------    ---------    ---------       ---------    ---------
+     s       -0.25818     -0.26177        -0.26375     -0.26377
+     p       -2.74220     -2.75423        -2.77547     -2.77526
+     d       -0.64689     -0.63326        -0.59311     -0.59307
+
+  (All-electron DF eigenvalues are averaged over spin)
+
+
+* Energy terms of the Pseudo HF (LS) 3p(6)3d(6)4s(2) [5D] state
+
+  kinetic energy            =            61.25752
+  el-ion interaction energy =           -217.66555
+                    (s part =           -9.84354)
+                    (p part =           -105.45174)
+                    (d part =           -102.37027)
+  Hartree energy            =            75.67833
+  exchange energy           =           -7.89853
+  -------------------------------------------------
+  total energy              =           -88.62824
+
+
+* Excitation Energies
+
+  Configuration             LS Coupling                    jj Coupling    
+                        All-el HF     Pseudo HF        All-el DF     Pseudo HF
+                   Term  Energy        Energy     Term  Energy        Energy
+                   ----  ------        ------     ----  ------        ------
+  3p(6)3d(6)4s(2)   5D   0.00000       0.00000     AV   0.00000       0.00000
+  3p(6)3d(7)4s(1)   5F   0.07555       0.07534     AV   0.02397       0.02365
+  3p(6)3d(8)        3F   0.28933       0.29864     AV   0.17469       0.17782
+  3p(6)3d(6)4s(1)   6D   0.23288       0.22545     AV   0.25285       0.25310
+  3p(6)3d(7)        4F   0.30604       0.31332     AV   0.24525       0.24842
+
+  The All-el HF results have been corrected for relativistic effects
+  by including mass-velocity, Darwin, and spin-spin contact terms.

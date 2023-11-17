@@ -1,0 +1,53 @@
+#!/bin/bash
+#########################################
+# Like 'tail $@ out', but for a VP run. #
+# PLR 12.2009                           #
+#########################################
+
+set +u
+
+# Define functions.
+errstop() { echo "$*" ; exit 1 ; }
+
+# Check for required files.
+[ -e vpinfo/DIRS ] || errstop "'vpinfo/DIRS' not found."
+
+# Check for required utilities.
+type -p rna >& /dev/null || errstop "'rna' not found in PATH."
+
+# Set up.
+host=$(rna --info=name .)
+[[ "$TERM" == xterm-* ]] && export TERM=xterm
+if tput -S < /dev/null >& /dev/null ; then
+ {
+  IFS_save="$IFS"
+  IFS=$(echo -e "\t")
+  read el cr
+  IFS="$IFS_save"
+ } < <(echo -e "el \nht\n cr \n" | tput -S 2>/dev/null)
+else
+ el=$(tput el 2>/dev/null)
+ cr=$(tput cr 2>/dev/null)
+fi
+[ -z "$el" ] && el=$(tput ce 2>/dev/null)
+
+# Check this computer is in the list.
+directory=""
+{
+ while read pc dir ; do
+  [ "$pc" = "$host" ] && { directory="$dir" ; break ; }
+ done
+} < vpinfo/DIRS
+[ -z "$directory" ] && errstop "This computer is not in the list."
+
+# Wait for file to appear.
+itry=16
+while [ ! -e "$directory/out" ] ; do itry=$((itry-1))
+ ((itry==0)) && { echo -n $el ; errstop "File '$directory/out' not found." ; }
+ echo -n "Waiting for 'out' file to appear... $itry seconds left$el$cr"
+ sleep 1
+done
+echo -n $el
+
+# Tail file.
+tail "$@" "$directory/out"

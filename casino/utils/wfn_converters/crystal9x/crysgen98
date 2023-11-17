@@ -1,0 +1,111 @@
+#!/bin/csh -f
+# MDT 6/1999
+
+# Get CASINO_ARCH from old QMC_ARCH and QMC_ID
+if (! $?CASINO_ARCH ) then
+ if ($?QMC_ARCH) then
+  if ($?QMC_ID) then
+   set CASINO_ARCH = $QMC_ARCH.$QMC_ID
+  else
+   set CASINO_ARCH = $QMC_ARCH
+  endif
+ endif
+endif
+
+set CONVERTER = $QMC_PATH/bin_qmc/utils/$CASINO_ARCH/crystaltoqmc
+
+onintr tidy_up
+
+if ($#argv != 1) then
+ echo "Usage: crysgen [root filename of CRYSTAL input deck]"
+ exit
+endif
+
+if (! -e $1.o) then
+ echo "Cannout find output file         : " $1.o
+ set stop
+endif
+
+if (-e $1.f10) then
+ ln -s $1.f10 fort.10
+else
+ echo "Cannot find eigenvectors file    : " $1.f10
+ set stop
+endif
+
+if (-e $1.f12) then
+ ln -s $1.f12 fort.12
+else
+ echo "Cannot find CRYSTAL commons file : " $1.f12
+ set stop
+endif
+
+if ($?stop) then
+ rm fort.12 fort.10 >& /dev/null
+ exit
+endif
+
+# Stop people from generating the wave function on an Alpha and converting
+# it on a binary incompatible Linux box (or whatever).. The converter will
+# not complain if you try to do this, but *will* produce an incorrect gwfn.data.
+# This is a really (!) bad idea..
+
+if (-e $1.p3o && $?CRYSTAL_ARCH) then
+ if ( `grep -c 'CRYSTAL_ARCH :' $1.p3o` != 0) then
+  set arch = `awk '/CRYSTAL_ARCH :/{print $3}' $1.p3o`
+  if ($CRYSTAL_ARCH != $arch) then
+   echo " "
+   echo "These files were apparently generated on a different and possibly"
+   echo "binary incompatible architecture. Quitting."
+   echo " "
+   set stop
+  endif
+ else
+# TCM specific stuff (for old files)
+  if ( `grep -c 'tcmpc' $1.p3o` != 0 && $CRYSTAL_ARCH == DEC) then
+   echo " "
+   echo "These files were apparently generated on a different and possibly"
+   echo "binary incompatible architecture. Quitting."
+   echo " "
+   set stop
+  endif
+ endif
+endif
+
+if ($?stop) then
+ rm fort.12 fort.10 >& /dev/null
+ exit
+endif
+
+# Watch out for the file of band energies..
+
+if ( `grep -c 'MOLECULE' $1.o` != 0 || `grep -c 'CLUSTER' $1.o` != 0) set molecule
+
+if (-e $1.f30) then
+ ln -s $1.f30 fort.30
+else
+ if (! $?molecule) then
+  echo "Cannot find " $1.f30
+  echo "Band energies will not be output to gwfn.data file"
+ endif
+endif
+
+# what version of CRYSTAL am I using? (needs to have been run using my run
+# script!)
+
+set code = `awk 'NR==1 {print $1}' $1.o`
+
+$CONVERTER
+
+if (-r gwfn.data) then
+ cat $1.o >> gwfn.data
+ sed -e 's/replace_me_with_name_of_code/'$code'/g' gwfn.data > gwfn.data.out
+ mv gwfn.data.out gwfn.data
+endif
+
+rm -f fort.12 fort.10 fort.30
+
+exit
+
+tidy_up:
+rm -f fort.12 fort.10 fort.30

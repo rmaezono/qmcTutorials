@@ -1,0 +1,32 @@
+PERCENT_CALCULATOR
+==================
+This is a little calculator utility.  When run, it asks the user for two
+reference values (possibly with errorbars), each corresponding to 0% and
+100% in some useful scale.  Then the user can enter a series of values
+(possibly with errorbars), each of which is converted into a percentage
+between the two reference values and printed.
+
+This utility can be used to calculate the percentage of correlation energy
+achieved by a QMC calculation by using the HF energy and the exact energy as
+references.
+
+The program understands values and errorbars given in one if the following
+four formats:
+[1] 1.2345 0.0006      [first is value, second is errorbar]
+[2] 1.2345 +/- 0.0006  [actually any string is allowed between both numbers]
+[3] 1.2345             [errorbar is understood to be zero]
+[4] 1.2345(6)
+
+It also understands the following formats for easy copy/pasting from LaTeX:
+ 1&2345
+ 1&2345(6)
+ $1$&$2345$
+ $1$&$2345(6)$
+This list is not exhaustive; the input string is in fact pre-processed by
+removing all '$' signs and converting all '&' to '.'.  Also note that '\pm'
+is allowed in format [2] above.
+
+The percentages are printed in the same format the values are input, except
+for any LaTeX formatting, and for the fact that type-[3]-formatted values are
+converted to type-[4]-formatted percentages if the errorbar in the percentage
+is non-zero (happens if the references have non-zero errorbars).

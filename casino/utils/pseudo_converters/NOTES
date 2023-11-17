@@ -1,0 +1,158 @@
+> Hello,
+>
+> I'm a student of Richard Hennig's, and he and I have begun a QMC study of
+> zinc oxide using CASINO and your Dirac-Fock pseudopotentials.  We're
+> having some problems with them, and we were wondering if you'd seen the
+> issue before or might have some other insight.
+>
+> In particular, we've converted the potentials into UPF format (which uses
+> the Kleinman-Bylander scheme) in order to generate orbitals using PWSCF.
+> For this conversion, we used the tool ppconvert by Ken Esler.  It can
+> generate the KB projectors either from the HF AWFNs or by solving the
+> pseudo atom itself using LDA.  In both cases, the converted Zn potential
+> has ghost states -- the excitation spectrum has low-lying, nonphysical
+> states which make the potential useless for performing calculations.
+>
+> We realize that this is likely an artifact of the conversion process and
+> not an issue with the potentials themselves, but we were wondering if you
+> had perhaps come across the issue before or had any suggestions on how to
+> proceed.
+>
+> By the way, would this sort of question be better sent to the CASINO
+> mailing list?  If so, Mike, would you mind adding both myself and Prof
+> Hennig (rhennig@cornell.edu) to the list?
+>
+> Thanks.
+>
+> Best regards,
+>
+> Will Tipton
+
+Date: Thu, 12 Nov 2009 15:03:04 +0900
+From: John Trail <jrtrail@jaist.ac.jp>
+To: William Wakefield Tipton Jr <wwt26@cornell.edu>
+Cc: Richard Needs <rn11@cam.ac.uk>, Mike Towler <mdt26@cam.ac.uk>
+Subject: Ghost states and Pseudopotentials
+
+Hi,
+
+  The issue has appeared before, especially with 1st row transitions. As you
+suggest, it is an artifact of the conversion process. Below are some notes
+on the issue, which describe the solution. Cannot be more specific about the
+ppconvert code (never used it), but have converted 1st row transition metal
+HF pseudopotentials to KB form for PWSCF runs, and found they work fine if
+done with the 'best choices' described below. Let me know if you this sorts
+out the problem or not.
+
+Best wishes,
+  John
+
+------------------------------------------------------------------
+Dr John Trail
+Maezono group
+School of information Science
+Japan Institute of Science and Technology,
+1-1 Asahidai, Nomi, Ishikawa, 923-1292
+Tel:+81-761-51-1294
+Fax:+81-761-51-1296
+
+Ghost states for HF pseudopotentials converted to KB form
+----------------------------------------------
+
+Most plane-wave codes use a kleinman-bylander form, so a conversion from
+norm-conserving to kleinman-bylander must take place. The two forms are not
+equivalent, and this is the source of the problem. It is soluble.
+
+Primary issue is that when a norm-conserving pseudopotential is converted to
+KB form, ghost states can appear. This is true for KB pseudopotentials in
+general, but HF pseudopotentials are particularly vulnerable due to the fact
+that some channels can be very 'deep' when compared to KS-DFT
+pseudopotentials.
+If a deep channel is used as the local part of the pseudopotential then the
+KB projector representation that the other channels are converted into may
+not be accurate enough for electrons to be repelled sufficiently. This gives
+an overly attractive pseudopotential that binds some states that should not
+be bound states at all - the ghost states. Effectively, some of the the
+strongly attractive local channel 'leaks' into the approximate
+representation of other weakly attractive channels.
+
+The first row transitions are particularly vulnerable to this, and Zn is
+probably the most vulnerable as it possesses the deepest d-channel (see the
+figure on the web page).
+
+The solution is to make good choices for the extra data supplied to the
+conversion process (in addition to the pseudopotentials themselves). A
+conversion from norm-conserving (in whatever representation+file format) to
+KB requires the pseudopotential file itself, but it also requires a choice
+of local potential, and a choice of projector pseudowavefunctions. Some
+choices for Zn are:
+
+
+1) Easiest choice:
+pseudopotential file    : pp.data, pp_gaussian, or pp_gamess
+local-channel           : d (this is the easiest choice to make, and
+implicit in the pseudopotential files)
+projectors                      : awfn.data_d10s2_1s, or ground state DFT
+calculation
+
+ This is a bad choice because the d-channel is very deep, and the p-channel
+is thrown away as no projector is provided for it. This means that there is
+a very strongly attractive contribution from the p-channel that should not
+be there and that will almost certainly result in a ghost state. More
+subtly, the KB representation of the s-channel is probably not accurate
+enough to prevent this channels introducing ghost states as well.
+
+2) Best choice:
+pseudopotential file    : as above
+local-channel           : s
+projectors                      : d from awfn.data_d10s2_1s, p from
+awfn.data_3d104s14p1_3P (you can make a new awfn.data file for the converter
+by combining and editing
+                                        these two files, sd from the first
+file, p from the second) or equivalent GS and excited state calculations in
+DFT
+
+This uses the considerably more shallow s-channel as the local part, so
+prevents ghost states appearing. Since a p-projector is also supplied, none
+of the supplied pseudopotential channels are ignored.
+
+3) Next best after (2):
+pseudopotential file    : as above
+local-channel           : s
+projectors                      : awfn.data_d10s2_1s, or GS DFT calculation
+
+Prevents ghost states, but the p-channels is ignored.
+
+4) Next best after (3):
+pseudopotential file    : as above
+local-channel           : p
+projectors                      : awfn.data_d10s2_1s, or GS DFT calculation
+
+Prevents ghost states, but the local part is not from a ground state. It
+should be.
+
+
+Rules of thumb are that:
+ Choosing the most shallow channel as the local part is a good idea.
+ Choosing the deepest channel as the local part is a very bad idea.
+ It's best not to throw away pseudopotential channels in the conversion
+process, especially if the local channel is deep.
+ A useful test is a cheap and quick isolated atom PW calculation, to see if
+the energies look ridiculous.
+
+
+Small-core pseudopotentials
+---------------------------
+ For the first row atoms small-core pseudopotentials are available on the
+web page. These include the 3p subshell as valence. Although this means 6
+more electrons/atom, they will often be a better choice because:
+
+a) The 3p electrons are physically more like valence electrons than core
+electrons - they aren't frozen.
+b) The resulting pseudopotentials are more shallow. For plane-wave
+calculations this reduces the required energy cutoff a lot, and improves the
+convergence stability considerably.
+c) Since they are more shallow, they are less vulnerable to ghost states.
+
+
+

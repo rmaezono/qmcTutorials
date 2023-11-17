@@ -1,0 +1,100 @@
+crystal2casino - wave function conversion from CRYSTAL09 to casino gwfn
+=======================================================================
+
+This directory contains a utility to convert the wave function data from
+CRYSTAL09 for use in CASINO.
+
+The entire process is automated by running crystal09 with the supplied CASINO
+utility 'runcrystal'. If you choose to use this, then simply typing
+'runcrystal -qmc input_filename' will run the SCF calculation as normal then
+invoke all the necessary post-processing to generate the gwfn.data file
+automatically.
+
+The only complication is in periodic systems where, before executing the
+CRYSTAL code, the run script will ask you how many different supercell sizes
+you require. You then need to input that many integer triplets (divisors of
+the CASINO 'shrinking factors') to specify the size of each of the supercells.
+A gwfn.data file will then be generated for each required cell (appropriately
+labelled with the integer triplet - rename them before running with CASINO).
+
+
+Running the gwfn.data generation procedure manually
+===================================================
+
+If you choose to run CRYSTAL09 without our runcrystal script (say, with the
+scripts provided by the Torino people) then you will need to carry out the
+following manual procedure to generate the gwfn.data file(s).
+
+Molecules
+---------
+
+After completing a converged DFT/HF run with the CRYSTAL09 'crystal' binary,
+the 'properties' program needs to be run to produce the formatted data files
+needed by the CASINO crysgen09 utility. A minimal input file for the
+'properties' program in the case of a nonperiodic system is:
+
+NEWK
+1 0
+CRYAPI_OUT
+END
+
+After running properties successfully, the directory should contain the files
+GRED.DAT and KRED.DAT.  Running 'crysgen09' in the same directory reads these
+files and writes gwfn.data for use in CASINO.
+
+[Note that GRED.DAT has a slightly different format to the CRYSTAL06 GRED.DAT
+because for some reason the overlap matrix has a different size (great way
+to maintain an API).]
+
+1D/2D/3D periodic systems
+-------------------------
+
+For periodic systems, the k-point mesh used within CRYSTAL should be an integer
+multiple of the supercell size that is used in CASINO.
+Within CRYSTAL, the mesh is defined using the SHRINK keyword followed by 1, 2
+or 3 integers depending on the number of periodic dimensions.
+
+Next, the input for the 'properties' program needs one additional line after
+the NEWK keyword. To simply output the full k-point mesh that was used within
+CRYSTAL, use the following:
+
+NEWK
+0 0
+1 0
+CRYAPI_OUT
+END
+
+After running properties successfully, the directory should contain the files
+GRED.DAT and KRED.DAT
+
+IMPORTANT: In periodic systems the program crysgen09 now needs to know some
+parameters related to the size of the supercells required (the converter can
+output several sizes of supercells in one run). These can be taken from a file
+called crysgen.dat (which is normally automatically produced by the runqmc
+script) -- but if this file is not present crysgen will ask you to input this
+data on the command line.
+
+For reference, a typical crysgen.dat indicating that three supercells of sizes
+222, 333 and 444 should be generated might look like:
+
+QMC
+3
+2 2 2
+3 3 3
+4 4 4
+END
+
+The first number it reads after the QMC line is the number N of different super cell sized is should produce. After this, it takes N triples of integers each
+specifying one size of a supercell.  These supercells have to be integer
+dividers of the k-point mesh that was output by the 'properties' program.
+After all N triples are given, the individual gwfn.data files are produced for
+use in CASINO.
+
+Origin
+------
+
+The code is based on casino_interface.f90 by MDT that was originally intended
+to become a module of crystal03. It is combined with the cryapi_inp.f
+available from the crystal web page. A few additional routines were
+copied from CRYSTAL to make the super cell multiplication work. The CRYSTAL
+routines were converted to free format files and generally tidied.

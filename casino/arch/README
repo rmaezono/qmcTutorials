@@ -1,0 +1,677 @@
+CASINO system-specific data files
+=================================
+
+The 'arch/data' subdirectory contains architecture data files which define
+system-specific parameters for compiling and running CASINO.  Include files
+in this directory are named $CASINO_ARCH.arch, where CASINO_ARCH is an
+environment variable which should be defined in your shell session and
+determines which set of parameters to use, including compiler name, flags,
+library locations, how to submit jobs, etc.
+
+
+I. Types of CASINO_ARCHs
+========================
+While there is no fundamental difference between CASINO_ARCHs, we define two
+conceptual types for convenience, which simply differ in purpose and naming
+convention:
+
+* "Generic" CASINO_ARCHs are intended to represent a class of systems.  Their
+  name is typically of one of these forms:
+  - Single-processor workstations:
+
+    <system>-<compiler>
+
+  - Multi-processor workstations:
+
+    <system>-<compiler>-parallel
+
+  - Clusters with queueing systems:
+
+    <system>-<compiler>-<queueing-system>-parallel
+
+* "Extended" CASINO_ARCHs are intended to represent specific systems, and are
+  usually modifications to existing generic CASINO_ARCHs.  Their name is of the
+  form:
+
+  <generic-name>.<specific-system-name>
+
+  The corresponding .arch file is typically intended to "include" its generic
+  counterpart, if it exists, but again this is just a guideline.
+
+See the files in the CASINO/arch/data directory for examples of both generic
+and extended CASINO_ARCH names.
+
+
+II. Data file format
+====================
+The architecture data file is structured in three sections:
+
+* The first section contains architecture parameters ("tags", see below).
+
+* The second section contains any optional 'include' statements, always
+  of the form:
+
+    include $(INCBASE)/<file-name>.arch
+
+* The third section contains Makefile definitions (see below).
+
+The file is designed to be 'include'd by the Makefiles in the distribution,
+hence the lines in the first section start with the hash character '#' so that
+they are ignored by 'make'.  The first section is read by the 'runqmc' script
+and by the CASINO/arch/arch_info.sh assessment tool.
+
+When editing .arch files, you are encouraged to use the syntax highlighting
+file provided with CASINO, see CASINO/data/syntax for more info.
+
+
+II.1. Data file tags
+====================
+The beginning of architecture data files contain tags which can be used to
+identify the machine it is designed for, and to specify how to run CASINO on
+that machine.  Tag contents can be single- or multi-line.
+
+Single-line tags are specified this way:
+
+  #-! TAG-NAME: tag-value
+  #-!  tag-value-continue
+  #-!  ...
+  #-! ANOTHER-TAG_NAME: ...
+
+(no indentation before '#-!', *one* space between '#-!' and TAG-NAME, no space
+between TAG-NAME and the colon; one or more spaces between the colon and
+tag-value; two or more spaces between '#-!' and tag-value-continue).  Leading
+and trailing blanks are removed from tag-value and continuation lines, and
+lines are concatenated with a single blank between them to form the final
+value.
+
+Multiline tags are specified this way:
+
+  #-! TAG-NAME:
+  #-!  tag-value-line-1
+  #-!  tag-value-line-2
+  #-!  ...
+  #-! ANOTHER-TAG-NAME: ...
+
+(same format restrictions as above, and two or more spaces between '#-!' and
+tag-value-line-i).  Leading and trailing blanks are removed from each line
+read.
+
+Note that tags are inherited via "include" statements, read in the order in
+which the include statements are written, with the tags in a file overriding
+those in the included files regardless of the relative placement of tags
+and include statements.
+
+Below are tables containing the full list of tags, classified according to
+their purpose.  The values under the 'L' heading specify if the tag's value is
+supposed to be a single line ('S') or multiple lines ('M').
+
+
+II.1.i. Tags for manual CASINO_ARCH detection
+=============================================
+
+TAG NAME                  L  Description & examples
+-------------------------------------------------------------------------------
+DESCRIPTION               S  human-readable description of target system(s)
+
+MAINTAINER                S  name and email of maintainer.  E.g.,
+                               Mike Towler <mdt26@cam.ac.uk>
+
+DATE                      S  date written
+
+COMMENT                   S  any other relevant comments
+
+QUEUEING_SYSTEM           S  (TYPE=cluster only) queueing system.  E.g.,
+                               PBS
+-------------------------------------------------------------------------------
+
+
+II.1.ii. Tags for automatic CASINO_ARCH detection
+=================================================
+
+TAG NAME                  L  Description & examples
+-------------------------------------------------------------------------------
+ARCH                      S  comma-separated list of allowed architecture
+                             patterns as obtained from `uname -m`.  E.g.,
+                               i?86, x86_64
+
+KERNEL                    S  comma-separated list of allowed kernel name
+                             patterns as obtained from `uname -s`.  E.g.,
+                               Linux, GNU/kFreeBSD
+
+OS                        S  comma-separated list of allowed operating system
+                             names as obtained from `uname -o`.  E.g.,
+                               GNU/*
+
+DISTRIBUTION              S  comma-separated list of allowed Linux
+                             distribution strings, as obtained from (in order
+                             of decreasing preference):
+                             - `lsb_release -ds`
+                             - `head -n 1 /etc/redhat-release`
+                             - `head -n 1 /etc/SuSE-release`
+                             - Debian GNU-Linux `head -n 1 /etc/debian_version`
+                             E.g.,
+                               *buntu *, *SUSE 11.3*
+
+HOSTNAME                  S  comma-separated list of allowed host name
+                             patterns of the target computer.  E.g.,
+                               pc*.tcm.phy.cam.ac.uk, cluster.tcm.*
+                             An empty value means that the hostname should not
+                             be checked against anything.
+
+DOMAIN                    S  comma-separated list of allowed domain name
+                             patterns of the target computer. An empty value 
+                             means that the domain should not be checked 
+                             against anything. This is provided since some
+                             distinct machines have the same hostname but
+                             different domains.
+
+F90_VERSION               S  comma-separated list of allowed compiler version
+                             patterns that should be matched.  E.g.,
+                               <= 2.1, 3.2.*, 4.0.*, > 4.1
+
+COMMAND_CHECK_F90_VERSION M  bash code block that outputs the compiler
+                             version, which will be matched against
+                             F90_VERSION.  E.g.,
+                               set -- $(&F90& --version | head -n 1)
+                               echo ${*:$#}
+                             The code may make use of the &F90& variable,
+                             which is replaced by the value of the Makefile
+                             variable F90.
+
+COMMAND_CHECK_F90         M  bash code block that checks if the compiler
+                             is indeed the desired compiler (e.g., to avoid
+                             false positives with the usual 'f90', 'mpif90',
+                             etc).  The code should print '1' if the check
+                             succeeds, anything else otherwise.  E.g.,
+                               set -- $(&F90& --version | head -n 1)
+                               [ "${*:1:2}" = "GNU Fortran" ] && echo 1
+                             The code may make use of the &F90& variable,
+                             which is replaced by the value of the Makefile
+                             variable F90.
+
+CC_VERSION                S  | like their *F90* counterparts, but for the C
+COMMAND_CHECK_CC_VERSION  M  > compiler
+COMMAND_CHECK_CC          M  |
+
+CXX_VERSION               S  | like their *F90* counterparts, but for the C++
+COMMAND_CHECK_CXX_VERSION M  > compiler
+COMMAND_CHECK_CXX         M  |
+-------------------------------------------------------------------------------
+
+
+II.1.iii. Run-time tags
+=======================
+
+  If a run-time tag's name is preceded by an asterisk (e.g. '*RUN_SINGLE'),
+  the contents are interpreted as multi-line bash code whose standard output
+  provides the value of the tag -- in the case of single-line tags, multiple
+  output lines are appended a blank and concatenated, and in the case of
+  multi-line tags, each output line becomes an individual line in the tag's
+  value.
+
+  See 'variable substitution' section below for a list of allowed
+  run-time variables.
+
+TAG NAME            L  Description & examples
+------------------------------------------------------------------------------
+FORCE_PATH          S  comma-separated list of path patterns under one of
+                       which calculations must be run.  E.g.,
+                         /work, /scratch*
+                       would allow calculations under /work/john/heg,
+                       /scratch/mdt/h2o, or /scratch_large/benzene but not
+                       under /work1/dna, for example.
+
+RUN_SINGLE          S  command to run direct single-processor CASINO
+                       calculations.  This is '&BINARY&' by default.
+
+RUN_PARALLEL        S  (TYPE=parallel|cluster only) command to run direct
+                       multi-processor CASINO calculations.  This is
+                       'mpirun -np &NPROC& &BINARY&' by default.
+
+CLUSTER_RUN_MODE    S  (TYPE=cluster only) determines if the cluster requires a
+                       batch script to submit a job ('batch', default, triggers
+                       use of SCRIPT_HEAD, SCRIPT_RUN and SUBMIT_SCRIPT), or
+                       if a command for submitting a job to the queue is
+                       available ('direct', triggers use of RUN_CLUSTER).
+
+RUN_CLUSTER         S  (TYPE=cluster only) only used if CLUSTER_RUN_MODE is
+                       'direct'; command to submit a CASINO job to the cluster
+                       queue directly.  Undefined by default.  E.g., 'bgrun
+                       -mode VN -np &NPROC& -exe &BINARY&'
+
+CORES_PER_NODE      S  (TYPE=parallel|cluster only) number of cores on the
+                       workstation, or on the login node of the cluster; '1'
+                       by default (but note that gnulinux.arch contains code
+                       that counts the number of cores on the current node).
+
+CORES_PER_NODE_CLUSTER  S  (TYPE=cluster only) number of cores per node in
+                       the cluster compute nodes, if it differs from the
+                       number of cores in the login node - if defined, its
+                       value overrides that of CORES_PER_NODE in clusters.
+
+SCRIPT_HEAD         M  (TYPE=cluster only) only used if CLUSTER_RUN_MODE is
+                       'batch'; header of submission script.
+
+SCRIPT_RUN          M  (TYPE=cluster only) only used if CLUSTER_RUN_MODE is
+                       'batch'; line (or set of lines) in the submission script
+                       where CASINO is run, optionally surrounded by extra
+                       bash code as required by the machine.
+
+SUBMIT_SCRIPT       S  (TYPE=cluster only) only used if CLUSTER_RUN_MODE is
+                       'batch'; command to submit the submission script.  This
+                       is 'qsub &SCRIPT&' by default.
+
+ALLOWED_NCORE       S  (TYPE=cluster only) blank-separated list of allowed
+                       number of CPU cores to reserve or %<number> to specify
+                       "any integer multiple of <number>".  E.g.,
+                         1 2 4 8 16 32 %3
+
+ALLOWED_NNODE       S  (TYPE=cluster only) blank-separated list of allowed
+                       number of physical nodes to reserve or %<number> to
+                       specify "any integer multiple of <number>".  E.g.,
+                         1 2 4 8 16 32 %3
+
+MIN_NCORE           S  (TYPE=cluster only) minimum/maximum number of CPU cores
+MAX_NCORE              that can be reserved.
+
+MIN_NNODE           S  (TYPE=cluster only) minimum/maximum number of physical
+MAX_NNODE              nodes that can be reserved.
+
+MIN_NNODE_ENSEMBLE  S  (TYPE=cluster only) minimum number of physical nodes
+                       for a single job in an ensemble of multiple jobs (e.g.
+                       certain Blue-Gene Qs cannot run jobs of less than 128 
+                       nodes because of the hardware).
+
+TIME_FORMAT         S  (TYPE=cluster only) a string determining how the
+                       &WALLTIME& variable is to be constructed when specifying
+                       the requested job time in the submission script.  In
+                       this variable, D, H, M, and S are evaluated to days,
+                       hours, minutes and seconds, respectively; if the letters
+                       are repeated, the respective number is padded with
+                       zeroes on the left to fill the number of digits given by
+                       the number of repetitions. E.g., for a CASINO-formatted
+                       walltime of 5h43m31s,
+                         H:MM:SS
+                       would make &WALLTIME& expand to "5:43:31", while
+                         DD:HH:M:SSSS
+                       would make &WALLTIME& expand to "00:05:43:0031", and
+                         MMMM minutes SS seconds
+                       would make &WALLTIME& expand to "0343 minutes 31
+                       seconds".
+
+MIN_WALLTIME        S  (TYPE=cluster only) minimum/maximum wall time that can
+MAX_WALLTIME           be requested, in CASINO format.  E.g.,
+                         1d4h51m
+
+WALLTIME_CODES      S  (TYPE=cluster only) blank-separated list of associations
+                       between strings and associated wall times in CASINO
+                       format.  The strings will be used as the &WALLTIME&
+                       variable on machines which force discrete job times and
+                       uses custom codes to identify them.  E.g.,
+                         u=24h t=12h s=6h
+
+ALLOWED_WALLTIME    S  (TYPE=cluster only) blank-separated list of wall times
+                       that can be requested on a machine which forces discrete
+                       job times.  One need not supply this if WALLTIME_CODES
+                       is specified.  If both are, the intersection of both
+                       lists will take effect.  If MAX_*TIME is specified,
+                       both the limits and the discrete list constrain the
+                       available runlengths.
+
+MIN_CORETIME        S (TYPE=cluster only) minimum/maximum sum of time on all
+MAX_CORETIME          requested cores, in CASINO format.  If both MIN_WALLTIME
+                      and MIN_CORETIME, or MAX_WALLTIME and MAX_CORETIME, are
+                      specified, the most restrictive value takes effect.  This
+                      is particularly useful if there is an accounting credit
+                      system in place on the machine, so one can provide a
+                      *MAX_CORETIME tag which returns the time remaining in
+                      the user's account.
+
+MAX_NJOBS           S (TYPE=cluster only) On some machines there is a maximum
+                      number of jobs that may be flagged by a single runqmc 
+                      command (e.g. on Titan only 100 aprun processes are 
+                      permitted per job submission script). The maximum may
+                      be specified using this tag, so that runqmc can complain
+                      about this problem.
+
+RELPATHNAMES        S (TYPE=cluster only) If set to 'yes', this flags the 
+                      existence of a machine with completely different 
+                      filesystems on the login nodes and the compute nodes 
+                      (and which therefore requires 'staging' of the CASINO 
+                      input and output files).  This necessitates the use of 
+                      relative pathnames rather than absolute pathnames and 
+                      a more elaborate clean-up procedure.        
+
+SCRIPTCSH           S (TYPE=cluster only) This should be set to 'yes' on
+                      extremely unusual machines which insist that batch 
+                      scripts be written in csh, instead of the standard
+                      bash. The resulting batch scripts may have reduced
+                      functionality; in particular they do not yet support
+                      twist-averaging calcs.
+
+MAKE_EXECUTABLE     S Non-standard versions of 'make' available on some
+                      machines may not be able to compile CASINO. If this    
+                      is the case, the need to use an alternative version 
+                      of make (such as GNU 'gmake', which definitely works) can
+                      be specified by setting the value of the MAKE_EXECUTABLE
+                      tag. Merely setting a shell alias make='gmake' will not 
+                      work as the alias is not available to the install script 
+                      (though the alias might be necessary if you want to 
+                      compile CASINO by hand, rather than via the install 
+                      script).
+                 
+------------------------------------------------------------------------------
+
+
+II.2. Variable substitution
+===========================
+
+The variable substitution system in the .arch files is very flexible.
+In the runtime section, any tag is allowed to depend on any variable, and
+an appropriate evaluation order will be computed.  Together with the use
+of INTERNAL and USER variables (see below), this enables the .arch system
+to cater for very complex set-up requirements.
+
+
+II.2.i. List of variables available to automatic-detection tags
+===============================================================
+- &F90& : value of the F90 makefile tag
+- &CC&  : value of the CC makefile tag
+- &CXX& : value of the CXX makefile tag
+
+
+II.2.ii. List of variables available to run-time tags
+=====================================================
+- &TYPE&            : TYPE of the machine (not necessarily as defined in the
+                      Makefile section of the .arch file (see below); clusters
+                      can be used as workstations, and multi-processor
+                      workstations can run in non-MPI mode)
+- &F90&             : value of the F90 makefile tag
+- &CC&              : value of the CC makefile tag
+- &CXX&             : value of the CXX makefile tag
+- &OUT&             : output file name (used for stdout and stderr)
+- &NPROC&           : (TYPE=parallel|cluster only) number of processes to run
+                      (per job)
+- &NNODE&           : (TYPE=cluster only) number of physical nodes to use (per
+                      job)
+- &NCORE&           : (TYPE=parallel|cluster only) number of CPU cores to
+                      reserve (per job) -- this is exactly NNODE*CORES_PER_NODE,
+                      and is provided as a (redundant) convenience
+- &NJOB&            : number of simultaneous jobs being run
+- &NPROC_TOTAL&     : number of processes/nodes/cores used in total for all
+  &NNODE_TOTAL&       simultaneous jobs
+  &NCORE_TOTAL&
+- &PPN&             : (TYPE=parallel|cluster only) number of processes to run
+                      per physical node (per job)
+- &TPP&             : (TYPE=parallel|cluster only) number of threads to run per
+                      process
+- &TPN&             : (TYPE=parallel|cluster only) number of threads to run per
+                      physical node (per job); this is TPP*PPN
+- &WALLTIME&        : (TYPE=cluster only) wall time limit
+- &SCRIPT&          : (TYPE=cluster only) submission script
+- &BINARY&          : full binary pathname
+- &BINARY_ARGS&     : list of command line arguments to be used with the 
+                      binary executable. CASINO does not require such 
+                      arguments, but other codes which make use of the
+                      CASINO architecture system do (e.g. to run PWSCF, one 
+                      might write 'pw.x -pw2casino -npool 4 < in.pwscf >> 
+                      out.pwscf') where everything after the pw.x counts as
+                      a command line argument.
+
+
+II.2.iii. Environment variables
+===============================
+&ENV.<variable>& will expand to the value of environment variable <variable>
+(under the directory under which the runscript is invoked, so be careful with
+the usage of e.g. ENV.PWD, etc).
+
+Example:
+  #PBS -M &ENV.USER&
+
+
+II.2.iv. Internal variables
+===========================
+These are only available to run-time tags.
+
+Internal variables are defined and set within the .arch file.  Its value
+is defined via the runtime tag INTERNAL.<variable>, and &INTERNAL.<variable>&
+is the variable which expands to its value.  These are useful for defining
+often-used intermediate values from a single block of code.
+
+See example in section II.4.
+
+
+II.2.v. User variables
+======================
+These are only available to run-time tags.
+
+User variables are custom variables which can be set from the command line,
+or take their values from the defaults defined in the .arch file:
+- The tag USER.DESCRIPTION.<variable> gives a description of the purpose of
+  this variable which is displayed to the user when --help is requested.
+- The tag USER.DEFAULT.<variable> defines the default value of the variable.
+- The tag USER.ALLOWED.<variable> defines a set of blank-separated allowed
+  values that the variable can take -- if USER.DEFAULT.<variable> is not
+  specified, the first value in this list becomes the default value.
+- The tag USER.MIN.<variable> defines the minimum value that integer variable
+  <variable> can take.
+- The tag USER.MAX.<variable> defines the maximum value that integer variable
+  <variable> can take.
+- The variable &USER.<variable>& expands to the value of variable.
+
+
+II.3. Makefile section
+======================
+There are many variables that can be defined in the .arch files to modify
+the build process, although only a few of them are absolutely necessary to
+get CASINO to compile.
+
+* Required variables:
+  - TYPE      : omit or set to 'single' for single-processor machines, set to
+                'parallel' for multi-processor workstations and set to
+                'cluster' for clusters with batch-queueing systems
+  - F90       : name of the Fortran compiler binary
+  - CC        : name of the C compiler binary
+  - NEED_ETIME: omit or set to 'no' if the Fortran compiler supports the ETIME
+                extension, set to 'yes' otherwise
+
+* Recommended variables:
+  - CXX          : name of the C++ compiler binary (used by a single converter
+                   utility at present, which will be skipped from compilation
+                   if no C++ compiler is available)
+  - FFLAGS_opt   : flags for the Fortran compiler with full optimization
+  - FFLAGS_debug : flags for the Fortran compiler with full debugging
+  - CFLAGS_opt   : flags for the C compiler with full optimization
+  - CXXFLAGS_opt : flags for the C++ compiler with full optimization
+
+* Optional variables controlling features:
+  - HAVE_BLAS        : omit HAVE_BLAS/HAVE_LAPACK or set them to 'no' if you
+    HAVE_LAPACK        would like to use the BLAS/LAPACK libraries provided
+    LDBLAS_yes         with the CASINO distribution. Otherwise, set the HAVE_
+    LDLAPACK_yes       variables to 'yes' and the LDBLAS_yes/LDLAPACK_yes
+                       variables to the '-l' flags required to link the
+                       optimized BLAS/LAPACK libraries in your system.
+  - SUPPORT_OPENMP   : omit SUPPORT_OPENMP or set it to 'no' if your compiler
+    FFLAGS_OPENMP_yes  does not support OpenMP or you wish to disable the
+    CFLAGS_OPENMP_yes  ability to compile it, else set SUPPORT_OPENMP to 'yes'
+                       and set FFLAGS_OPENMP_yes and CFLAGS_OPENMP_yes to the
+                       flags required by your Fortran and C compiler to enable
+                       OpenMP extensions, e.g. '-openmp'
+  - SUPPORT_SHM      : omit SUPPORT_SHM or set it to 'yes' if your machine
+    CFLAGS_SHM         supports either SysV or POSIX SHM.  Set CFLAGS_SHM to
+                       the C compiler flags to compile SHM support - these are
+                       expected to be either -DSHM_SYSV or -DSHM_POSIX, which
+                       select which version of SHM to use.
+
+* Optional variables controlling the compile/run environment:
+  - ENVIRONMENT_COMMAND: single-line command to run before compiling and
+                         running.  This is useful where environment variables
+                         need to be set (e.g. 'export MPI=OpenMPI') or in
+                         clusters where the 'module' environment
+                         handling system is used (e.g. 'module load
+                         default-infinipath').  Multiple commands separated
+                         by semicolons can be given.  The only variables
+                         that may be referenced are pre-existing environment
+                         variables, and should be referenced using the syntax
+                         '${variable}' rather than '$variable'; e.g.:
+                           export PATH=${PATH}:/path/to/f90
+                         is valid, while
+                           export PATH=$PATH:/path/to/f90
+                         and
+                           export PATH1=/path/to/f90 ;\
+                           export PATH=${PATH}:${PATH1}
+                         are not valid.  (The reason for this restriction is
+                         the peculiarities of how 'make' and 'sh' interact.)
+
+* Variables controlling Fortran and MPI libraries:
+  - MPI_VERSION  : major version of the MPI library.  Allowed values are 1
+                   and 2 (default).
+  - LIB_PATH     : '-L' options to add library search paths, e.g.,
+                   '-L/usr/opt/mpi/lib' (add one '-L' option for each path to
+                   be added)
+  - INCLUDE_DIR  : '-I' options to add include search paths, e.g.,
+                   '-I/usr/opt/mpi/include' (add one '-I' option for each path
+                   to be added)
+  - LDLIBS_all   : '-l' options to link libraries, e.g., '-lmpi' (add one '-l'
+                   option for each library to be linked)
+
+* Variables defining different compilation parameters for the utilities.
+  This is useful when one needs to cross-compile the sources to run on the
+  compute nodes of a cluster, but still requires a native compiler to be
+  able to build the utilities. The main keyword is:
+  - UTILS_MODE : set to 'native' if the utilities require a compiler
+                 different from the one used for main binary, leave empty
+                 otherwise.
+
+  The following tags are of the form <X>_NATIVE, and have the same meaning
+  as their <X> counterparts, but only used for the utilities if UTILS_MODE
+  is set to 'native':
+  - F90_NATIVE FFLAGS_opt_NATIVE FFLAGS_all_NATIVE
+    LDF90_NATIVE LDFLAGS_opt_NATIVE LDFLAGS_all_NATIVE
+    CC_NATIVE CFLAGS_opt_NATIVE CFLAGS_all_NATIVE CFLAGS_F90_INTERFACE_NATIVE
+    LDC_NATIVE LDCFLAGS_opt_NATIVE LDCFLAGS_all_NATIVE
+    HAVE_BLAS_NATIVE LDBLAS_yes_NATIVE LDBLAS_no_NATIVE
+    HAVE_LAPACK_NATIVE LDLAPACK_yes_NATIVE LDLAPACK_no_NATIVE
+    LDLIBS_opt_NATIVE LDLIBS_all_NATIVE
+    ENVIRONMENT_COMMAND_NATIVE
+
+* Rarely needed variables:
+  - CFLAGS_F90_INTERFACE : flags required by the C compiler to correctly
+                           interface with the Fortran compiler.  The value will
+                           depend on the requirements of the Fortran compiler,
+                           not on the C compiler.  Possible values are:
+                            <empty>
+                            -DF90_CAPITALS
+                            -DF90_DOUBLE_UNDERSCORE
+                            -DF90_DOUBLE_UNDERSCORE -DF90_CAPITALS
+                            -DF90_NO_UNDERSCORE
+                            -DF90_NO_UNDERSCORE -DF90_CAPITALS
+  - FFLAGS_libs          : flags to compile the provided BLAS/LAPACK, if
+                           different from FFLAGS_opt
+  - FFLAGS0_libs         : non-optimized flags to compile sensitive functions
+                           in the provided BLAS/LAPACK, if different from '-O0'
+  - MODNAME_BUG          : omit or set to '0' if your compiler does *not*
+                           suffer from the 'modname' bug, else set to '1'
+  - FFLAGS_dev           : flags for the Fortran compiler for the dev and prof
+    FFLAGS_prof            versions
+  - FFLAGS_all           : flags for the Fortran compiler for all versions;
+                           these are appended to those for the individual
+                           versions
+  - LDFLAGS_opt          : flags for the linker (if different from those for
+    LDFLAGS_debug          the compiler) for the individual versions
+    LDFLAGS_dev
+    LDFLAGS_prof
+  - FFLAGS_OPENMP_no     : flags required by your compiler to *disable*
+                           OpenMP support, in compilers where it is enabled by
+                           default
+  - CFLAGS_OPENMP_no     : flags required by your C compiler to *disable*
+                           OpenMP support, in compilers where it is enabled by
+                           default
+  - LDFLAGS_OPENMP_yes   : flags required by your linker to enable OpenMP
+                           support, if different from those for the Fortran
+                           compiler
+  - LDFLAGS_OPENMP_no    : flags required by your linker to *disable* OpenMP
+                           support, if different from those for the Fortran
+                           compiler
+  - LDLIBS_opt           : '-l' options for the individual versions; LDLIBS_all
+    LDLIBS_debug           will be appended to these
+    LDLIBS_dev
+    LDLIBS_prof
+  - CFLAGS_opt           : flags for the C compiler for the individual versions
+    CFLAGS_debug
+    CFLAGS_dev
+    CFLAGS_prof
+  - CFLAGS_all           : flags for the C compiler for all versions; these are
+                           appended to those for the individual versions
+  - CXXFLAGS_opt         : flags for the C++ compiler for the individual
+    CXXFLAGS_debug         versions
+    CXXFLAGS_dev
+    CXXFLAGS_prof
+  - CXXFLAGS_all         : flags for the C++ compiler for all versions; these
+                           are appended to those for the individual versions
+  - LDC                  : linker, linker flags and linker '-l' options for
+    LDCFLAGS_opt           compiling pure C applications.  LDC defaults to CC
+    LDCFLAGS_all           and LDCFLAGS_* default to CFLAGS_*.
+    LDCLIBS_opt
+    LDCLIBS_all
+  - LDCXX                : linker, linker flags and linker '-l' options for
+    LDCXXFLAGS_opt         compiling pure C++ applications.  LDCXX defaults to
+    LDCXXFLAGS_all         CXX and LDCXXFLAGS_* defaults to CXXFLAGS_*.
+    LDCXXLIBS_opt
+    LDCXXLIBS_all
+  - AR                   : archiver command to create a static library for
+                           BLAS/LAPACK.
+  - NATIVE_WINDOWS       : flags the intention to compile Native Windows
+                           executables under Cygwin (and hence the use of the
+                           CASINO/build-tools/winwrap script which converts
+                           Linux filenames to Unix ones and eliminates
+                           symbolic links. [equivalent to the old 'IS_CYGWIN']
+  - SHELL                : explicitly set the shell to use when running make.
+                           The default is usually fine, but in some systems
+                           this turns out to be a version of /bin/sh which
+                           does not support certain bashisms, so you may want
+                           to set this to /bin/bash explicitly.
+
+
+II.4. Example
+=============
+The following exemplifies the use of command substitution of internal
+variables and of user variables:
+
+  #-! *INTERNAL.NICE_BE_NICE:
+  #-!  (($(nice)<=15)) && echo 15 || nice
+  #-! *INTERNAL.NICE_BE_UNNICE:
+  #-!  nice
+  #-! *INTERNAL.CPUFREQ_IGNORES_NICE:
+  #-!  [ "$(head -n 1\
+  #-!   /sys/devices/system/cpu/cpu0/cpufreq/ondemand/ignore_nice_load\
+  #-!   2> /dev/null)" = 0 ] && echo no || echo yes
+  #-! USER.DESCRIPTION.NICE: Nice-value for the job on workstations.
+  #-! *USER.DEFAULT.NICE:
+  #-!  case "&INTERNAL.CPUFREQ_IGNORES_NICE&" in
+  #-!  no) echo "&INTERNAL.NICE_BE_NICE&" ;;
+  #-!  *) echo "&INTERNAL.NICE_BE_UNNICE&" ;;
+  #-!  esac
+  #-! *USER.MIN.NICE:
+  #-!  nice
+  #-! USER.MAX.NICE: 19
+  #-! RUN_SINGLE: nice -n &USER.NICE& &BINARY&
+  #-! RUN_PARALLEL: nice -n &USER.NICE& mpirun -np &NPROC& &BINARY&
+
+
+III. Concepts
+=============
+It is important to define the following concepts which are implicit in the
+descriptions above.
+
+- CORE: each processing unit in a machine is a CORE.  Single-processor
+  workstations only have one core.
+
+- NODE: each computational unit which runs its own instance of the operating
+  system in the machine is a node.  Nodes may have one or multiple cores.
+  Workstations may have multiple *cores*, but by definition only have one node.
+
+  It is assumed that a node has an amount of memory that is available to all
+  of its cores, and that shared-memory mode and OpenMP will always run within
+  a node (i.e., memory is shared among cores in a node, and OpenMP threads
+  for a given process will spawn within the node that process runs on).

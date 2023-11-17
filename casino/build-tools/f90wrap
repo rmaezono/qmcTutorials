@@ -1,0 +1,291 @@
+#!/bin/bash
+################################################################
+# Conditional F90 compiler. Will skip the compilation of files #
+# that have already been compiled if the file has not changed  #
+# and the structure of the modules on which they depend hasn't #
+# changed either.                                              #
+#                                                              #
+# The ideas on which this script is based can be found in      #
+# http://www.theochem.uwa.edu.au/fortran/recompile/            #
+#                                                              #
+# PLR 09.2005                                                  #
+#                                                              #
+# Changes:                                                     #
+# =======                                                      #
+# 10.2005 PLR Full support for ifc 7.1 without approximate     #
+#             methods. Maximum log size.                       #
+################################################################
+# Log file
+set +u
+logfile="f90wrap.log"
+max_log_size=512 # max. log size in lines
+
+# ARCH dependent stuff
+# NB, to look into MOD files, try 'hexdump -C store.mod | head -n 20' under
+# the corresponding zlib/$CASINO_ARCH/opt directory.
+unset BLOCK_SIZE
+get_size="ls -l" ; get_size_field=5
+allowed_bytes="" ; last_field_check=0
+diff_mod_filter() { cat ; }
+case "$CASINO_ARCH" in
+alpha)
+ # Has binary mod files.  These fields seem to change randomly when
+ # recompiling the same module without changes:
+ allowed_bytes="25 26 27 28 45 46 47" ;;
+linuxpc-ifc*)
+ # Has binary mod files and needs special algorithm because the date is at
+ # the bottom.
+ last_field_check=1 ;;
+linuxpc-ifort*|linuxpc-intel*)
+ # Has binary mod files.  These fields seem to change randomly when
+ # recompiling the same module without changes:
+ allowed_bytes="45 46 47 48 49 50 51 52" ;;
+linuxpc-path*)
+ # Has binary mod files and I don't know if there is a date field.  I
+ # think there isn't, so we do nothing.
+ ;;
+linuxpc-sun*)
+ # Has binary mod files and I don't know if there is a date field.  I
+ # think there isn't, so we do nothing.
+ ;;
+linuxpc-g95*)
+ # Has sane mod files that don't change when source files don't change.
+ ;;
+linuxpc-gcc*|linuxpc-gnu*)
+ # Has text mod files.  The format is:
+ # GFORTRAN module version '4' created from /home/pablo/CASINO/src/store.f90
+ #   on Thu Apr 21 17:35:31 2011
+ # MD5:f98b1728bd0cd4512ad9240fb8adb4d1 -- If you edit this, you'll get what
+ #   you deserve.
+ #
+ # ...
+ #
+ # We skip first two lines.
+ diff_mod_filter() { tail -n +3 ; } # start at 3rd line
+ ;;
+linuxpc-pgf*|linuxpc-portland*)
+ # Has text mod files.  The format is:
+ # V24 store
+ # 36 /u/tcmsf1/pl275/CASINO/src/store.f90 S582 0
+ # 05/10/2011  22:03:29
+ # use dsp public 0 direct
+ # ...
+ #
+ # We skip the first three lines.
+ diff_mod_filter() { tail -n +4 ; } # start at 4th line
+ ;;
+linuxpc-nag*)
+ # Has text mod files.  The format is:
+ # VE 0 0 3 0 0 0
+ # MODULE STORE,0 0
+ # FILE 0,/u/tcmsf1/pl275/CASINO/src/store.f90
+ # USE DSP 2
+ # ...
+ #
+ # We skip the first three lines.
+ diff_mod_filter() { tail -n +4 ; } # start at 4th line
+ ;;
+esac
+
+################################# FUNCTIONS #################################
+function cap {
+ # Turn lower case into upper case in $1.
+ local i string string_out="" n c
+ i=0 ; string="$1" ; n=${#string}
+ while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+  case "$c" in
+  a) c=A ;; b) c=B ;; c) c=C ;; d) c=D ;; e) c=E ;; f) c=F ;; g) c=G ;;
+  h) c=H ;; i) c=I ;; j) c=J ;; k) c=K ;; l) c=L ;; m) c=M ;; n) c=N ;;
+  o) c=O ;; p) c=P ;; q) c=Q ;; r) c=R ;; s) c=S ;; t) c=T ;; u) c=U ;;
+  v) c=V ;; w) c=W ;; x) c=X ;; y) c=Y ;; z) c=Z ;;
+  esac
+  string_out="$string_out$c"
+ done
+ echo "$string_out"
+}
+
+# Output field $1 of $2-$n
+function field { local i=$1 ; shift ; echo ${@:$i:1} ; }
+
+function nfield { echo $# ; }
+
+function find_string {
+ local string=$1
+ while (($#>1)) ; do shift ; [ "$string" = "$1" ] && return 0 ; done ; return 1
+}
+
+# Output $1 spaces
+function space { (($1>0)) && printf "%${1}s" "" ; }
+
+function diff_mods {
+ local file1=$1 file2=$2
+ local bytes byte size1 size2 check_length
+ # Compare files
+ cmp -s <(diff_mod_filter <$file1) <(diff_mod_filter <$file2) >& /dev/null && return 0
+ # Files differ: compare size
+ size1=$($get_size $file1) ; size1=$(field $get_size_field $size1)
+ size2=$($get_size $file2) ; size2=$(field $get_size_field $size2)
+ ((size1!=size2)) && return 1
+ # Files are different but have same size. Get bytes at which they differ
+ bytes=$(cmp -l $file1 $file2 2> /dev/null | { \
+  while : ; do read line || break ; echo -n "$(field 1 $line) " ; done ; } )
+ if ((last_field_check==0)) ; then
+  # Is the byte in the allow list?
+  for byte in $bytes ; do
+   if ! find_string $byte $allowed_bytes ; then
+    # Log the bytes that have changed
+    if (($(nfield $bytes)<10)) ; then
+     touch $logfile
+     echo "$file1 of size $size1 on $(date)" >> $logfile
+     echo "Bytes changed: $bytes" >> $logfile
+     limit_size $max_log_size $logfile
+    fi
+    # Return an error
+    return 1
+   fi
+  done
+ else
+  # ifc 7.1 puts the timestamp at the end of the file in the last field
+  # of the file, between a 'nul' character and the end of the file -marked
+  # by another 'nul' character. Check that the change was in this field,
+  # i.e., check that no 'nul' character occurs between the first differing
+  # byte and the end of the file.
+  byte=$(field 1 $bytes)           # Offset = first differing byte
+  check_length=$((size1-byte-1)) # Do not check last byte
+  if (($(od -j $byte -N $check_length -t a $file1 | grep -c 'nul')!=0));then
+   if (($(nfield $bytes)<10)) ; then
+    # Log the bytes that have changed
+    touch $logfile
+    echo "$file1 of size $size1 on $(date)" >> $logfile
+    echo "Bytes changed: $bytes" >> $logfile
+    limit_size $max_log_size $logfile
+   fi
+   # Return an error
+   return 1
+  fi
+ fi
+}
+
+function limit_size {
+ local limit_to=$1 file=$2 dif tempfile
+ tempfile=$file.tmp ; rm -f $tempfile
+ nlines=$(grep -c '' $file)
+ ((nlines<limit_to)) && return
+ dif=$((limit_to-nlines))
+ tail -n $dif $file > $tempfile
+ mv -f $tempfile $file
+}
+
+function modfile_name {
+ local name namecap
+ name=$1 ; namecap=$(cap $name)
+ [ -e $name.mod ] && { echo $name.mod ; return ; }
+ [ -e $namecap.mod ] && { echo $namecap.mod ; return ; }
+ [ -e $name.d ] && { echo $name.d ; return ; }
+ [ -e $namecap.d ] && { echo $namecap.d ; return ; }
+ [ -e $name.vo ] && { echo $name.vo ; return ; }
+ [ -e $namecap.vo ] && { echo $namecap.vo ; return ; }
+}
+############################### END FUNCTIONS ###############################
+
+# Read command line
+file="$1" ; filef90="$2" ; compile="$3" ; shift 3
+show_compile="$compile"
+force_compile=0 ; modname_bug=0 ; action="" ; inaction=""
+fileo=$file.o ; mode=0 ; nmods=0 ; ndeps=0 ; silent_mode=0 ; redir=""
+while (($#>0)) ; do
+ case "$1" in
+ --mods|-m) mods_found=1 ; mode=m ;;
+ --deps|-d) deps_found=1 ; mode=d ;;
+ --force|-f) force_compile=1 ;;
+ --action) mode=0 ; shift ; action="$1" ;;
+ --inaction) mode=0 ; shift ; inaction="$1" ;;
+ --modname_bug) mode=0 ; shift ; modname_bug="$1"
+  case "$modname_bug" in
+  0|1) :;; *) echo "F90WRAP: invalid argument to --modname_bug."; exit 1 ;;
+  esac ;;
+ --silent|-s) mode=0 ; shift ; silent_mode="$1"
+  case "$silent_mode" in
+  0|1) : ;; *) echo "F90WRAP: invalid argument to --silent." ; exit 1 ;;
+  esac
+  ((silent_mode==1)) && redir=">& /dev/null" || redir="" ;;
+ *)
+  case $mode in
+  m) nmods=$((nmods+1)) ; mod[$nmods]=$1 ;;
+  d) ndeps=$((ndeps+1)) ; dep[$ndeps]=$1 ;;
+  *) echo "F90WRAP: unrecognized option $1." ; exit 1 ;;
+  esac
+ esac
+ shift
+done
+
+if ((modname_bug==1)) ; then
+ echo "F90WRAP: your compiler suffers from the 'MOD name' bug. This is not"
+ echo "currently supported. Please contact the CASINO developers to fix this."
+ exit 1
+fi
+
+do_compile=$force_compile # 0 by default
+if ((do_compile!=1)) ; then # conditions on compiling
+ if [ "$filef90" -nt "$fileo" ] ; then # fileo non-existing or old?
+  do_compile=1
+ elif [[ "$filef90" == *src/main.f90 ]]\
+  && [ "$(dirname "$filef90")/../VERSION" -nt "$fileo" ]\
+  ; then # is this main.f90 and ../VERSION has changed?
+  do_compile=1
+ else # have the modules on which it depends changed?
+  i=0 ; any=0
+  while ((i<ndeps)) ; do i=$((i+1))
+   temptime=${dep[$i]}.time
+   if [ -e $temptime ] ; then
+    [ ! -z "$(find $temptime -newer $fileo)" ] && { any=1 ; break ; }
+   else
+    any=1 ; break
+   fi
+  done
+  ((any==1)) && do_compile=1
+ fi
+fi
+
+# If not needed, skip compilation, but touch .o file to fool 'make'
+if ((do_compile==0)) ; then
+ touch $fileo
+ [ -z "$inaction" ] && echo "F90WRAP: Skipping $file"\
+  || echo "$inaction"
+ exit 0
+fi
+
+# Back up modfiles
+i=0
+while ((i<nmods)) ; do i=$((i+1))
+ tmp="${mod[$i]}" ; modname=$(modfile_name $tmp)
+ [ ! -z "$modname" ] && cp $modname .$modname.temp
+done
+
+# Create links if modname_bug==1 -- this doesn't make sense?
+#if ((modname_bug==1)) ; then
+# i=0
+# while ((i<nmods)) ; do i=$((i+1))
+#  tmp="${mod[$i]}"
+#  [ "$tmp" != "$file" ] && ln -s $filef90 ${filef90%/*}/$tmp.f90
+# done
+#fi
+
+# Compile
+[ -z "$action" ] && echo $compile $redir || echo "$action"
+eval "$compile $redir" || { rm -f .*.temp $fileo ; exit 1 ; }
+
+# Look for differences in modfiles
+i=0
+while ((i<nmods)) ; do i=$((i+1))
+ tmp="${mod[$i]}" ; modname=$(modfile_name $tmp)
+ if [ ! -z "$modname" ] ; then
+  if [ -e .$modname.temp ] ; then
+   ! diff_mods $modname .$modname.temp && touch "$tmp.time"
+   rm -f .$modname.temp
+  else
+   touch "$tmp.time"
+  fi
+ fi
+done
+exit 0

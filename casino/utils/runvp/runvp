@@ -1,0 +1,991 @@
+#!/bin/bash
+###########################################################################
+# Script to split a CASINO calculation into several bits, each of which is
+# run on a different single- or multi-processor computer using a different
+# random seed.
+#
+# In VMC and DMC, the runs are independent.  This is like a true parallel
+# calculation for VMC (except that the optimized timestep may vary from
+# node to node, but that is not a problem). In DMC this differs in that
+# the reference energy is different on each node, which is not necessarily
+# a problem, but the population bias needs to be investigated.
+#
+# Optimization runs do need some sort of message-passing interface, such
+# as the one which this script implements.
+#
+# VIRTUAL PARALLELIZATION
+# =======================
+# This allows processes in different workstations to talk to one another
+# via SSH tunnels. For N nodes, the master node starts up N shell scripts,
+# each of them connected to SSH via named pipes (the master-node script
+# also connects to the master node via SSH). On the remote side of SSH
+# CASINO is run, and then the i/o of each command is appropriately
+# redirected in order to construct a fully-connected network. This is
+# represented in the diagrams below; outwards arrows (PROCESS ->) represent
+# stdout, inwards arrows (PROCESS <-) represent stdin.
+#
+# a) On call, each script has two-way communication with its own SSH:
+#
+#       Local side       Tunnel      Remote side
+#       ----------       ------      -----------
+#    +-- SCRIPT#1   <-   1-SSH-1  <-  BASH
+#    |---------------->            ->
+#
+#    +-- SCRIPT#2   <-   1-SSH-2  <-  BASH
+#    |---------------->            ->
+#
+#    +-- SCRIPT#3   <-   1-SSH-3  <-  BASH
+#    |---------------->            ->
+#
+# (...,N)
+#
+# b) CASINO is executed with its input and output connected to the remote-
+#    side output and input of SSH, respectively, so BASH in effect disappears
+#    from the diagram. Then the scripts' stdouts are redirected to different
+#    SSH's; all slave scripts communicate with the master SSH, and the master
+#    script communicates with all slave SSHs:
+#
+#       Local side       Tunnel      Remote side
+#       ----------       ------      -----------
+# +----- SCRIPT#1   <-   1-SSH-1  <-  CASINO [master mode]
+# |  +---------------->            ->
+# |  |
+# |  +-- SCRIPT#2   <-   1-SSH-2  <-  CASINO [slave mode]
+# +--|---------------->            ->
+# |  |
+# |  +-- SCRIPT#3   <-   1-SSH-3  <-  CASINO [slave mode]
+# +--|---------------->            ->
+# |  |
+# (...,N)
+#
+# It is the code's business to use the provided channels correctly; in
+# particular, the data sent by the slaves is likely to be scrambled
+# together (interleaved) rather than neatly ordered, and the master node
+# must assign turns for the slaves to "speak". This form of parallelization
+# requires all data going through the MASTER casino process, and is
+# probably not suitable for processes with frequent slave-to-slave
+# communication (eg., DMC config transfers).
+#
+# This setup could be used to build a full home-made bash-based MPI
+# implementation (with the restriction that processes send and receive
+# parallel messages via stdout and stdin), but my bet is that it wouldn't
+# be worth the effort.
+#
+# FURTHER WORK
+# ============
+# In the case of VMC and DMC runs, it would be possible to establish simple
+# communication between processes to use the same DTVMC, and to pass the
+# same DMC reference energy to all nodes. I am not planning to do so unless
+# needed..
+#
+# PLR 10.2006
+###########################################################################
+
+set +u
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+
+############################### START FUNCTIONS ###############################
+field() {
+ # Output field $1 of $2-$n
+ local i n=$#
+ ((n<2)) && return
+ i=$1 ; ((n<=i)) && return
+ shift ; echo ${@:$i:1}
+}
+
+rem_list() {
+ # Remove item $1 from $2-$n
+ local rem=$1 item list out
+ shift ; list=$* ; out=""
+ for item in $list ; do [ "$item" != "$rem" ] && out="$out $item" ; done
+ echo "$out"
+}
+
+check_number_N() {
+ # Check whether $1 is a positive integer
+ local num="$1" size i=0 c
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case "$c" in 1|2|3|4|5|6|7|8|9|0) continue ;; esac ; return 1
+ done
+ return 0
+}
+
+echo_breakline() {
+ # Print a message with appropriate line-breakup at blanks.
+ # Multiple spaces are reduced to single spaces. There's a simpler
+ # way to do some of the things here, but this is the one that
+ # doesn't perform expansion of e.g. "$", "*", "?".
+ local message="$*" word i=0 l addi mess
+ [ -z "$message" ] && echo
+ while : ; do
+  [ -z "$message" ] && break
+  word="${message%% *}" ; mess="$message" ; message="${message#* }"
+  [ "$mess" = "$message" ] && message=""
+  word="${word// /}" ; l=${#word} ; ((l==0)) && continue
+  if ((l<79)) ; then # normal-sized word
+   addi=$((l+1))
+   ((addi+i>79)) && { echo ; i=0 ; }
+   echo -n "$word " ; i=$((addi+i))
+  else # huge word (>78 characters)
+   ((i>0)) && echo
+   echo "$word" ; i=0
+  fi
+ done
+ ((i>0)) && echo
+ return 0
+}
+
+# Exit with an error message.
+errstop() { echo ; echo_breakline "ERROR: $*" ; echo ; exit 1 ; }
+
+# Find parent of process of PID $1
+parent() { local pid=$(ps -p "$1" -o ppid= 2>/dev/null) ; echo $pid ; }
+
+all_offspring() {
+ # Return the PIDs of all children of $1, and of their children, grandchildren,
+ # etc.
+ local ppidlist=$1 pidlist="" all_list="" pid
+ while [ ! -z "$ppidlist" ] ; do
+  pidlist=""
+  for ppid in $ppidlist ; do
+   pidlist="$pidlist $(ps --ppid $ppid -o pid=)"
+  done
+  all_list="$all_list $pidlist"
+  ppidlist="$pidlist"
+ done
+ echo $all_list
+}
+
+log() {
+ # Write to logfile.  NB, caller must be in the right directory!
+ local what=$1 inode=$2 msg
+ shift 2 ; msg=$*
+ echo "[$what-$inode] $msg" >> "$logfile"
+}
+
+logpid() {
+ # Write list of PIDs $3-$n on $2 to pidfile, along with description $1.
+ echo "$2 ${@:3} # $1" >> "$pidfile"
+}
+
+job_handler_master() {
+ # Handle i/o for master CASINO process
+ local pc inode binary nstep_val nconfig_write_val file fname dir
+ local exist miss_list mlist names my_pid remote_pid casino_pid jnode pback
+ local ncore casino_offspring pdir wdir slave_list
+ # Get current directory.
+ pdir=$(pwd)
+ # Get arguments.
+ pc=$1 ; shift
+ ncore=$1 ; shift
+ nstep_val=$1 ; shift
+ nconfig_write_val=$1 ; shift
+ pto_casino="$pdir/$1" ; shift
+ pfrom_casino="$pdir/$1"
+ inode=1
+ # Start log.
+ log INIT $inode "JOB_HANDLER started. $pc is the MASTER node."
+ # Log current PID. NB, '$$' gives the PID of the original process, not
+ # of this fork, so the following is needed.
+ sleep 1 & my_pid=$(parent $!)
+ log INIT $inode "My PID is $my_pid."
+ # Get work directory.
+ {
+  while read dir ; do
+   [ ! -z "$dir" ] && [ -d "$dir" ] && [ -w "$dir" ] && wdir="$dir" && break
+  done
+ } < <(
+  echo "$QMC_TMPDIR"
+  echo "$TMPDIR"
+  echo "/temp/$USER"
+  echo "/tmp/$USER"
+  echo "/temp"
+  echo "/tmp"
+ )
+ if [ -z "$wdir" ] ; then
+  log ABORT $inode "No temporary directory found."
+  log ABORT $inode "Sending break to slave nodes."
+  touch BREAK
+  log ABORT $inode "Quitting."
+  exit 1
+ fi
+ wdir="$wdir/${script_name}.${pc}.node${inode}.$run_id"
+ # Locate CASINO binary.
+ [ "$casino_arch" = default ] && casino_arch=$CASINO_ARCH
+ binary="$HOME/CASINO/bin_qmc/$casino_arch/$version/casino"
+ log INIT $inode "CASINO binary is $binary"
+ if [ ! -e "$binary" ] ; then
+  log ABORT $inode "Binary $binary does not exist."
+  log ABORT $inode "Sending break to slaves."
+  touch BREAK
+  log ABORT $inode "Quitting."
+  exit 1
+ fi
+ # Create work directory.
+ log SETUP $inode "Creating directory $wdir on $pc"
+ if ! mkdir -p "$wdir" >& /dev/null ; then
+  log ABORT $inode "Could not create directory. Disk full?"
+  log ABORT $inode "Sending break to slaves."
+  touch BREAK
+  log ABORT $inode "Quitting."
+  exit 1
+ fi
+ echo $pc "$wdir" >> "$dirfile"
+ # Write modified input file.
+ log SETUP $inode "Copying modified input file on $pc."
+ touch "$wdir/input"
+ { while : ; do
+  ! read line && break
+  [ -z "$line" ] && { echo >> "$wdir/input" ; continue ; }
+  f1=$(field 1 $line)
+  case "$f1" in
+  "$nstepkw") echo "$nstepkw : $nstep_val" >> "$wdir/input" ;;
+  "$nconfig_writekw")
+   [ -z "$nconfig_writekw" ] && echo >> "$wdir/input" \
+    || echo "$nconfig_writekw : $nconfig_write_val" >> "$wdir/input" ;;
+  random_seed) : ;;
+  *) echo "$line" >> "$wdir/input" ;;
+  esac
+ done ; } <../input
+ echo "random_seed     : timer" >> "$wdir/input"
+ if [ "$mode" = vp ] ; then
+  echo "virtual_node    : $((inode-1))" >> "$wdir/input"
+  echo "virtual_nconfig : $nconfig" >> "$wdir/input"
+  echo "virtual_nnodes  : $npcs" >> "$wdir/input"
+ fi
+ # Soft-link other files.
+ log SETUP $inode "Linking other files."
+ for file in ../* ; do
+  [ ! -e "$file" ] || [ -d "$file" ] && continue
+  fname="${file##*/}"
+  case "$fname" in
+  input) continue ;;
+  out*|*.gz|*.tar|*.tgz|*.bz2|*.tbz) continue ;;
+  expval.data)
+   cp "$pdir/../$fname" "$wdir/$fname" >& /dev/null
+   continue ;;
+  esac
+  ln -s "$pdir/../$fname" "$wdir/$fname" >& /dev/null
+ done
+ # Environment variables to fix certain compilers [!].
+ export GFORTRAN_UNBUFFERED_PRECONNECTED=y
+ export GFORTRAN_UNBUFFERED_ALL=y
+ export G95_UNBUFFERED_6=y
+ export MPI=OpenMPI
+ # Link CASINO binary.
+ ln -s "$binary" "$wdir/$binlink.$inode"
+ # Build list of slaves and list of fifos for later redirection.
+ slave_list="" ; names=""
+ jnode=1 ; while ((jnode<npcs)) ; do jnode=$((jnode+1))
+  slave_list="$slave_list $jnode" ; names="$names to$jnode"
+ done
+ # Wait for SYNC_RUN to run CASINO.
+ log SYNC_RUN $inode "Waiting for slaves to flag SYNC_RUN."
+ miss_list="$slave_list"
+ while [ ! -z "$miss_list" ] ; do
+  sleep 1
+  mlist=$miss_list
+  for jnode in $mlist ; do
+   [ -e SYNC_RUN_$jnode ] && { miss_list=$(rem_list $jnode $miss_list) ;\
+    rm -f SYNC_RUN_$jnode ; }
+   if [ -e BREAK_$jnode ] ; then
+    log ABORT $inode "Break received on master from node #$jnode."
+    log ABORT $inode "Sending break to slaves."
+    touch BREAK
+    log ABORT $inode "Quitting."
+    exit 1
+   fi
+  done
+ done
+ # Open pipe now if appropriate.
+ [ "$mode" = vp ] && sleep 5 >> "$pto_casino" &
+ # Flag global SYNC_RUN.
+ touch SYNC_RUN
+ log SYNC_RUN $inode "Global SYNC_RUN flagged."
+ # Run CASINO.
+ log RUN $inode "Running casino binary in the backgroud, with NICE=$niceval."
+ cd "$wdir"
+ touch out
+ echo "CASINO [$casino_arch, $version version] run on $pc (VP node #$inode)"\
+  >> out
+ echo "Job started: $(date)" >> out
+ if [ "$mode" = vp ] ; then
+  if ((ncore==1)) ; then
+   (nice -n $niceval ./$binlink.$inode < "$pto_casino" 2> .err\
+    1>> "$pfrom_casino" ; killall "$tee_binary" >> "$logfile" 2>&1) &
+  else
+   (nice -n $niceval mpirun -np $ncore ./$binlink.$inode < "$pto_casino"\
+    2> .err 1>> "$pfrom_casino" ; killall "$tee_binary" >> "$logfile" 2>&1) &
+  fi
+ else
+  if ((ncore==1)) ; then
+   (nice -n $niceval ./$binlink.$inode < /dev/null 2> .err 1>> /dev/null ;\
+    killall "$tee_binary" >> "$logfile" 2>&1) &
+  else
+   (nice -n $niceval mpirun -np $ncore ./$binlink.$inode < /dev/null 2> .err\
+    1>> /dev/null ; killall "$tee_binary" >> "$logfile" 2>&1) &
+  fi
+ fi
+ cd "$pdir"
+ # Get PID of subshell.
+ casino_pid=$!
+ logpid "Subshell running CASINO" $pc $casino_pid
+ log RUN $inode "PID of subshell containing casino process is $casino_pid."
+ # Get PIDs of processes started by subshell.
+ casino_offspring=""
+ itry=10 ; while [ -z "$casino_offspring" ] ; do itry=$((itry-1))
+  ((itry<1)) && break
+  sleep 1 ; casino_offspring=$(all_offspring $casino_pid)
+ done
+ if [ ! -z "$casino_offspring" ] ; then
+  logpid "Contents of subshell running CASINO" $pc $casino_offspring
+  log RUN $inode "PIDs of contained processes are $casino_offspring."
+ fi
+ # End if we must.
+ if [ "$mode" != vp ] ; then
+  log END $inode "Not in VP mode, task finished. Quitting."
+  disown -a ; return
+ fi
+ # Set up communication logging
+ if ((logcomm==1)) ; then
+  touch COMM$inode
+  names="$names COMM$inode"
+ fi
+ log REDIR $inode "Will redirect to: $names"
+ # Wait for SYNC_REDIR before redirection.
+ log SYNC_REDIR $inode "Waiting for slaves to flag SYNC_REDIR."
+ miss_list="$slave_list"
+ while [ ! -z "$miss_list" ] ; do
+  sleep 1
+  mlist=$miss_list
+  for jnode in $mlist ; do
+   [ -e SYNC_REDIR_$jnode ] && { miss_list=$(rem_list $jnode $miss_list) ;\
+    rm -f SYNC_REDIR_$jnode ; }
+  done
+ done
+ # Flag global SYNC_REDIR and redirect.
+ touch SYNC_REDIR
+ log SYNC_REDIR $inode "Global SYNC_REDIR flagged. Redirecting."
+ log END $inode "Script ends here."
+ "$pdir/$tee_binary" -a $names >& /dev/null
+}
+
+job_handler_slave() {
+ # Handle i/o for each SSH connection
+ local pc ncore inode relfs masterpc nstep_val nconfig_write_val
+ local binary file fname exist names my_pid remote_pid casino_pid
+ local casino_offspring wdir pdir is_ok
+ local pipe_in="to_casino"
+ # Get current directory.
+ pdir=$(pwd)
+ # Get arguments.
+ pc=$1 ; shift
+ ncore=$1 ; shift
+ inode=$1 ; shift
+ relfs=$1 ; shift
+ masterpc=$1 ; shift
+ nstep_val=$1 ; shift
+ nconfig_write_val=$1
+ # Start log.
+ log INIT $inode "JOB_HANDLER started. $pc is SLAVE node #$((inode+1))."
+ # Define remote functions
+ cat <<_EOI
+field1() { ((\$#>0)) && echo \$1 ; }
+all_offspring() {
+ local ppidlist=\$1 pidlist="" all_list="" pid
+ while [ ! -z "\$ppidlist" ] ; do
+  pidlist=""
+  for ppid in \$ppidlist ; do
+   pidlist="\$pidlist \$(ps --ppid \$ppid -o pid=)"
+  done
+  all_list="\$all_list \$pidlist"
+  ppidlist="\$pidlist"
+ done
+ echo \$all_list
+}
+_EOI
+ # Get PIDs of both sides of the SSH tunnel. NB, '$$' gives the PID of the
+ # original process, not of this fork, so need the following.
+ sleep 1 & my_pid=$(parent $!)
+ log INIT $inode "My PID is $my_pid."
+ echo "echo \$\$"
+ read remote_pid
+ ((logssh==1)) && log SSH $inode "Received: \"$remote_pid\""
+ log INIT $inode "Remote PID is $remote_pid."
+ logpid "Login shell" $pc $remote_pid
+ # Get work directory.
+ cat <<_EOF
+wdir=""
+{ while read dir ; do
+ [ ! -z "\$dir" ] && [ -d "\$dir" ] && [ -w "\$dir" ] && wdir="\$dir" && break
+done ; } < <(
+ echo "\$QMC_TMPDIR"
+ echo "\$TMPDIR"
+ echo "/temp/\$USER"
+ echo "/tmp/\$USER"
+ echo "/temp"
+ echo "/tmp"
+)
+echo "\$wdir"
+_EOF
+ read wdir
+ ((logssh==1)) && log SSH $inode "Received: \"$wdir\""
+ if [ -z "$wdir" ] ; then
+  log ABORT $inode "No temporary directory found."
+  log ABORT $inode "Sending break to master."
+  touch "BREAK_$inode"
+  log ABORT $inode "Quitting."
+  exit 1
+ fi
+ wdir="$wdir/${script_name}.${pc}.node${inode}.$run_id"
+ # Locate CASINO binary.
+ if [ "$casino_arch" = default ] ; then
+  echo "echo \$CASINO_ARCH"
+  read casino_arch
+  ((logssh==1)) && log SSH $inode "Received: \"$casino_arch\""
+ fi
+ echo "echo \$HOME/CASINO/bin_qmc/$casino_arch/$version/casino"
+ read binary
+ ((logssh==1)) && log SSH $inode "Received: \"$binary\""
+ log INIT $inode "CASINO binary is $binary"
+ echo "[ -e \"$binary\" ] && echo 1 || echo 0"
+ read exist
+ ((logssh==1)) && log SSH $inode "Received: \"$exist\""
+ if ((exist==0)) ; then
+  log ABORT $inode "Binary $binary does not exist."
+  log ABORT $inode "Sending break to master."
+  touch BREAK_$inode
+  echo "exit" ; exit 1
+ fi
+ # Create work directory.
+ log SETUP $inode "Creating directory $wdir on $pc"
+ echo "mkdir -p \"$wdir\" >& /dev/null && echo 1 || echo 0"
+ read is_ok
+ ((logssh==1)) && log SSH $inode "Received: \"$is_ok\""
+ if ((is_ok==0)) ; then
+  log ABORT $inode "Could not create directory. Disk full?"
+  log ABORT $inode "Sending break to master."
+  touch BREAK_$inode
+  echo "exit" ; exit 1
+ fi
+ echo $pc "$wdir" >> "$dirfile"
+ echo "cd \"$wdir\""
+ # Write modified input file.
+ log SETUP $inode "Copying modified input file to $pc."
+ cat <<_EOI
+touch input
+while read line ; do
+ [ "\$line" = "END:INPUT:FILE" ] && break
+ f1=\$(field1 \$line)
+ case "\$f1" in
+ "$nstepkw") echo "$nstepkw : $nstep_val" >> input ;;
+ "$nconfig_writekw")
+  [ -z "$nconfig_writekw" ] && echo >> input\
+   || echo "$nconfig_writekw : $nconfig_write_val" >> input ;;
+ random_seed) : ;;
+ *) echo "\$line" >> input ;;
+ esac
+done
+_EOI
+ cat ../input
+ cat <<_EOI
+END:INPUT:FILE
+echo "random_seed    : timer" >> input
+_EOI
+ if [ "$mode" = vp ] ; then
+  cat <<__EOI
+echo 'virtual_node    : $((inode-1))' >> input
+echo 'virtual_nconfig : $nconfig' >> input
+echo 'virtual_nnodes  : $npcs' >> input
+__EOI
+ fi
+ if ((relfs==1)) ; then
+  # Soft-link other files
+  log SETUP $inode "Linking other files."
+  for file in ../* ; do
+   [ ! -e "$file" ] || [ -d "$file" ] && continue
+   fname="${file##*/}"
+   case "$fname" in
+   input) continue ;;
+   out*|*.gz|*.tar|*.tgz|*.bz2|*.tbz) continue ;;
+   expval.data)
+    echo "cp \"$pdir/../$fname\" . >& /dev/null"
+    continue ;;
+   esac
+   echo "ln -s \"$pdir/../$fname\" . >& /dev/null"
+  done
+ else
+  # Send other files over network.
+  log SETUP $inode "Sending files over the network."
+  for file in ../* ; do
+   [ -d $file ] && continue
+   fname=${file##*/}
+   case "$fname" in
+   input) continue ;;
+   out*|*.gz|*.tar|*.tgz|*.bz2|*.tbz) continue ;;
+   esac
+   log SETUP $inode "Sending $fname."
+   echo "cat > \"$fname\" <<EnDoFfIlE.$run_id"
+   cat "$file"
+   echo "EnDoFfIlE.$run_id"
+  done
+  log SETUP $inode "Done sending files over the network."
+ fi
+ # Environment variables to fix certain compilers [!].
+ echo "export GFORTRAN_UNBUFFERED_PRECONNECTED=y"
+ echo "export GFORTRAN_UNBUFFERED_ALL=y"
+ echo "export G95_UNBUFFERED_6=y"
+ echo "export MPI=OpenMPI"
+ # Link CASINO binary.
+ echo "ln -s $binary $binlink.$inode"
+ # Wait for SYNC_RUN to run CASINO.
+ log SYNC_RUN $inode "Ready for SYNC_RUN on my side. Flagging."
+ touch SYNC_RUN_$inode
+ log SYNC_RUN $inode "Waiting for master to flag global SYNC_RUN."
+ while [ ! -e SYNC_RUN ] ; do
+  if [ -e BREAK ] ; then
+   log ABORT $inode "Received BREAK from master."
+   log ABORT $inode "Quitting."
+   exit 1
+  fi
+  sleep 1
+ done
+ log SYNC_RUN $inode "Global SYNC_RUN flagged. Starting."
+ # Run CASINO.
+ log RUN $inode "Running casino binary in the backgroud, with NICE=$niceval."
+ cat <<_EOI
+touch out
+echo "CASINO [$casino_arch, $version version] run on $pc (VP node #$inode)"\
+ >> out
+echo "Job started: \$(date)" >> out
+_EOI
+ if [ "$mode" = vp ] ; then
+  echo "mkfifo $pipe_in ; sleep 5 > $pipe_in &"
+  if ((ncore==1)) ; then
+   echo "(nice -n $niceval ./$binlink.$inode < $pipe_in 2>> out ;\
+    killall \"$tee_binary\") &"
+  else
+   echo "(nice -n $niceval mpirun -np $ncore ./$binlink.$inode < $pipe_in\
+    2>> out ; killall \"$tee_binary\") &"
+  fi
+ else
+  if ((ncore==1)) ; then
+   echo "(nice -n $niceval ./$binlink.$inode < /dev/null 2>> out\
+    1>> /dev/null ; killall \"$tee_binary\") &"
+  else
+   echo "(nice -n $niceval mpirun -np $ncore ./$binlink.$inode < /dev/null 2>>\
+    out 1>> /dev/null ; killall \"$tee_binary\") &"
+  fi
+ fi
+ # Get PID of subshell.
+ echo "casino_pid=\$! ; echo \$casino_pid"
+ read casino_pid
+ ((logssh==1)) && log SSH $inode "Received: \"$casino_pid\""
+ log RUN $inode "PID of subshell containing casino process is $casino_pid."
+ logpid "Subshell running CASINO" $pc $casino_pid
+ # Get PIDs of processes started by subshell.
+ casino_offspring=""
+ itry=0 ; while [ -z "$casino_offspring" ] ; do itry=$((itry+1))
+  ((itry>10)) && break
+  sleep 1
+  echo "all_offspring \$casino_pid"
+  read casino_offspring
+  ((logssh==1)) && log SSH $inode "Received: \"$casino_offspring\""
+ done
+ if [ ! -z "$casino_offspring" ] ; then
+  logpid "Contents of subshell running CASINO" $pc $casino_offspring
+  log RUN $inode "PIDs of contained processes are $casino_offspring."
+ fi
+ if [ "$mode" != vp ] ; then
+  log END $inode "Not in VP mode, task finished. Quitting."
+  echo "disown -a ; exit" ; exit
+ fi
+ # Redirect remote SSH stdout into CASINO's stdin
+ echo "ln -s \"\$(type -p tee)\" \"./$tee_binary\""
+ if ((logcomm==1)) ; then
+  echo "./$tee_binary ./COMM.from_local >> $pipe_in"
+  log REDIR $inode "Remote redirects to: ./COMM.from_local $pipe_in"
+ else
+  echo "./$tee_binary >> $pipe_in"
+  log REDIR $inode "Remote redirects to: $pipe_in"
+ fi
+ # Local redirection targets.
+ names=to1
+ if ((logcomm==1)) ; then
+  touch COMM$inode
+  names="$names COMM$inode"
+ fi
+ log REDIR $inode "Will redirect to: $names"
+ # Wait for SYNC_REDIR, then redirect.
+ log SYNC_REDIR $inode "Ready for SYNC_REDIR on my side. Flagging."
+ touch SYNC_REDIR_$inode
+ log SYNC_REDIR $inode "Waiting for master to flag global SYNC_REDIR."
+ while [ ! -e SYNC_REDIR ] ; do sleep 1 ; done
+ log SYNC_REDIR $inode "Global SYNC_REDIR flagged. Redirecting."
+ log END $inode "Script ends here."
+ "$pdir/$tee_binary" -a $names >& /dev/null
+}
+
+check_things() {
+ # Check things.
+ echo "Running sanity checks:"
+ type -p rna >& /dev/null || errstop "'rna' utility not found in PATH."
+ echo "* Found 'rna' utility in PATH"
+ type -p runqmc >& /dev/null || errstop "'runqmc' utility not found in PATH."
+ echo "* Found 'runqmc' utility in PATH"
+ [ -e input ] || errstop "'input' file not found."
+ echo "* Found 'input' file"
+ runqmc -c || errstop "'runqmc' unhappy with 'input' file."
+ echo "* 'runqmc' happy with 'input' file"
+ echo
+}
+
+initialize() {
+ # Initialize variables.
+ script_name=${0##*/}
+ run_id="$(mktemp -u)"
+ run_id=${run_id##*.}
+ master=$(rna --info=name .)
+ pclist=""
+ slavelist=""
+ speedlist=""
+ corelist=""
+ relfslist=""
+ loginlist=""
+ portlist=""
+ n=0
+ binlink=casino.runvp.$run_id
+ casino_arch=default
+ version=opt
+ ssh="ssh -qqxCT -o BatchMode=yes -o StrictHostKeyChecking=no\
+ -o UserKnownHostsFile=/dev/null"
+ niceval=15
+ logcomm=0
+}
+
+read_cmd_line() {
+ # Read command line
+ local master_in_list pc speed cores fs n master_fs relfs fslist login port
+ # Process command line
+ while (($#>0)) ; do
+  case "$1" in
+  -arch|-casino_arch|-CASINO_ARCH) # FIXME - need one per machine, really
+   (($#<2)) && errstop "Option $1 requires an argument."
+   shift ; casino_arch="$1" ;;
+  -version) # FIXME - need one per machine, really
+   (($#<2)) && errstop "Option $1 requires an argument."
+   shift ; version="$1" ;;
+  -n|-nice) # FIXME - need one per machine, really; check this is an integer
+   (($#<2)) && errstop "Option $1 requires an argument."
+   shift ; niceval="$1" ;;
+  -logssh) logssh=1 ;;
+  -logcomm) logcomm=1 ;;
+  *) computer_list="$computer_list $1" ;;
+  esac
+  shift
+ done
+ # Check all computers and gather data while at it.
+ master_in_list=0
+ {
+  n=0 ; while read pc speed cores fs login port ; do
+   [ "$pc" = OK ] && break
+   [ "$pc" = ERROR ] && errstop "Error processing list of computers."
+   n=$((n+1))
+   if [ "$pc" = "$master" ] ; then
+    master_in_list=1
+    master_fs=$fs
+    pclist="$pc $pclist"
+    speedlist="$speed $speedlist"
+    corelist="$cores $corelist"
+    fslist="$fs $fslist"
+    loginlist="$login $loginlist"
+    portlist="$port $portlist"
+   else
+    pclist="$pclist $pc"
+    slavelist="$slavelist $pc"
+    speedlist="$speedlist $speed"
+    corelist="$corelist $cores"
+    fslist="$fslist $fs"
+    loginlist="$loginlist $login"
+    portlist="$portlist $port"
+   fi
+  done
+ } < <(
+  rna --info=name,speed,cores,fs,login,port $computer_list && echo OK\
+   || echo ERROR
+ )
+ ((master_in_list==0)) && errstop "This script must be executed on one of the\
+  computers listed, which will become the 'master' in virtual parallel runs."
+ # Build list of relative filesystems.
+ relfslist=""
+ for fs in $fslist ; do
+  ((fs==master_fs)) && relfs=1 || relfs=0
+  relfslist="$relfslist $relfs"
+ done
+ # Check we have more than one node.
+ if ((n<2)) ; then
+  cat <<__EOH
+Usage: $script_name [-arch <CASINO_ARCH>] [-version opt|dev|debug] [-logcomm]
+  [-logssh] [-nice <nice>] <list-of-computer-names>
+
+where <list-of-computer-names> must contain more than one computer.
+__EOH
+  exit 1
+ fi
+}
+
+parse_input_file() {
+ # Parse input file
+ local colon nstepline nblockline nconfig_writeline
+ # Report.
+ echo "Parsing input:"
+ # Get runtype
+ runtypeline=$(grep -w "^runtype" input)
+ colon=$(field 2 $runtypeline)
+ case $colon in
+ :|=) runtype=$(field 3 $runtypeline) ;;
+ *) runtype=$colon ;;
+ esac
+ # Decide what other keywords are important based on runtype
+ nstepkw=vmc_nstep
+ nblockkw=vmc_nblock
+ nconfig_writekw=''
+ nconfig=0
+ mode=nonvp
+ case $runtype in
+ vmc) : ;;
+ vmc_dmc|dmc|dmc_dmc|dmc_stats)
+  nstepkw=dmc_stats_nstep ; nblockkw=dmc_stats_nblock ;;
+ dmc_equil)
+  nstepkw=dmc_equil_nstep ; nblockkw=dmc_equil_nblock ;;
+ vmc_opt|opt_vmc)
+  nconfig_writekw=vmc_nconfig_write ; mode=vp ;;
+ *) errstop "Value of RUNTYPE not supported by $script_name." ;;
+ esac
+ if [ "$mode" = vp ] ; then
+  echo "* RUNTYPE = $runtype : will use virtual parallel communication."
+ else
+  echo "* RUNTYPE = $runtype : will split into independent runs."
+ fi
+ # Get nstep
+ nstepline=$(grep -w "^$nstepkw" input)
+ [ -z "$nstepline" ] && errstop "Keyword '$nstepkw' not found."
+ colon=$(field 2 $nstepline)
+ case $colon in
+ :|=) runlength=$(field 3 $nstepline) ;;
+ *) runlength=$colon ;;
+ esac
+ # Get nblock
+ nblockline=$(grep -w "^$nblockkw" input)
+ if [ -z "$nblockline" ] ; then
+  nblock=1
+ else
+  colon=$(field 2 $nblockline)
+  case $colon in
+  :|=) nblock=$(field 3 $nblockline) ;;
+  *) nblock=$colon ;;
+  esac
+ fi
+ # Get nconfig_write
+ if [ ! -z "$nconfig_writekw" ] ; then
+  nconfig_writeline=$(grep -w "^$nconfig_writekw" input)
+  [ -z "$nconfig_writeline" ] && errstop "Keyword '$nconfig_writekw' not found."
+  colon=$(field 2 $nconfig_writeline)
+  case $colon in
+  :|=) nconfig=$(field 3 $nconfig_writeline) ;;
+  *) nconfig=$colon ;;
+  esac
+ fi
+ echo
+}
+
+divide_up() {
+ # Divide the calculation into bits than can be sent to each different
+ # computer.
+ local ghz fraction tot_ncores i sum s nc remainder csum
+ local ssum nc_nb pc n
+ # Report.
+ echo "Dividing up run:"
+ # Gather speeds and set nstep and nconfig accordingly.
+ i=0 ; sum=0
+ for pc in $pclist ; do
+  i=$((i+1))
+  s=$(field $i $speedlist)
+  nc=$(field $i $corelist)
+  sum=$((sum+s))
+  nstep[$i]=$((runlength*s))
+  nconfig_write[$i]=$((nconfig*s))
+  ncores[$i]=$nc
+  shares_master_fs[$i]=$(field $i $relfslist)
+  login_name[$i]=$(field $i $loginlist)
+  ssh_port[$i]=$(field $i $portlist)
+ done
+ npcs=$i ; i=0 ; ssum=0
+ for pc in $pclist ; do
+  i=$((i+1)) ; n=$((${nstep[$i]}/sum))
+  ssum=$((ssum+n)) ; nstep[$i]=$n
+  c=$((${nconfig_write[$i]}/sum)) ; csum=$((csum+c))
+  nconfig_write[$i]=$c
+ done
+ # Make sure that the total NCONFIG_WRITE is at least the value given in the
+ # input file, and that the individual values are divisible by NNODES.
+ if [ ! -z "$nconfig_writekw" ] ; then
+  i=0 ; for pc in $pclist ; do i=$((i+1))
+   nc=${ncores[$i]}
+   remainder=$((${nconfig_write[$i]}%nc))
+   if ((remainder>0)) ; then
+    nconfig_write[$i]=$((${nconfig_write[$i]}+nc-remainder))
+    csum=$((csum+nc-remainder))
+   fi
+  done
+  i=0 ; for pc in $pclist ; do i=$((i+1))
+   ((csum>=nconfig)) && break
+   nc=${ncores[$i]}
+   nconfig_write[$i]=$((${nconfig_write[$i]}+nc))
+   csum=$((csum+nc))
+  done
+  if ((csum<nconfig)) ; then
+   errstop "Having trouble dividing NCONFIG_WRITE. Bug. Quitting."
+  elif ((csum>nconfig)) ; then
+   echo_breakline "* Increased NCONFIG_WRITE from $nconfig to $csum to match\
+    requirements."
+   nconfig=$csum
+  fi
+ fi
+ # Make sure that the total NSTEP is at least the value given in the input
+ # file, that the individual values are divisible by NNODES*NBLOCK, and that
+ # NSTEP > NCONFIG_WRITE.
+ i=0 ; for pc in $pclist ; do i=$((i+1))
+  nc_nb=$((${ncores[$i]}*nblock))
+  remainder=$((${nstep[$i]}%nc_nb))
+  if ((remainder>0)) ; then
+   nstep[$i]=$((${nstep[$i]}+nc_nb-remainder))
+   ssum=$((ssum+remainder))
+  fi
+  if ((${nstep[$i]}<${nconfig_write[$i]})) ; then
+   nstep[$i]=${nconfig_write[$i]}
+   remainder=$((${nstep[$i]}%nc_nb))
+   if ((remainder>0)) ; then
+    nstep[$i]=$((${nstep[$i]}+nc_nb-remainder))
+    ssum=$((ssum+nc_nb-remainder))
+   fi
+  fi
+ done
+ i=0 ; for pc in $pclist ; do i=$((i+1))
+  ((ssum>=runlength)) && break
+  nc_nb=$((${ncores[$i]}*nblock))
+  nstep[$i]=$((${nstep[$i]}+nc_nb))
+  ssum=$((ssum+nc_nb))
+ done
+ if ((ssum<runlength)) ; then
+  errstop "Having trouble dividing NSTEP. Bug. Quitting."
+ elif ((ssum>runlength)) ; then
+  echo_breakline "* Increased NSTEP from $runlength to $ssum to match\
+   requirements."
+  runlength=$ssum
+ fi
+ # Print a report
+ ghz=$((sum/1000)) ; fraction=$((sum-ghz*1000))
+ fraction=$((fraction/10)) # 2 decimals only for aesthetics
+ tot_ncores=0
+ i=0 ; for pc in $pclist ; do i=$((i+1))
+  tot_ncores=$((tot_ncores+${ncores[$i]}))
+ done
+ echo "* Running on $npcs computers, totalling $tot_ncores cores"
+ echo "* Effective speed is $ghz.$fraction GHz of a P4"
+ echo "* Division:"
+ i=0 ; for pc in $pclist ; do i=$((i+1))
+  echo -n " - $pc: "
+  echo -n "$nstepkw=${nstep[$i]}"
+  [ -z "$nconfig_writekw" ]\
+   || echo -n ", $nconfig_writekw=${nconfig_write[$i]}"
+  echo
+ done
+ echo
+}
+
+set_up_info_files() {
+ # Create vpinfo directory
+ local pdir i
+ echo "Preparing directories:"
+ if [ -e vpinfo ] ; then
+  echo "* Moving 'vpinfo' -> 'vpinfo_old.$run_id'."
+  mv -f vpinfo vpinfo_old.$run_id
+ fi
+ echo "* Creating 'vpinfo' directory"
+ mkdir vpinfo ; cd vpinfo
+ echo "* Creating informational files: LOG, PIDS, DIRS, NODES"
+ pdir="$(pwd)"
+ logfile="$pdir/LOG"
+ pidfile="$pdir/PIDS"
+ dirfile="$pdir/DIRS"
+ nodefile="$pdir/NODES"
+ touch "$logfile" "$pidfile" "$dirfile" "$nodefile"
+ # Fill NODES file (node number, host name, nstep).
+ i=0 ; for pc in $pclist ; do i=$((i+1))
+  echo "$i $pc ${nstep[$i]}" >> "$pdir/NODES"
+ done
+ # Add this script's PID to PID file.
+ logpid "Master script" $master $$
+ # Soft-link tee to change its name so we can reliably kill it.
+ echo "* Creating renamed tee"
+ tee_binary="${script_name}_tee.$run_id"
+ ln -s "$(type -p tee)" "$pdir/$tee_binary"
+ echo
+}
+
+submit_vp() {
+ # Submit the runs by creating pipes and ssh connections and calling the
+ # job handlers.
+ local inode pc pipe pipe_back
+ echo "Submitting runs:"
+ # Submit master run.
+ # Create pipes, and use SLEEP commands keep the pipes open. NB, to1
+ # activated in job_handler_master
+ mkfifo to1 from1
+ sleep 2 >> from1 &
+ job_handler_master $master "${ncores[1]}" "${nstep[1]}" "${nconfig_write[1]}"\
+  to1 from1 < from1 2>> "$logfile" 1>> /dev/null &
+ logpid "Job handler, master fork" $master $!
+ echo "* Submitted master run on $master"
+ # Submit slave run.
+ inode=1 ; for pc in $slavelist ; do inode=$((inode+1))
+  pipe=to$inode ; pipe_back=from$inode
+  mkfifo $pipe $pipe_back
+  # The SLEEP commands keep the pipes open for SSH and JOB_HANDLER_SLAVE to
+  # run.
+  sleep 2 >> "$pipe" & sleep 2 >> "$pipe_back" &
+  job_handler_slave $pc "${ncores[$inode]}" $inode\
+   ${shares_master_fs[$inode]} $master "${nstep[$inode]}"\
+   "${nconfig_write[$inode]}" < "$pipe_back" >> "$pipe" 2>> "$logfile" &
+  logpid "Job handler, slave fork number $inode" $master $!
+  $ssh $pc -l ${login_name[$inode]} -p ${ssh_port[$inode]} \
+   "bash --norc --noprofile --noediting" < $pipe >> $pipe_back\
+   2>> "$logfile" &
+  logpid "ssh to $pc" $master $!
+  echo "* Submitted slave run on $pc"
+ done
+ disown -a
+ echo
+ echo "Jobs submitted:"
+ echo "* A log is kept at $logfile."
+ echo "* Use 'killvp' should you need to kill the calculation."
+}
+
+################################ END FUNCTIONS ################################
+
+check_things
+initialize
+read_cmd_line "$@"
+parse_input_file
+divide_up
+set_up_info_files
+submit_vp

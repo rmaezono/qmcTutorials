@@ -1,0 +1,587 @@
+#!/bin/bash
+##########################################################################
+# TWISTAV_CASTEP     NDD, 07/02/08.                                      #
+#                                                                        #
+# Script for using CASTEP and CASINO to perform twist averaging for real #
+# systems.                                                               #
+#                                                                        #
+# CHANGES                                                                #
+# =======                                                                #
+# NDD 08.08    Allow user to skip running the QMC calculation.           #
+# EM/NDD 07.13 Updated for changes to blip utility's questions; added    #
+#              error traps, added support for twist averaging in 1D- or  #
+#              2D-periodic systems.  Tidying.                            #
+# NDD 09.13    Added more error traps.                                   #
+##########################################################################
+usage="Usage: twistav_castep [-castep <castep_command>] [-castep2casino <castep2casino_command>] [-casino <casino_command>] [-ntwist <ntwist>] [-multiplicity <blip_multiplicity>] [-batch] [-nobatch] [-justcastep] [-justcastepc2c] [-justcastepc2cblip] [-periodicity <periodicity>]"
+
+# CASTEP seedname.
+seedname=""
+# Default CASTEP command.
+ncores=$(awk '/cpu cores/{print $4}' /proc/cpuinfo | tail -1)
+if [ -z "$ncores" ]; then
+ ncores=1
+fi
+castep="nice -n 15 mpirun -np $ncores castep.mpi"
+# Default castep2casino command is CASTEP command with "castep" replaced by
+# "castep2casino".
+castep2casino="nice -n 15 castep2casino"
+# Command to run the twistoffset program
+twistoffset="nice -n 15 twistoffset_castep"
+# Default multiplicity.
+multiplicity="2"
+# Command to run blip program.
+blip="nice -n 15 blip"
+# Command to run gzip.
+gzip="nice -n 15 gzip"
+# Default command to run the CASINO program.
+casino="runqmc"
+# Default number of twists.
+ntwist=12
+# Does runqmc submit a job to a queue or run the job itself?
+batch=0
+# Should we only run CASTEP (and not CASTEP2CASINO or BLIP or CASINO)?
+justcastep=0 # Run everything by default.
+# Should we only run CASTEP and CASTEP2CASINO (and not BLIP or CASINO)?
+justcastepc2c=0 # Run everything by default.
+# Should we only run CASTEP and CASTEP2CASINO and BLIP (and not CASINO)?
+justcastepc2cblip=0 # Run everything by default.
+# Default number of periodicity.
+periodicity=3
+
+
+function checknonnegint {
+########################################################
+# Test whether the argument is a non-negative integer. #
+########################################################
+ echo "$1" | grep -Ec '^[0-9][0-9]*$'
+}
+
+
+function checknonnegreal {
+############################################################
+# Test whether the argument is a non-negative real number. #
+############################################################
+ echo "$1" | grep -Ec \
+  '^[0-9]*([0-9]\.?|\.[0-9]|[0-9])[0-9]*([dDeE][+-]?[0-9][0-9]*)?$'
+}
+
+
+function checkinput {
+################################
+# Check the CASINO input file. #
+################################
+
+ if [ ! -e input ]; then
+  touch STATUS
+  echo "The input file is missing." >> STATUS
+  exit 80
+ fi # No input.
+
+# Read number of primitive cells (either from npcell vector or scell_matrix).
+ npcells=$(awk 'BEGIN{p=0} (p==1){print $1*$2*$3 ; p=0}
+  (tolower($1)=="%block" && tolower($2)=="npcell"){p=1}' input)
+ if [ -z "$npcells" ]; then
+  npcells=$(awk 'BEGIN{L=0;p=0} {if(p==1){print $1" "$2" "$3 ; L=L+1;
+   if(L==3){p=0}}
+   if(tolower($1)=="%block" && tolower($2)=="scell_matrix"){p=1}}' input \
+   | tr "\\n" " " \
+   | awk '{DET=($1*($5*$9-$6*$8)+$4*($8*$3-$2*$9)+$7*($2*$6-$3*$5));
+   if(DET>=0) {print DET} else {print DET*(-1)}}')
+  if [ -z "$npcells" ] || [ $(checknonnegint $npcells) -eq 0 ]; then
+   touch STATUS
+   echo "Cannot read number of unit cells in input." >> STATUS
+   exit 81
+  fi
+ fi # npcells nonempty
+ if [ $npcells -lt 1 ]; then
+  touch STATUS
+  echo "Check the number of unit cells in input." >> STATUS
+  exit 83
+ fi #Error reading number of unit cells
+
+ btype=$(awk '{if(tolower($1)=="btype") {print $3}}' input)
+ if [ -z "$btype" ]; then
+  btype=$(awk '{if(tolower($1)=="atom_basis_type") {print $3}}' input)
+  if [ "$btype" = "blip" ]; then
+   use_blips=1
+  elif [ "$btype"="plane-wave" ]; then
+   use_blips=0
+  else
+   touch STATUS
+   echo "Unexpected atom_basis_type in input." >> STATUS
+   exit 84
+  fi # btype
+ elif [ "$btype" = "4" ]; then
+  use_blips=1
+ elif [ "$btype" = "1" ]; then
+  use_blips=0
+ else
+  touch STATUS
+  echo "Unexpected btype in input." >> STATUS
+  exit 88
+ fi # btype
+
+ if [ $(grep -c "complex_wf" input) -ne 1 ] \
+  || [ "$(awk '{if(tolower($1)=="complex_wf"){print $3}}' input)" != "T" ]; then
+  touch STATUS
+  echo "The complex_wf input keyword should be set to T." >> STATUS
+  exit 85
+ fi # Real wf.  Not much good for TA.
+
+ if [ $(grep -ic "^ *blip_periodicity" input) -eq 1 ] \
+  && [ $(awk '{if(tolower($1)=="blip_periodicity"){print $3}}' input) \
+  -ne $periodicity ]; then
+  touch STATUS
+  echo "Error: BLIP_PERIODICITY in input does not match intended periodicity." \
+   >> STATUS
+  exit 86
+ fi # Periodicity mismatch.
+
+ rseed=$(awk '{if(tolower($1)=="random_seed") {print $3}}' input)
+ if [ -n "$rseed" ] && [ "$rseed" != "timer" ]; then
+  touch STATUS
+  echo "WARNING: random_seed should be set to \"timer\"." >> STATUS
+  echo >> STATUS
+ fi # rseed
+}
+
+function runcastep {
+##############################################################################
+# Run CASTEP and (optionally) CASTEP2CASINO.  This function should be passed #
+# the twist number (with leading zeros), followed by a flag (0 or 1)         #
+# specifying whether CASTEP2CASINO is to be run.                             #
+##############################################################################
+ local no_param_files warn_k_diff runc2c
+
+ if [ $# -ne 2 ]; then
+  touch STATUS
+  echo "Bug in call to runcastep." >> STATUS
+  exit 4
+ fi # Twist number not supplied.
+
+# Get seedname if it's not already defined.
+ if [ -z "$seedname" ]; then
+  no_param_files=$(ls -1 *.param 2> /dev/null | wc -l)
+  if [ $no_param_files -ne 1 ]; then
+   touch STATUS
+   echo "Cannot find a .param file." >> STATUS
+   exit 8
+  fi # Not just one .param file.
+  seedname=$(ls -1 *.param 2> /dev/null | tail -1 | sed 's/.param//g')
+ fi # seedname
+
+# Run CASTEP2CASINO?
+ case "$2" in
+ 0|1)
+  runc2c=$2 ;;
+ *)
+  echo "Bug in call to runcastep (2)." >> STATUS
+  exit 4
+ esac # Second argument.
+
+ if [ -n "$npcells" ]; then
+# Read NKVEC and check that NKVEC=NPCELLS.
+  nkvec=$(awk '(tolower($1)=="%block" && tolower($2)=="kpoints_list"){p=NR}
+   (tolower($1)=="%endblock" && tolower($2)=="kpoints_list"){print NR-p-1}' \
+   *.cell)
+  if [ -z "$nkvec" ] || [ $(checknonnegint $nkvec) -eq 0 ] \
+   || [ $nkvec -lt 1 ]; then
+   touch STATUS
+   echo "Check the number of k vectors in $seedname.cell." >> STATUS
+   echo "The KPOINTS_LIST block should be present, including all k vectors in the grid." \
+    >> STATUS
+   exit 9
+  fi # Error k vectors
+  if [ $npcells -ne $nkvec ]; then
+   touch STATUS
+   echo "The number of k vectors ($nkvec) should be equal to the number of unit cells ($npcells)." \
+    >> STATUS
+   exit 10
+  fi  # nkvec /= npcells
+ fi # npcells available.
+
+# Check k-vector weights are all the same in the .cell file.
+ warn_k_diff=$(awk 'BEGIN{p=0 ; wt=0 ; warn=0} \
+  {if(tolower($1)=="%endblock" && tolower($2)=="kpoints_list"){p=0}} \
+  (p==2){if(($4-wt)^2>1.e-10){warn=1}} (p==1){wt=$4 ; p=2} \
+  {if(tolower($1)=="%block" && tolower($2)=="kpoints_list"){p=1}} \
+  END{print warn}' *.cell)
+ if [ $warn_k_diff -eq 1 ]; then
+  touch STATUS
+  echo "The k-vector weights in $seedname.cell are not all the same. Please check the $seedname.cell file and use a complete set of k vectors" >> STATUS
+  exit 11
+ fi # Err weight of KVECs
+
+# Make random offset to k-vector grid in .cell file.
+ if [ -e $seedname.cell.orig ]; then
+  touch STATUS
+  echo "$seedname.cell.orig already exists." >> STATUS
+  exit 12
+ fi # .cell.orig file exists.
+ rm -f $seedname.cell.new 2> /dev/null
+ echo -e "$seedname\n$periodicity\n$1" | $twistoffset > /dev/null
+ if [ $? -ne 0 ] || [ ! -e $seedname.cell.new ]; then
+  touch STATUS
+  echo "TWISTOFFSET_CASTEP seems to have failed." >> STATUS
+  exit 16
+ fi # twistoffset failed.
+ mv $seedname.cell $seedname.cell.orig
+ mv $seedname.cell.new $seedname.cell
+
+# Do continuation files exist?  Adjust input accordingly.
+ if [ $(grep -ic continuation $seedname.param) -gt 0 ] \
+  && [ $(grep -c continuation $seedname.param) -eq 0 ]; then
+  touch STATUS
+  echo "The continuation keyword should be in lower case in $seedname.param." \
+   >> STATUS
+  exit 20
+ fi # ConTinUation
+ if [ $(grep continuation $seedname.param | grep -v "#continuation" \
+  | grep -c "#") -gt 1 ]
+ then
+  touch STATUS
+  echo "Please replace e.g. \"# continuation\" with \"#continuation\"." \
+   >> STATUS
+  exit 24
+ fi # "# continuation"
+ if [ -e $seedname.check ] && [ -e $seedname.wvfn.? ]; then
+  sed "s/#continuation/continuation/g" $seedname.param > temp_$$
+ else
+  awk '{if(tolower($1)=="continuation") {print "#"$1" "$2" "$3} else {print}}' \
+   $seedname.param > temp_$$
+ fi # Want to continue or not.
+ mv temp_$$ $seedname.param
+
+# Run CASTEP.
+ $castep $seedname
+ if [ $? -ne 0 ] || [ -e $seedname.0001.err ]; then
+  touch STATUS
+  echo "Error running CASTEP." >> STATUS
+  exit 28
+ fi # Error
+
+# Move CASTEP output to twist directory.
+ $gzip $seedname.castep
+ if [ ! -d twist$1 ]; then
+  touch STATUS
+  echo "Bug in runcastep." >> STATUS
+  exit 32
+ fi # Directory doesn't exist
+ mv $seedname.castep.gz twist$1
+
+# Run CASTEP2CASINO, check that it worked, and tidy up files.
+ if [ $runc2c -eq 1 ]; then
+  $castep2casino $seedname
+  if [ $? -ne 0 ] || [ -e $seedname.????.err ] \
+   || [ ! -e $seedname.casino ]; then
+   touch STATUS
+   echo "Error running CASTEP2CASINO." >> STATUS
+   exit 36
+  fi # Error
+  mv $seedname.casino pwfn.data
+ fi
+
+# Tidy up CASTEP output files.
+ mv $seedname.cell.orig $seedname.cell
+ rm -f $seedname.bands $seedname.castep $seedname.cst_esp $seedname.geom \
+  $seedname.econv $seedname.pwave $seedname.castep_bin $seedname.check_bak \
+  $seedname.check $seedname.wvfn.? $seedname.bib 2> /dev/null
+
+}
+
+
+function runblip {
+######################################
+# Run BLIP and check that it worked. #
+######################################
+ if [ -z "$1" ]; then
+  touch STATUS
+  echo "Bug in call to runblip." >> STATUS
+  exit 38
+ fi # Twist number not supplied.
+ if [ $periodicity -lt 1 ] || [ $periodicity -gt 3 ]; then 
+  touch STATUS
+  echo "Periodicity should be 1, 2 or 3." >> STATUS
+  exit 39
+ elif [ $periodicity -lt 3 ]; then # 1D or 2D
+  echo -e "$multiplicity\n0\nN\nY\n$periodicity" | $blip > /dev/null
+ else # 3D periodic
+  echo -e "$multiplicity\n0\nN\nN" | $blip > /dev/null 
+ fi # Error
+ if [ $? -ne 0 ] || [ ! -e bwfn.data ]; then
+  touch STATUS
+  echo "Error running BLIP." >> STATUS
+  exit 40
+ fi # blip failed
+ mv pwfn.data bwfn.data twist$1
+ $gzip twist$1/pwfn.data
+}
+
+
+function runcasino {
+###########################################################################
+# Run CASINO and check that it worked.  Twist number (with leading zeros) #
+# should be supplied as an argument.                                      #
+###########################################################################
+
+ if [ -z "$1" ]; then
+  touch STATUS
+  echo "Bug in call to runcasino." >> STATUS
+  exit 44
+ fi # Twist number not supplied.
+ if [ ! -d twist$1 ]; then
+  touch STATUS
+  echo "Twist directory does not exist (call to runcasino)." >> STATUS
+  exit 48
+ fi # Twist number not supplied.
+
+# Put input files in twist directory.
+ cp input *_pp.data correlation.data mpc.data twist$1 2> /dev/null
+
+# Change to twist directory.
+ cd twist$1
+
+# Run CASINO.
+ touch ../STATUS
+ $casino >> ../STATUS
+ if [ $? -ne 0 ] || [ ! -e out ] \
+  || [ $(grep -c "Total CASINO CPU time" out) -ne 1 ]; then
+  touch ../STATUS
+  echo "Error running CASINO." >> ../STATUS
+  exit 52
+ fi # Error
+
+# Tidy up CASINO files.  Leave pwfn.data and bwfn.data.bin files.
+ if [ $batch -eq 0 ]; then
+  mkdir temp_$$
+  mv out ?mc.hist temp_$$ 2> /dev/null
+  $gzip -r temp_$$
+  clearup > /dev/null
+  rm -f bwfn.data input *_pp.data correlation.data mpc.data 2> /dev/null
+  mv temp_$$/* .
+  rmdir temp_$$
+  if [ -f pwfn.data ] && [ ! -e pwfn.data.gz ]; then
+   $gzip pwfn.data
+  fi
+ fi # Not a batch job.
+
+ cd ..
+
+}
+
+
+#############################
+# Main program starts here. #
+#############################
+
+# Read command-line arguments.
+while [ -n "$1" ]; do
+ if [ "$1" = "-castep" ]; then
+  shift
+  if [ -z "$1" ]; then
+   echo "$usage"
+   exit 56
+  fi
+  castep="$1"
+ elif [ "$1" = "-castep2casino" ]; then
+  shift
+  if [ -z "$1" ]; then
+   echo "$usage"
+   exit 60
+  fi
+  castep2casino="$1"
+ elif [ "$1" = "-casino" ]; then
+  shift
+  if [ -z "$1" ]; then
+   echo "$usage"
+   exit 64
+  fi
+  casino="$1"
+ elif [ "$1" = "-ntwist" ]; then
+  shift
+  if [ -z "$1" ] || [ $(checknonnegint $1) -eq 0 ]; then
+   echo "$usage"
+   exit 68
+  fi
+  ntwist="$1"
+ elif [ "$1" = "-multiplicity" ]; then
+  shift
+  if [ -z "$1" ] || [ $(checknonnegreal $1) -eq 0 ]; then
+   echo "$usage"
+   exit 72
+  fi
+  multiplicity="$1"
+ elif [ "$1" = "-batch" ]; then
+  batch=1 # Don't wait for CASINO to finish.
+ elif [ "$1" = "-nobatch" ]; then
+  batch=0 # Wait for CASINO to finish before starting next twist.
+ elif [ "$1" = "-justcastep" ]; then
+  justcastep=1 # Don't run CASTEP2CASINO, BLIP or CASINO.
+ elif [ "$1" = "-justcastepc2c" ]; then
+  justcastepc2c=1 # Don't run BLIP or CASINO.
+ elif [ "$1" = "-justcastepc2cblip" ]; then
+  justcastepc2cblip=1 # Don't run CASINO.
+ elif [ "$1" = "-periodicity" ]; then
+  shift
+  if [ -z "$1" ] || [ $(checknonnegint $1) -eq 0 ]; then
+   echo "$usage"
+   exit 73
+  fi
+  periodicity="$1"
+  if [ $periodicity -lt 1 ] || [ $periodicity -gt 3 ]; then
+   echo "Periodicity should be 1, 2 or 3."
+   exit 74
+  fi
+ else
+  echo
+  echo "CASTEP/CASINO twist-averaging script."
+  echo
+  echo "$usage"
+  echo
+  echo \
+   "Use the \"-castep\" flag to specify the CASTEP command (default: castep)."
+  echo "Use the \"-castep2casino\" flag to specify the CASTEP2CASINO command"
+  echo "(default: castep2casino)."
+  echo \
+   "Use the \"-casino\" flag to specify the CASINO command (default: runqmc)."
+  echo \
+   "Use the \"-ntwist\" flag to specify the number of twists (default: 12)."
+  echo "Use the \"-periodicity\" flag to specify the intended periodicity (1, 2 or 3)"
+  echo "(default: 3)."
+  echo \
+   "Use the \"-multiplicity\" flag to specify the blip grid multiplicity (default: 2)."
+  echo \
+   "Use the \"-batch\" flag to specify that the script should not wait for CASINO"
+  echo \
+   "to finish before continuing to the next job.  E.g. for queueing systems."
+  echo \
+   "Use the \"-nobatch\" flag to specify that no queueing system is used (default)."
+  echo "Use the \"-justcastep\" flag to specify that only CASTEP is to be run."
+  echo "Use the \"-justcastepc2c\" flag to specify that only CASTEP and CASTEP2CASINO are"
+  echo "to be run."
+  echo "Use the \"-justcastepc2cblip\" flag to specify that only CASTEP, CASTEP2CASINO"
+  echo "and BLIP are to be run."
+  echo
+  exit 76
+ fi # argument
+ shift
+done # Command-line arguments.
+
+if [ $((justcastep+justcastepc2c+justcastepc2cblip)) -gt 1 ]; then
+ echo "Can have at most one of the following flags: -justcastep, -justcastepc2c and"
+ echo "-justcastepc2cblip."
+ exit 77
+fi
+
+# Continuation?
+if [ -e STATUS ]; then
+ echo >> STATUS
+ echo "CONTINUATION" >> STATUS
+ echo >> STATUS
+ twist=$(awk 'BEGIN{print 0} /TWIST/{print $2}' STATUS | tail -1)
+else
+ touch STATUS
+ twist=0
+fi # Existing STATUS
+
+echo "Command to run CASTEP       : $castep" >> STATUS
+echo "Command to run CASTEP2CASINO: $castep2casino" >> STATUS
+echo "Command to run CASINO       : $casino" >> STATUS
+echo "Number of twist angles      : $ntwist" >> STATUS
+echo "Periodicity                 : $periodicity" >> STATUS
+echo "Blip grid multiplicity      : $multiplicity" >> STATUS
+if [ $batch -eq 1 ]; then
+ echo "Batch mode." >> STATUS
+else
+ echo "Non-batch mode." >> STATUS
+fi # batch
+if [ $justcastep -eq 1 ]; then
+ echo "Only CASTEP (but not CASTEP2CASINO, BLIP or CASINO) will be run." \
+  >> STATUS
+elif [ $justcastepc2c -eq 1 ]; then
+ echo "Only CASTEP and CASTEP2CASINO (but not BLIP or CASINO) will be run." \
+  >> STATUS
+elif [ $justcastepc2cblip -eq 1 ]; then
+ echo "Only CASTEP, CASTEP2CASINO and BLIP (but not CASINO) will be run." \
+  >> STATUS
+else
+ echo "CASTEP, CASTEP2CASINO, BLIP, and CASINO will be run." >> STATUS
+fi # justcastep
+echo >> STATUS
+
+# Add on twists from previous run.
+ntwist=$(($ntwist+$twist))
+
+# Check and read the input file.  Define the use_casino and use_blips parameter.
+use_casino=$((1-justcastep-justcastepc2c-justcastepc2cblip))
+if [ $use_casino -eq 1 ]; then
+ checkinput
+# use_blips defined by content of input file.
+else
+ use_blips=$justcastepc2cblip
+ npcells=""
+fi # CASINO needed.
+
+while [ $twist -lt $ntwist ]; do
+ twist=$(($twist+1))
+ if [ $twist -lt 10 ]; then
+  twistp="000$twist"
+ elif [ $twist -lt 100 ]; then
+  twistp="00$twist"
+ elif [ $twist -lt 1000 ]; then
+  twistp="0$twist"
+ elif [ $twist -lt 10000 ]; then
+  twistp="$twist"
+ else
+  touch STATUS
+  echo "ERROR: too many twists!" >> STATUS
+  exit 92
+ fi # twist
+
+ touch STATUS
+ echo "TWIST $twist" >> STATUS
+
+# Create twist directory.
+ if [ -e twist$twistp ]; then
+  rm -rf twist${twistp}_old 2> /dev/null
+  mv twist$twistp twist${twistp}_old
+ fi # twist directory exists.
+ mkdir twist$twistp
+
+# Generate the PW orbitals.
+ if [ $justcastep -eq 1 ]; then
+  echo "Running CASTEP." >> STATUS
+  runcastep $twistp 0
+ else
+  echo "Running CASTEP and CASTEP2CASINO." >> STATUS
+  runcastep $twistp 1
+ fi # justcastep
+
+# Represent the orbitals by blips if necessary.
+ if [ $use_blips -eq 1 ]; then
+  touch STATUS
+  echo "Running BLIP." >> STATUS
+  runblip $twistp
+ elif [ $justcastepc2c -eq 1 ]; then
+  mv pwfn.data twist$twistp
+ fi # Use blips
+
+# Run CASINO using the blip orbitals.
+ if [ $use_casino -eq 1 ]; then
+  touch STATUS
+  echo "Running CASINO." >> STATUS
+  runcasino $twistp
+ else
+  $gzip -r twist$twistp 2> /dev/null
+ fi # use_casino
+
+ touch STATUS
+ echo >> STATUS
+
+done # twist
+
+echo "DONE." >> STATUS
+echo >> STATUS
+
+exit 0

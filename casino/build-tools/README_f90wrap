@@ -1,0 +1,82 @@
+F90WRAP
+=======
+
+The F90WRAP script is called from the Makefile under CASINO/src, instead
+of invoking the compiler directly.  The script can determine whether the
+compilation of a .f90 file is required by looking at the .mod files
+on which it depends.
+
+The script generates an empty .time file which is used to store the
+time at which a .mod has been modified.
+
+If a file is skipped, its .o file (which is the actual target in the
+Makefile) is 'touch'ed so that 'make' won't try to update it anymore.
+
+Usage:
+
+f90wrap <file> <path_to_file/file.f90> <compile> [--mods <mod-list>]
+        [--deps <dep-list>] [--force] [--silent 0|1] [--action <action-string>]
+        [--inaction <inaction-string>] [--modname-bug 0|1]
+
+where:
+- <file> is the base name of the file to compile (e.g., gpcc)
+- <path_to_file/file.f90> is the full path to the source file (e.g.,
+  /home/user/CASINO/src/gpcc.f90)
+- <compile> is the command that needs to be run in order to compile
+  file.f90 into file.o (e.g., "f90 -o gpcc.f90 /home/user/CASINO/src/gpcc.f90")
+  - this must be in double quotes so that it is a single argument
+- <mod-list> is the list of Fortran modules contained in <file> (e.g.,
+  gpcc objfn_inner objfn_outer) - one argument per module, no quotes here
+- <dep-list> is the list of modules that <file> depends on (e.g., constants
+  dsp file_utils format_utils geometry min_image numerical parallel ppots
+  run_control store) - one argument per module, no quotes here
+- --force forces the compilation of <file> even if the .mod files indicate
+  it's not required
+- --silent 1 redirects the standard output and standard error of <compile>
+  to /dev/null
+- <action-string> is printed if <file> is indeed compiled
+- <inaction-string> is printed if <file> is not compiled
+- --modname-bug 1 flags the use of a compiler that requires <file> to have
+  the same name as the module (or modules [!]) it contains - at present this
+  results in an error
+
+Notes
+=====
+* When a .mod file is re-generated, it may change depending on the
+  compiler used. For example, ifort and g95 add a timestamp to the
+  .mod file at a specific offset, whereas NAG's f90 doesn't. The
+  worst case is ifc 7.1, for which the offset is measured from the
+  end of the file and depends on the absolute path of temporary
+  files. F90WRAP is capable of handling all compilers whose .mod
+  files do not contain a timestamp, plus ifort, g95, COMPAQ f90 and
+  ifc.
+
+* All compilers not listed above will be forced to recompile the
+  sources even if unnecessary. As usual.
+
+* More compilers can be added on request. Have a look at
+  CASINO/src/zlib/$CASINO_ARCH/opt/f90wrap.log after having recompiled
+  the code. This file should contain a list of byte positions where
+  your compiler stores the timestamp within the .mod file. Send this
+  info to the CASINO developers to include your compiler's data in
+  F90WRAP.
+
+* Compiler info may become obsolete when new compiler versions are
+  released. If you think this is the case, contact the CASINO
+  developers, providing the information in f90wrap.log if
+  possible.
+
+* NAG's f90 in debug mode tends to change bits of the .mod file pretty
+  much at random (not really, but I can find no sensible pattern to
+  explain the changes). Therefore F90WRAP may or may not work in this
+  case.
+
+* Since 11.2005, g95 automatically handles .mod file regeneration,
+  keeping the old .mod file (timestamp and all) if the new one contains
+  identical information. Thus .time files are not even required in this
+  particular case. If only *all* other compilers did the same..
+
+* For more info on recompiling Fortran 90 sources, visit
+  http://www.theochem.uwa.edu.au/fortran/recompile
+
+PLR 09.2005

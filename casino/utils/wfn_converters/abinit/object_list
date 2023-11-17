@@ -1,0 +1,22 @@
+OBJS.o =\
+        chkdpr.o \
+        chkinp.o \
+        chkint.o \
+        chkneu.o \
+        indefo.o \
+        ingeo.o \
+        ingeobld.o \
+        inkpts.o \
+        invacuum.o \
+        invars0.o \
+        invars1.o \
+        invars2.o \
+        invars2m.o \
+        memana.o \
+        memorf.o \
+        memory.o \
+        outqmc.o \
+        outvars.o \
+        outvar1.o \
+        prtocc.o \
+        prttagm.o

@@ -1,0 +1,79 @@
+CASTEP 2002 to CASINO converter
+-------------------------------
+
+CASTEP is an ab initio plane wave DFT code for the solution of the electronic
+ground state of periodic systems. For further information concerning the
+code see:
+
+www.castep.org
+
+The basic reference for the code is :
+
+M. D. Segall, P. L. D. Lindan, M. J. Probert, C. J. Pickard, P. J.  Hasnip,
+S. J. Clark and M. C. Payne, "First-principles simulation: ideas, illustrations
+and the CASTEP code", J. Phys.: Cond. Matt. 14(11) pp.2717-2743 (2002)
+
+The CASINO conversion tool castep2casino is available from the CASINO
+download site - in Linux binary form only as the source code is owned by
+Accelrys Inc. If you are a UK academic you may have a copy of the source code
+under the UKCP agreement - contact a member of the CASTEP Developers Group
+(such as Phil Hasnip pjh503@york.ac.uk). If you want a binary for some other
+architecture then Phil may also be able to help.
+
+This utility is able to generate 'pwfn.data' files which contains all required
+information concerning the wave function, the geometry and the k point net in
+a format that CASINO understands.
+
+Support is not currently planned for the old (i.e. pre 2002 total rewrite)
+version of CASTEP. If you wish to write a routine to write out a pwfn.data
+file from old CASTEP, please do so and send it to mdt26 at cam.ac.uk.
+
+
+How to create a CASINO pwfn.data file using CASTEP
+--------------------------------------------------
+
+1) Download appropriate CASINO atomic wave functions and pseudopotentials from
+   the CASINO web site : www.tcm.phy.cam.ac.uk/~mdt26/casino_library.html .
+   Rename awfn.data as *.awfn, e.g. for silicon you should have
+   si_pp.data and si_pp.awfn
+
+2) Create .cell and .param files to evaluate the energy of your relaxed
+   structure.
+
+   i.e. .param should contain Task: SinglePoint
+
+   .cell should contain e.g. for silicon at the gamma point
+
+   %block species_pot
+       Si  si_pp.data
+   %endblock species_pot
+
+   %block kpoints_list
+    0.0000000000    0.0000000000    0.0000000000    1.0
+   %endblock kpoints_list
+
+   Note, kpoints_list can contain any number of k points.
+
+3) Use the checkpoint file from the first calculation for your
+   castep2casino conversion. i.e. add the line
+
+   continuation : yourfilename.check
+
+   to the yourfilename.param file then type castep2casino yourfilename
+
+4) Rename yourfilename.casino as pwfn.data and you're ready to go.
+
+   For further information regarding this utility please contact Phil Hasnip
+   (pjh503@york.ac.uk) or Chris Pickard (cjp10@st-andrews.ac.uk).
+
+Availability
+-------------
+
+CASTEP is currently available to UK Academics via the UKCP agreement:
+
+http://www.cse.clrc.ac.uk/cmg/NETWORKS/UKCP/
+
+It is available commercially from Accelrys.
+
+http://www.accelrys.com/
+

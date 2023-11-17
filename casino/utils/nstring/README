@@ -1,0 +1,13 @@
+NSTRING
+-------
+
+Generates integer strings of numbers useful for putting in correlation.data
+files : type 'nstring' and follow the instructions.
+
+MDT 5.2002
+
+
+NOTE: this is much less useful since Jan 2014 when EM/NDD added ability
+to assign chi/f functions to atomic species rather than individual atoms.
+
+MDT 1.2014

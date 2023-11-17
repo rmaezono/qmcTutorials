@@ -1,0 +1,28 @@
+#!/bin/bash
+# This script is just a wrapper to call casinohelp_helper with arguments so
+# that CASINO's internal help system can be used transparently.
+# MDT 8.2000
+# Rewritten PLR 1.2007
+
+if ! type casinohelp_helper 2>&1 > /dev/null ; then
+ echo "CASINOHELP_HELPER binary not found. Typing 'make' under CASINO/src"
+ echo "should solve this problem."
+ exit 1
+fi
+
+case $# in
+1) echo "$1" | casinohelp_helper ;;
+2) echo -e "$1\n$2" | casinohelp_helper ;;
+*)
+ echo
+ echo "Usage:"
+ echo "casinohelp <casino_keyword>"
+ echo "casinohelp search <searchword>"
+ echo "casinohelp all"
+ echo "casinohelp basic"
+ echo "casinohelp inter"
+ echo "casinohelp expert"
+ echo "casinohelp list"
+ echo
+ exit 1 ;;
+esac

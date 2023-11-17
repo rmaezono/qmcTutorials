@@ -1,0 +1,322 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# update-version                                                     #
+# ==============                                                     #
+# Update VERSION and DIARY files.  To be run under the root          #
+# directory of the CASINO distribution.                              #
+#                                                                    #
+# In whinge mode ('--whinge'), return statuses mean:                 #
+#   0   = operation completed successfully (with or without update)  #
+#   1   = possible disk quota problem                                #
+#   127 = other errors                                               #
+# In non-whinge mode (default), only statuses 0 and 1 are issued;    #
+# all "other errors" give status 0.                                  #
+#                                                                    #
+# PLR 05.2011                                                        #
+#                                                                    #
+# Changes                                                            #
+# -------                                                            #
+# MDT  1.2012 - Pre-publication version number with git commit       #
+#               numbers was being written to the VERSION file, and   #
+#               hence to the CASINO output file. Fixed.              #
+# MDT  1.2012 - Allowed DIARY file to be edited i.e. it is no longer #
+#               reconstructed from scratch from the git log, except  #
+#               in the case that it doesn't exist.                   #
+#--------------------------------------------------------------------#
+
+# Make sure we have what we need
+set +u
+shopt -s extglob
+
+# Configuration variables
+GIT_VERSION=$(set -- $(git --version 2> /dev/null) ; echo ${*:$#})
+[ -z "$GIT_VERSION" ] && exit 0
+case "$GIT_VERSION" in
+1.0*|1.1*|1.2*|1.3*|1.4*|1.5*|1.6*)
+ GLOG_TFORMAT=tformat
+ GIT_UNFLOW=""
+ GIT_FLOW_02=""
+ GIT_FLOW_22="  "
+ GIT_INS_NOTES="" ;;
+1.7*|*)
+ GLOG_TFORMAT=format
+ GIT_UNFLOW="%w(0)"
+ GIT_FLOW_02="%w(80,0,2)"
+ GIT_FLOW_22="%w(80,2,2)"
+ GIT_INS_NOTES="%n%N" ;;
+esac
+GLOG_FMT="$GIT_FLOW_02* %s$GIT_UNFLOW%n$GIT_FLOW_22-- %an,\
+ %cd$GIT_UNFLOW%n%n$GIT_FLOW_22%b$GIT_INS_NOTES"
+VERSION_FILE=VERSION
+VERSION_VAR=VERSION
+DIARY_PAST_REL_PATH=doc/changelogs
+DIARY_PAST_BASE_NAME=DIARY
+
+####################### Functions #######################
+check_number_N() { [[ "$1" == +([[:digit:]]) ]] ; }
+message() { ((quiet==0)) && (($#>0)) && echo "$1" ; }
+errstop() { ((quiet==0)) && (($#>0)) && echo "$1" ; exit $EXIT_OTHER ; }
+errstop_serious() { (($#>0)) && echo "$1" ; exit $EXIT_OTHER ; }
+werr() { ((quiet==0)) && (($#>0)) && echo "$1" ; exit $EXIT_WERR ; }
+leave() { ((quiet==0)) && (($#>0)) && echo "$1" ; exit $EXIT_LEAVE ; }
+repeat() {
+ # Print $2 $1 times
+ local i=0 string=""
+ while ((i<$1)) ; do i=$((i+1)) ; string="$string$2" ; done
+ echo "$string"
+}
+header() { echo "$1" ; repeat ${#1} - ; }
+dheader() { repeat ${#1} - ; echo "$1" ; repeat ${#1} - ; }
+##################### End functions #####################
+
+# Read command line options
+quiet=0
+EXIT_LEAVE=0
+EXIT_WERR=1
+EXIT_OTHER=0
+override_describe=""
+override_stable=""
+override_series=""
+single_rev_diary=""
+while (($#>0)) ; do
+ case "$1" in
+ --quiet) quiet=1 ;;
+ --whinge) EXIT_OTHER=127 ;;
+ --override-describe) shift ; override_describe="$1" ;;
+ --override-stable) shift ; override_stable="$1" ;;
+ --override-series) shift ; override_series="$1" ;;
+ --override-dirty) shift ; override_dirty="$1" ;;
+ --single-rev-diary) shift ; single_rev_diary="$1" ;;
+ *) errstop "Unknown option '$1'" ;;
+ esac
+ shift
+done
+
+# Exit if we don't have git, or if 'git' points at a different program
+if ! type -P git >& /dev/null\
+ || ! git --version 2> /dev/null | grep -E "^git version" >& /dev/null\
+ || ! git --git-dir=./.git log -1 >& /dev/null\
+ ; then
+ [ -f "$VERSION_FILE" ]\
+  || echo "$VERSION_VAR='version unknown'" > "$VERSION_FILE"\
+  || werr "Problem writing $VERSION_FILE."
+ leave
+fi
+
+# Get git-describe output
+if [ -z "$override_describe" ] ; then
+ describe="$(git describe --tags 2> /dev/null)"
+else
+ describe="$override_describe"
+fi
+
+# Determine if commit is tagged
+is_tagged=1
+[[ "$describe" == *-?-g??????? ]] && is_tagged=0
+if [ -z "$override_dirty" ] ; then
+ is_dirty=0 ; git diff-files --quiet || is_dirty=1
+else
+ is_dirty="$override_dirty"
+fi
+
+# Deconstruct version number to form new version number and stable version
+[[ "$describe" == v*.* ]] || errstop "Version format not recognized."
+version="${describe#v}" # 2.9.590-1-g123123
+version="${version%%-*}" # 2.9.590
+version1="${version%%.*}" # 2
+check_number_N "$version1" || errstop "Version format not recognized."
+version23="${version#$version1}" ; version23="${version23#.}" # 9.590
+version2="${version23%%.*}" # 9
+check_number_N "$version2" || errstop "Version format not recognized."
+# Construct version numbers
+current_series="v$version1.$version2" # v2.9
+if [ -e DIARY ] ; then # just get most recent commit from git log
+ DIARY_exists=1
+ diff_from=v$version # v_2.9.590
+else # get all commits back to the previous version from git log
+ DIARY_exists=0
+ diff_from="v$version1.$((version2-1))" # v_2.8
+fi
+if ((is_tagged==0)) || ((is_dirty==1)) ; then
+ version3="${version23#$version2}" ; version3="${version3#.}" # 590
+ [ -z "$version3" ] && version3=0
+ check_number_N "$version3" || errstop "Version format not recognized."
+# Extract number of commits from git-describe output
+ vdelta="${describe%-g*}"
+ vdelta="${vdelta#*-}" # 1 (number of new commits)
+ check_number_N "$vdelta" || vdelta=0
+ new_version="v$version1.$version2.$((version3+vdelta))" # v2.9.591
+fi
+[ -z "$override_stable" ] || diff_from="$override_stable"
+[ -z "$override_series" ] || current_series="$override_series"
+
+# Override for v2.9
+[ "$current_series" = v2.9 ] && [ "$diff_from" = v2.8 ] && diff_from=v2.9.70
+
+if ((is_tagged==0)) || ((is_dirty==1)) ; then
+ # Gather information to complement git-describe.
+ tag="$new_version" # v2.9.591
+ ((is_dirty==1)) && tag="$tag+dirty"
+ branch="$(git branch -a 2> /dev/null | sed -n "s/^\* //p")"
+ [ "$branch" = master ] && branch=""
+ user="$(git config user.name 2> /dev/null)"
+ [ -z "$user" ] && user="$(git config user.email 2> /dev/null)"
+ [ -z "$user" ] && user="$USER@$(hostname)"
+ # Build version string
+ version="$tag"
+ if [ ! -z "$branch" ] ; then
+  version="$version [$user's $branch branch]"
+ elif [ ! -z "$user" ] ; then
+  version="$version [$user]"
+ fi
+ if ((is_dirty==1)) ; then
+  # Date is current "Day Month Year".
+  date="$(date +"%-d %B %Y")"
+ else
+  # Date is "Day Month Year" from commit.
+  date="$(date -d "$(git log -1 --pretty="$GLOG_TFORMAT:%cD")" +"%-d %B %Y")"
+ fi
+else
+ # Version string is tag.
+ version="$describe" # v2.9.590-1-g123123
+ # Date is "Month Year" from commit.
+ date="$(date -d "$(git log -1 --pretty="$GLOG_TFORMAT:%cD")" +"%B %Y")"
+fi
+
+# Check if we need to replace the file
+contents="$VERSION_VAR=\"$version ($date)\""
+if [ -e "$VERSION_FILE" ] && [ "$contents" = "$(cat "$VERSION_FILE")" ] ; then
+ leave
+else
+ # Write version
+ rm -f "$VERSION_FILE"
+ echo "$contents" > "$VERSION_FILE" || werr "Problem writing $VERSION_FILE."
+fi
+
+# Diary generation
+
+if ((version2%2==0)) ; then
+
+#For stable release versions we just concatenate all the older DIARYs in 
+#doc/changelogs.
+
+# Header
+ cat >> DIARY <<EOF
+               --------------------------------------------------
+                              ####   ###   ##   ####  #     #
+                  The CASINO  #   #   #   #  #  #   #  #   #
+                              #    #  #  #    # #   #   ###
+                              #    #  #  ###### ####     #
+                              #   #   #  #    # #  #     #
+                              ####   ### #    # #   #   ###
+
+                Summary of changes to CASINO from September 1999
+               --------------------------------------------------
+
+EOF
+ 
+ {
+  while read file ; do
+   [[ "$file" == "$DIARY_PAST_BASE_NAME"* ]] || continue
+   [ -e "$DIARY_PAST_REL_PATH/$file" ] || continue
+   echo >> DIARY || werr "Problem writing DIARY."
+   cat "$DIARY_PAST_REL_PATH/$file" >> DIARY || werr "Problem writing DIARY."
+  done
+ } < <(cd "$DIARY_PAST_REL_PATH" 2> /dev/null && /bin/ls -r1v 2> /dev/null)
+
+else # development versions
+
+# See if we have a valid tag
+ [ -z "$diff_from" ] && errstop "No tag to diff from."
+ [ -z "$(git tag -l "$diff_from" 2> /dev/null)" ]\
+  && errstop "Tag '$diff_from' does not exist."
+
+# Load all previous tags in memory
+ {
+  while read a b ; do
+   eval "tag_of_g$a=\"\${b##*/}\""
+  done
+ } < <(git show-ref --tags)
+
+# Generate DIARY.
+ rev_file=DIARY
+ [ -e DIARY ] && mv DIARY DIARY_old
+ touch DIARY
+ if [ ! -z "$single_rev_diary" ] ; then
+  rev_file="$single_rev_diary" ; rm -f "$rev_file" ; touch "$rev_file"
+ fi
+ IFS_SAVE="$IFS"
+# Header
+ cat >> DIARY <<EOF
+               --------------------------------------------------
+                              ####   ###   ##   ####  #     #
+                  The CASINO  #   #   #   #  #  #   #  #   #
+                              #    #  #  #    # #   #   ###
+                              #    #  #  ###### ####     #
+                              #   #   #  #    # #  #     #
+                              ####   ### #    # #   #   ###
+
+                Summary of changes to CASINO from September 1999
+               --------------------------------------------------
+
+EOF
+# Current contents, written to separate single-revision file if specified.
+ header "List of changes in $current_series series" >> "$rev_file"
+ echo >> "$rev_file"
+ {
+  was_blank=0
+  tag=""
+  while : ; do
+   IFS=""
+   read -r line || break
+   IFS="$IFS_SAVE"
+   [[ "$line" == +( ) ]] && line=""
+   if [ -z "$line" ] ; then
+    ((was_blank==1)) && continue
+    was_blank=1
+   elif [[ "$line" = g+([0-9a-f]) ]] && ((${#line}==41)) ; then
+    eval "tag=\$tag_of_$line"
+    was_blank=0
+    continue
+   elif [ "${line:0:1}" != " " ] ; then
+    if [ ! -z "$tag" ] ; then
+     echo "---[$tag]---"
+     tag=""
+    fi
+   else
+    was_blank=0
+   fi
+   echo "$line"
+  done
+ } < <(git --no-pager log --date=short --pretty="$GLOG_TFORMAT:g%H%n$GLOG_FMT"\
+  "$diff_from..HEAD") >> "$rev_file" || werr "Problem writing DIARY."
+ IFS="$IFS_SAVE"
+
+# Append single-revision file to DIARY
+ [ -z "$single_rev_diary" ] || cat "$single_rev_diary" >> DIARY
+
+ if ((DIARY_exists==1)) ; then
+
+# Append all previous commits from existing DIARY
+  n=$(grep -c '\-\-\-\[v' DIARY_old)
+  ((n==0)) && errstop_serious "Cannot find any patch numbers in DIARY. Bug?"
+  line1=$(awk '/---\[v/{print NR;exit}' DIARY_old)
+  awk 'NR>='$line1'{print}' DIARY_old >> DIARY
+  rm -f DIARY_old
+ 
+ else # git cloned repository with no DIARY
+
+# Append older DIARYs
+ {
+  while read file ; do
+   [[ "$file" == "$DIARY_PAST_BASE_NAME"* ]] || continue
+   [ -e "$DIARY_PAST_REL_PATH/$file" ] || continue
+   echo >> DIARY || werr "Problem writing DIARY."
+   cat "$DIARY_PAST_REL_PATH/$file" >> DIARY || werr "Problem writing DIARY."
+  done
+ } < <(cd "$DIARY_PAST_REL_PATH" 2> /dev/null && /bin/ls -r1v 2> /dev/null)
+ fi
+
+fi
+
+leave

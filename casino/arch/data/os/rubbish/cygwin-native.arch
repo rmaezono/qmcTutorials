@@ -1,0 +1,13 @@
+#-! DESCRIPTION: Windows PC running Cygwin 'Linux' environment assuming the 
+#-!  compiler is used to produce a native Windows executable - for example 
+#-!  using MinGW. Note we do not recommend this - it is better to compile 
+#-!  directly inside the Cygwin environment - in which case you should use 
+#-!  e.g. os/cygwin.arch instead. Note the 'NATIVE_WINDOWS' tag flags the 
+#-!  use of the CASINO/build-tools/winwrap script which e.g. converts Unix
+#-!  filenames to Windows filenames and gets rid of symbolic links.
+#-! MAINTAINER: Zoltan Radnai <zradnai@cantab.net>
+#-! DATE: 4.2014
+#-! KERNEL: Cygwin
+#-! OS: Cygwin
+
+NATIVE_WINDOWS = yes

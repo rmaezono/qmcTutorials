@@ -1,0 +1,52 @@
+BLAS
+====
+
+This directory contains those double-precision real and complex routines
+in the BLAS library, levels 1, 2 and 3, required by CASINO. The Makefile
+has been rewritten to fit into the CASINO Makefile system.
+
+DO NOT MODIFY THESE ROUTINES. This will only break external-library support
+and will complicate any upgrades that we may want to apply later on.
+
+* In the event of a problem with a compiler, tweak FFLAGS_libs in
+  CASINO/arch/data/$CASINO_ARCH.arch instead.
+
+* If you need to use a new routine from the library, interface to it from
+  the numerical.f90 module, and tweak the interface there to make it simpler
+  to use from the higher-level module where it's needed. Contact PLR, he
+  knows how to check for cross-dependencies and update the Makefile quickly.
+
+The library in this directory is intended as a replacement for computers
+which do not have pre-compiled, hardware-optimized BLAS libraries. The
+provided library may be slower, but can be used on any computer. NB,
+according to our initial tests, Intel's MKL and AMD's ACML perform poorly
+compared to the provided library.
+
+* To use the provided replacement, set HAVE_BLAS to 'no' in the include
+  files. This should be the default for generic CASINO_ARCHs, and only extended
+  CASINO_ARCHs should be configured otherwise.
+
+* To use a pre-complied library, set HAVE_BLAS to 'yes' and add the
+  appropriate '-L' and/or '-l' flags to LAPACK_yes in the include file for
+  the extended CASINO_ARCH.
+
+Development info
+----------------
+Online resources:
+- BLAS routines             : http://www.netlib.org/lapack/lug/node145.html
+
+If you are in TCM, add the following line to your ~/.bashrc:
+
+ source ~pl275/software/lapack.bashrc
+
+which will add the LAPACK and BLAS manpages to your search path, so
+you can type e.g. 'man dgeev' to get help in your terminal. Very useful!
+
+Versions
+--------
+We have the BLAS distributed along with LAPACK 3.1.1 (February 2007).
+
+Website: http://www.netlib.org/blas/
+
+--
+PLR 12.2008

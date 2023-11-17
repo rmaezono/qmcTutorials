@@ -1,0 +1,143 @@
+ENVMC
+=====
+
+This utility prints out the VMC energies in a set of CASINO output files. It
+handles multiblock runs (where the blocks can be of different lengths) and
+restarts, it prints variances, it performs format conversion and is capable of
+analyzing the components of the local energy separately. Total and
+block-average CPU times are displayed.
+
+Usage:   envmc [-pe] [-kei] [-ti] [-fisq] [-vee] [-vei] [-vnl] 
+               [-vr] [-rel] [-ct] [-nc] [-nf <no-figures>] [files]
+
+If list-of-files is omitted, "./out" is assumed.
+
+Options:
+-------
+-kei : Display KEI kinetic energy.
+-ti  : Display TI kinetic energy.
+-fisq: Display FISQ kinetic energy.
+-pe  : Display potential energy.
+-vee : Display e-e potential energy.
+-vei : Display e-i potential energy if available.
+-vnl : Display non-local e-i potential energy if available.
+-vr  : Display virial ratio.
+-rel : Display relativistic energy.
+-ct  : Display correlation time.
+-nc  : No colours. Display monochrome output. Use e.g. to dump results
+       to a file.
+-nf  : Number of figures. Display errorbars of <no-figures> figures.
+       Setting <no-figures> to 0 disables format conversion.
+
+Examples:
+--------
+
+SINGLE CALCULATION
+$ envmc
+
+ENVMC v0.70: Script to extract VMC energies from CASINO output files.
+Usage: envmc [-kei] [-ti] [-fisq] [-pe] [-vee] [-vei] [-vnl] [-nc]
+          [-vr] [-rel] [-ct] [-nf <no. of figures in error bars>] [files]
+
+File: out1
+Block average recomputed for current run.
+Corrected for serial correlation using correlation time method.
+Energy in au, sample variance in au^2.
+
+ E     = -7.482(4) ; var  = 0.043(4) 
+ Total CASINO CPU time  ::: 0.2810 seconds
+
+
+
+SINGLE CALCULATION WITH SOME FLAGS SET
+$ envmc -nf 2 -kei -ti -fisq -pe
+
+ENVMC v0.70: Script to extract VMC energies from CASINO output files.
+Usage: envmc [-kei] [-ti] [-fisq] [-pe] [-vee] [-vei] [-vnl] [-nc]
+          [-vr] [-rel] [-ct] [-nf <no. of figures in error bars>] [files]
+
+File: out1
+Block average recomputed for current run.
+Corrected for serial correlation using correlation time method.
+Energy in au, sample variance in au^2.
+
+ E     = -7.4822(41) ; var  = 0.0429(41) 
+ E_KEI = 7.50(23)
+ E_TI  = 7.49(11)
+ E_FI2 = 7.472(14)
+ V_T   = -14.99(22)
+ Total CASINO CPU time  ::: 0.2810 seconds
+
+
+
+RESTARTED CALCULATION
+$ envmc 
+
+ENVMC v0.70: Script to extract VMC energies from CASINO output files.
+Usage: envmc [-kei] [-ti] [-fisq] [-pe] [-vee] [-vei] [-vnl] [-nc]
+          [-vr] [-rel] [-ct] [-nf <no. of figures in error bars>] [files]
+
+File: out
+Block average recomputed for current run (without data from previous runs).
+Corrected for serial correlation using correlation time method.
+Energy in au, sample variance in au^2.
+
+ E     = -7.481(4) ; var  = 0.042(1) 
+ Total CASINO CPU time  ::: 0.2930 seconds
+
+Final result from CASINO out file - includes data from previous run(s):
+Corrected for serial correlation using stated methods. 
+
+ E     = -7.482(2)       [no correction]
+ E     = -7.482(3)       [correlation time method]
+ E     =  N/A            [on-the-fly reblocking; not implemented for restarts]
+
+
+
+RESTARTED CALCULATION WITH EWALD AND MPC
+$ envmc 
+
+ENVMC v0.70: Script to extract VMC energies from CASINO output files.
+Usage: envmc [-kei] [-ti] [-fisq] [-pe] [-vee] [-vei] [-vnl] [-nc]
+          [-vr] [-rel] [-ct] [-nf <no. of figures in error bars>] [files]
+
+File: out
+Block average recomputed for current run (without data from previous runs).
+Corrected for serial correlation using correlation time method.
+Energy in au/sim.cell, sample variance in au/sim.cell^2.
+
+ E     = -63.09(5) ; var  = 1.7(2) 
+ E_ALT = -62.94(5)
+ Total CASINO CPU time  ::: 6.8380 seconds
+
+Final result from CASINO out file - includes data from previous run(s):
+Corrected for serial correlation using stated methods. 
+
+ E     = -63.12(3)       [no correction]
+ E     = -63.12(3)       [correlation time method]
+ E     =  N/A            [on-the-fly reblocking; not implemented for restarts]
+ E_ALT = -62.97(3)       [no correction]
+ E_ALT = -62.97(4)       [correlation time method]
+ E_ALT =  N/A            [on-the-fly reblocking; not implemented for restarts]
+
+
+
+VARMIN CALCULATION (where ve is most useful)
+$ envmc
+
+ENVMC v0.70: Script to extract VMC energies from CASINO output files.
+Usage: envmc [-kei] [-ti] [-fisq] [-pe] [-vee] [-vei] [-vnl] [-nc]
+          [-vr] [-rel] [-ct] [-nf <no. of figures in error bars>] [files]
+
+File: ./out
+Block averages recomputed for current run.
+Corrected for serial correlation using correlation time method.
+Energies in au, sample variances in au^2.
+
+VMC #1: E     = -7.479(2) ; var  = 0.0426(7) (correlation.out.0)
+VMC #2: E     = -7.478(2) ; var  = 0.0378(7) (correlation.out.1)
+VMC #3: E     = -7.474(2) ; var  = 0.0373(6) (correlation.out.2)
+VMC #4: E     = -7.476(2) ; var  = 0.0384(7) (correlation.out.3)
+VMC #5: E     = -7.473(2) ; var  = 0.0373(7) (correlation.out.4)
+        Total CASINO CPU time  ::: 7.1290 seconds
+

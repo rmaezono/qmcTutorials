@@ -1,0 +1,20 @@
+MCEXX-CASINO interface
+======================
+
+MCEXX is a code written by A. Goerling, S. Rohra, P. Carrier, A.  Hesselmann,
+H. Schulz and E. Trushin at the University Erlangen Nuremberg in Germany. It is
+a plane wave electronic structure code for conventional Kohn-Sham calculations
+(LDA/GGAs), Hartree-Fock calculations, DFT calculations with hybrid
+functionals, exact-exchange (EXX) Kohn-Sham calculations, and calculations
+treating electron correlation within the random phase approximation. Spin-orbit
+interactions, non-collinear spin, and accompanying magnetization currents can
+be treated. With explicitly temperature-dependent functionals calculations for
+the the very high temperatures relevant in warm dense matter physics (e.g. in
+the context of nuclear fusion or matter in stars) can be carried out. 
+
+An interface between MCEXX and CASINO was implemented in November 2013 but this
+is not publically distributed nor included in the CASINO distribution.
+
+For further information contact andreas.goerling@fau.de.
+
+MDT Nov 2013

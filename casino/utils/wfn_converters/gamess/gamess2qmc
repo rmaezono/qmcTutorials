@@ -1,0 +1,970 @@
+#!/usr/bin/perl
+######################################################################
+# GAMESS-U.S. to CASINO 2.2 interface                                #
+# by A. Badinski                                                     #
+# usage: gamess2qmc -t [hf/opt/nat] file_name                        #
+# type: "gamess2qmc" to get a summary of command-line options        #
+# for questions, email abadinski@gmail.com                           #
+######################################################################
+
+use Getopt::Std;
+
+    initialize();
+    get_options();
+    read_from_gamess();
+    read_vec_file();
+    trafo_orbitals();
+    calc_norm();
+    write_gwfn();
+
+sub initialize{
+######################################################################
+# initialize arrays                                                  #
+######################################################################
+
+# strings indicating different orbital sections in gamess output
+@orb_start=('^\s*EIGENVECTORS\s*$',
+            '^\s*MCSCF OPTIMIZED ORBITALS\s*',
+            '^\s*MCSCF NATURAL ORBITALS\s*$');
+
+# corresponding ends
+@orb_stop=('END OF \S+HF CALCULATION',
+           'DONE WITH MCSCF ITERATIONS',
+           '------------------------');
+
+# number of extra lines from start string to first orbital block
+@lineskip1=(2,2,2);
+
+# number of extra lines from orbital indices to coefficients
+@lineskip2=(2,2,3);
+
+# mapping of orbital types (from command line option) to numbers
+%orbid=( hf => 0, opt => 1, nat => 2);
+
+# mapping of symbols to numbers
+%shell_map=(S=>0,X=>1,Y=>2,Z=>3,XX=>4,YY=>5,ZZ=>6,XY=>7,XZ=>8,YZ=>9,
+ XXX=>10,YYY=>11,ZZZ=>12,XXY=>13,XXZ=>14,YYX=>15,YYZ=>16,ZZX=>17,
+ ZZY=>18,XYZ=>19,XXXX=>20,YYYY=>21,ZZZZ=>22,XXXY=>23,XXXZ=>24,
+ YYYX=>25,YYYZ=>26,ZZZX=>27,ZZZY=>28,XXYY=>29,XXZZ=>30,YYZZ=>31,
+ XXYZ=>32,YYXZ=>33,ZZXY=>35);
+
+$pi=3.141592653589793;
+$polarized=true;
+}
+
+
+sub get_options(){
+######################################################################
+# process command line options                                       #
+######################################################################
+
+    $verbose=0;
+    my %options = ();
+    getopts("t:l:v:h", \%options);
+    $orbtype=0; # default, assuming Hartree-Fock orbitals are read
+
+    if($options{t}){
+        if(exists $orbid{$options{t}} ){
+            $orbtype=$orbid{$options{t}};
+            if($options{t}=~/nat/) {
+               print "\nWarning: make sure the one empty line right after the end of
+                the natural orbital coefficients is deleted by hand in GAMESS output.\n";
+               print "\nIn the future, the script can be improved to do that."
+            }
+        } else {
+            printf "known types for -t flag :  %s\n",join(" ",keys(%orbid));
+            die "bad orbital type: $options{t}";
+        }
+    }
+    if($options{l}){ $vec_file=$options{l}; }
+    if($options{v}){ $verbose=$options{v}; }
+    if($options{h}){ print_usage(); }
+
+# there should be exactly on file to process
+    if( $#ARGV != 0){ print_usage(); }
+
+# setup file names
+    else { $gamess_file=$ARGV[0]; }
+
+}
+
+
+sub eat_lines{
+# eat n lines
+    my $n= $_[0];
+    for(my $i=0; $i<$n; $i++){
+        <>;
+    }
+}
+
+
+sub read_from_gamess{
+######################################################################
+# main loop for reading from gamess output; look for strings,        #
+# identifying a section and call the appropriate routine;            #
+# <> reads from standard input line by line                          #
+######################################################################
+
+   $orbread=-1;
+   print "\n Reading GAMESS output \n" ;
+   READ_LOOP: while(<>){
+
+# get title
+      if( $_ =~ /^\s*RUN TITLE\s*$/){
+          eat_lines(1);
+          $_= <>; chomp;
+          $run_title=$_;
+          next READ_LOOP;
+      }
+
+# get geometry
+      if( $_ =~ /^ ATOM      ATOMIC                      COORDINATES/){
+          eat_lines(1);;
+          read_geometry();
+          next READ_LOOP;
+      }
+
+# pseudopotential
+      if( $_ =~ /^\s*ECP POTENTIALS\s*/){
+          eat_lines(2);
+          read_zcore();
+          next READ_LOOP;
+      }
+
+# get basis set
+      if( $_ =~ /^\s*ATOMIC BASIS SET\s*$/ ){
+          eat_lines(5);
+          read_basis();
+
+# generate shell code (S->1,L->2,P->3,D->4,F->5,G->6) used
+# in CASINO input
+          shell_code();
+          next READ_LOOP;
+      }
+
+# get orbital coefficients
+      if( ($orbread == -1) && ($_ =~ $orb_start[$orbtype] )){
+          eat_lines($lineskip1[$orbtype]);
+          read_orbitals($orb_stop[$orbtype]);
+          $orbread=$orbtype;
+          next READ_LOOP;
+      }
+
+# get number of electrons and n-n energy
+      if( $_=~/^\sNUMBER OF ELECTRONS KEPT IN THE CALCULATION IS =\s+([0-9]+)/){
+         $num_ele=$1;
+      }
+      if( $_=~/^\sNUMBER OF ELECTRONS                          =\s+([0-9]+)/){
+         $num_ele=$1;
+      }
+      if( $_=~/^\s+NUCLEUS-NUCLEUS POTENTIAL ENERGY =\s+([0-9]+.[0-9]+)/ ) {
+         $ii_energy=$1;
+      }
+
+      if      ($_=~/SCFTYP=UHF/)   {
+         $method=UHF;
+      } elsif ($_=~/SCFTYP=RHF/)   {
+         $method=RHF;
+         $polarized=false;
+      } elsif ($_=~/SCFTYP=ROHF/)   {
+         $method=ROHF;
+	 $polarized=false;
+      } elsif ($_=~/SCFTYP=MCSCF/) {
+         $method=MCSCF;
+      }
+      if ($_=/MULT=1/)  {
+         $polarized=false;
+      }
+   }
+   print "\n Done reading GAMESS output \n" ;
+}
+
+
+sub read_vec_file{
+######################################################################
+# Re-read lcao coefficients from 'vec_file'; routine is enabled with #
+# option -l 'vec_file'. In file "vec_file" all header lines before   #
+# and after the data, that are written out from GAMESS, need to be   #
+# removed.                                                           #
+######################################################################
+
+   if(defined $vec_file){
+      open(VECFILE,"< $vec_file") || die "Cannot open file $vec_file : $!\n";
+      print "\n New coefficients from file $vec_file\n";
+
+# @vv treats each line of the output of gamess as an element of an array
+      @vv=<VECFILE>;
+      if( $verbose ){ print $#vv," lines in $vec_file\n"; }
+
+# pass on line @vv as a reference in next line
+      read_vec(\@vv);
+      close(VECFILE);
+   }
+}
+
+sub read_vec{
+######################################################################
+# This routine is a subroutine of read_vec_file.                     #
+######################################################################
+
+# vec_lines is a reference in perl to the array of all the lines of vec
+# note: a reference need to be dereferenced later!
+    $vec_lines=$_[0];
+    @tmplcao=();
+    $norbit=0;
+    $o=0;
+
+# field lengths of first 3 fields
+    @flen=(2,3,15);
+
+# loop over all relevant line of gamess output;
+# $st contains one line; @$vec_line de-references reference $vec_line
+   foreach my $st (@$vec_lines){
+
+# takes away any new line character from end of line
+      chomp $st;
+
+# $ncol is number of orbitals in each line and can be 1 to 5;
+# length($st) returns the number of bytes of $st
+      $ncol=(length($st)-$flen[0]-$flen[1])/$flen[2]; # number btw 1-5 for reading coefs
+
+# get index of orbital to which coefficients of that line correspond;
+# extract and return first 2 characters of line $st starting at position 0
+      $orb=substr($st,0,$flen[0]);
+
+# if orbital number has not encountered before, count $norbit!
+      if($orb != $o){
+          $o=$orb;
+          $norbit++;
+      }
+
+# get index of line for that orbital; for each orbital start recounting index
+      $count=substr($st,$flen[0],$flen[1]);
+      @values=();
+
+# read orbital coefficients into array @values for that line
+      for($i=1;$i<=$ncol;$i++){
+          push @values,substr($st,$flen[0]+$flen[1]+($i-1)*$flen[2],$flen[2]);
+      }
+
+# and save coefficients for this one orbital in tmplcao
+      push  @{$tmplcao[$norbit-1]}, @values;
+   }
+
+# Store orbital coefficients in array lcao(orbital index; coefficient index).
+# For those cases when no new orbital coefficients are supplied (when runing
+# out of orbitals in GAMESS output), old coefficients are kept
+   for(my $i=0; $i<$norbit; $i++){
+      for(my $j=0; $j<=$#lcao_bflabel; $j++){
+         ${$lcao[$i]}[$j]=${tmplcao[$i]}[$j];
+      }
+   }
+   print "\n Coeffs of MOs successfully replaced\n";
+}
+
+
+sub read_geometry{
+######################################################################
+# read geometry data from gamess output                              #
+######################################################################
+
+    print "\n read1 geometry \n" ;
+    %seen=();
+
+# loop as long as we have 5 fields on the line
+   READ_LOOP: while(1) {
+      $_ = <>;  chomp;
+
+# split line into fields according to white space
+      @w = split;
+      if( $#w == 4 ){
+          push @atom_symbols_all,$w[0];
+
+# remember unique atoms
+          if( ! $seen{$w[0]} ){
+              $seen{$w[0]}=1;
+              push @atom_types,$w[0];
+          }
+
+# store data in arrays
+          push @atom_charges,$w[1];
+          push @atom_x,$w[2];
+          push @atom_y,$w[3];
+          push @atom_z,$w[4];
+      } else {
+
+# immediate exit the loo
+          last READ_LOOP;
+      }
+   }
+
+# find atomic number $zatom
+   for(my $i=0; $i<= $#atom_symbols_all; $i++){
+      if( ! exists($zatom{$atom_symbols_all[$i]})) {
+
+# set atomic number = atomic charge (also true for pseudopotentials!)
+            $zatom{$atom_symbols_all[$i]}=$atom_charges[$i];
+
+      } else {
+
+# only check weather stored charge (if any!) agrees with current charge
+         if( $zatom{$atom_symbols_all[$i]} != $atom_charges[$i] ){
+
+# this should not happen!
+         print "WARNING new charge for ",$atom_symbols_all[$i]," : ", $atom_charges[$i],"\n";
+         }
+      }
+   }
+}
+
+
+sub read_zcore{
+######################################################################
+# read valence charges                                               #
+######################################################################
+
+   print "\n read3 ecp \n" ;
+   READ_LOOP: while(1) {
+      $_ = <>;  chomp;
+
+# stop loop
+      if($_ =~ /^\s*THE ECP RUN REMOVES/){
+          last READ_LOOP;
+      }
+
+# get charge of core stored in $zcore
+      if($_ =~ /^\s*PARAMETERS\s+FOR\s+"([^" ]*)\s*"\s+ON\s+ATOM\s+([0-9]+)\s+WITH\s+ZCORE\s+([0-9]+)\s+AND\s+LMAX\s+([0-9]+)\s+ARE\s*$/){
+         if (! exists $zcore{$atom_symbols_all[$2-1]} ){
+             $zcore{$atom_symbols_all[$2-1]}=$3;
+
+         } else {
+
+# only check whether stored charge (if any!) agrees with current charge
+            if($zcore{$atom_symbols_all[$2-1]} != $3){
+
+# this should not happen!
+               print "WARNING : ignoring new ZCORE for atom type ",$atom_symbols_all[$2-1],"\n";
+            }
+         }
+      }
+
+# the following is an alternative format that GAMESS prints sometimes
+      if($_ =~ /^\s*PARAMETERS\s+FOR\s+"([^" ]*)\s*"\s+ON\s+ATOM\s+([0-9]+)\s+ARE\s+THE\s+SAME\s+AS\s+ATOM\s+([0-9]+)\s*$/){
+         if (! exists $zcore{$atom_symbols_all[$2-1]} ){
+            $zcore{$atom_symbols_all[$2-1]}=$zcore{$atom_symbols_all[$3-1]};
+         } else {
+            if( $zcore{$atom_symbols_all[$2-1]} != $zcore{$atom_symbols_all[$3-1]}){
+                print "WARNING : ignoring new ZCORE for atom type ",$atom_symbols_all[$2],"\n";
+            }
+         }
+      }
+   }
+
+   if($verbose){
+      print "\n Atom Charges \n";
+      foreach my $i (@atom_types){
+         printf "Atom type %s charge %f ",$i,$zatom{$i};
+         if( exists $zcore{$i} ){
+            printf "core charge %d ",$zcore{$i};
+         }
+         printf "\n";
+      }
+   }
+}
+
+
+sub read_basis{
+######################################################################
+# read basis set data from GAMESS output                             #
+######################################################################
+
+   print "\n read2 basis \n" ;
+   $shell_number_all=0;
+   $current_func=0;
+   %seen=();
+   $cindex=0;
+   $ignore=0;
+   READ_LOOP: while(1) {
+      $_ = <>;  chomp;
+      @w = split;
+
+# stop loop
+      if( $_ =~  /^\s*TOTAL NUMBER OF BASIS SET SHELLS/ ){
+          last READ_LOOP;
+      }
+
+# if only one field in line, it must be an atom symbol
+      if( $#w==0 ){
+         $symbol=$w[0];
+         $cindex=0; # reset for each atom
+
+# ignore basis set if it reoccurs more than once
+         if( $seen{$symbol} ){
+              $ignore=1;
+              if($verbose){
+                  print "\n *** Ignoring multiple listing for type $symbol\n";
+              }
+         } else {
+              $ignore=0;
+              $seen{$symbol}=1;
+         }
+
+# read in basis set coefficients/exponents (when more than one element
+# is present in the line and the basis set has not been read previously
+# for that atom)
+      } elsif($#w>0){
+         if( $ignore == 1){
+              next READ_LOOP;
+         }
+
+# $current_func only relevant for contracted Gaussian basis sets.
+         if($current_func != $w[0]){
+            $current_func=$w[0];
+            $cindex++;
+         }
+         $num_prims_each_shell{$symbol}[$cindex]++ ;
+
+         push @{$cindex_new{$symbol}},  $cindex; # same label cindex when contracted
+         push @{$shell_spd_new{$symbol}},   $w[1]; # S,P,D,F,G
+         push @{$exponents_new{$symbol}},   $w[3];
+         push @{$coeff_new{$symbol}},       $w[4];
+         if($w[1] eq "L") {
+            print "L orbitals not implemented"; die;
+         }
+      }
+   }
+
+# store exponents and shell symbol (S,P,..). Note that @array_all
+# contains data for all atoms (also for atoms that are ommitted
+# in GAMESS input due to symmetry)
+   $num_shells_all=0;
+   @num_shells_per_atom=0;
+   foreach $iatom (@atom_symbols_all) {
+
+# last index of matrix @cindex_new{$iatom} gives number of shells per atom
+      $num_shells_per_atom{$iatom}=$cindex_new{$iatom}[$#{@cindex_new{$iatom}}];
+
+# total number of shells in system
+      $num_shells_all=$num_shells_all+$num_shells_per_atom{$iatom};
+
+      for (my $ik=1; $ik<= $num_shells_per_atom{$iatom} ; $ik++ ) {
+         push @num_prims_all, $num_prims_each_shell{$iatom}[$ik];
+      }
+      for (my $ik=0; $ik<= $#{$exponents_new{$iatom}}; $ik++ ) {
+         push @cindex_all,  $cindex_new{$iatom}[$ik] ;
+         push @shell_spd_all, $shell_spd_new{$iatom}[$ik];
+         push @exponents_all, $exponents_new{$iatom}[$ik];
+         push @coeff_all,     $coeff_new{$iatom}[$ik]    ;
+      }
+   }
+   if($verbose>0) {print "all EXPs:", @exponents_all,  "\n";}
+   if($verbose>0) {print "all SHELL:", @shell_spd_all, "\n";}
+   if($verbose>0) {print "all CONT COEFF:", @coeff_all,"\n";}
+}
+
+
+sub shell_code() {
+#######################################################################
+# This routine converts shells (S,P,D,F,G) into CASINO format (1,3,4,5,6) #
+#######################################################################
+
+   for (my $im=0; $im<=$#shell_spd_all; $im++) {
+      if($shell_spd_all[$im]=~/S/) {
+         $shell_code_all[$im]=1;
+#      } elsif($shell_spd_all[$im]=~/L/) {
+#         $shell_code_all[$im]=2;
+      } elsif($shell_spd_all[$im]=~/P/) {
+         $shell_code_all[$im]=3;
+      } elsif($shell_spd_all[$im]=~/D/) {
+         $shell_code_all[$im]=4;
+      } elsif($shell_spd_all[$im]=~/F/) {
+         $shell_code_all[$im]=5;
+      } elsif($shell_spd_all[$im]=~/G/) {
+         $shell_code_all[$im]=6;
+         die "\n Converter cannot transform g functions. Stopping. \n \n";
+      } else {
+         die "\n CASINO supports only s, p, d, f, and g functions. Stopping. \n \n";
+      }
+   }
+}
+
+
+sub read_orbitals {
+######################################################################
+# read molecular orbital coefficients from GAMESS output.            #
+######################################################################
+
+   print "\n read4 orbitals \n" ;
+   $no1 = -1;
+   $no2 = -1;
+   $end_tag=$_[0];
+   $num_vec=0;
+
+# loop over lines of relevant information of gamess output
+   READ_LOOP: while(1) {
+      $_ = <>;  chomp;
+
+# break line into elements stored in array @w
+      @w = split;
+
+# stop reading if $end_tag is reached
+      if( $_ =~  $end_tag ){ last READ_LOOP; }
+
+# For UHF, also store coefficients for beta electrons
+      if( $_ =~ m/----- BETA SET -----/) {
+         eat_lines(5);
+         next READ_LOOP;
+      }
+
+# if blank line encountered, reset $no1=$no2=-1
+      if( $#w == -1 ){
+         $no1=-1;
+         $no2=-1;
+         next READ_LOOP;
+      }
+
+# if previous line was a blank line set up $no1 and $no2 indicating
+# the first and last orbital number for reading in orbital coefficients
+      if( ($no1 == -1) && ($no2 == -1) ){
+          $no1=$num_vec;
+
+# in the next line, $#w+1 counts number of orbitals added to list
+          $num_vec += ($#w+1);
+
+# next line, need to subtract 1 since $no1 (hence $no2) start from 0
+          $no2=$num_vec - 1 ;
+          eat_lines($lineskip2[$orbtype]);
+          next READ_LOOP;
+       }
+
+# when reading 1st orbital ($no1==0), also save the basis function labels
+# (S,X,Y,Z,XX,YY,ZZ, etc.)
+      if( $no1 == 0){
+          push @lcao_bflabel, $w[3];
+      }
+
+# store orbital coefficients in array lcao[orbital index, coefficient index]
+# from this line; next, $col is index of array starting with $col=4
+      $col=4;
+      for ($i=$no1; $i <=$no2; $i++){
+          push @{$lcao[$i]}, $w[$col];
+          $col++;
+      }
+   }
+}
+
+
+sub calc_norm() {
+######################################################################
+# This routine calculates the normalization of the Gaussian basis    #
+# functions.                                                         #
+######################################################################
+
+   for (my $i=0; $i<= $#shell_code_all; $i++) {
+      $ixyz=$shell_code_all[$i];
+
+#(2*alpha/pi)^(3/4)*(4*alpha)^(l/2)/sqrt((2l-1)!!)
+
+# S orbitals
+      if ($ixyz==1) {
+         $norm[$i]=((2*$exponents_all[$i]/$pi)**0.75)*$coeff_all[$i];
+
+# P orbitals
+      } elsif($ixyz==3) {
+         $norm[$i]=((2*$exponents_all[$i]/$pi)**0.75)*((4*$exponents_all[$i])**0.5)*$coeff_all[$i];
+
+# D orbitals
+      } elsif($ixyz==4) {
+         $norm[$i]=((2*$exponents_all[$i]/$pi)**0.75)*((4*$exponents_all[$i])**1.0)/sqrt(3.0)*$coeff_all[$i];
+
+# F orbitals
+      } elsif($ixyz==5) {
+         $norm[$i]=((2*$exponents_all[$i]/$pi)**0.75)*((4*$exponents_all[$i])**1.5)/sqrt(3.0*5.0)*$coeff_all[$i];
+#         die "\n Converter does not know how to transform f functions from Cartesian to harmonic. Stopping. \n";
+#           print "xx6\n";
+           
+# G orbitals
+      } elsif($ixyz==6) {
+         $norm[$i]=((2*$exponents_all[$i]/$pi)**0.75)*((4*$exponents_all[$i])**2.0)/sqrt(3.0*5.0*7.0)*$coeff_all[$i];
+         die "\n Converter does not know how to transform g functions from Cartesian to harmonic. Stopping. \n";
+           print "xx6\n";
+           
+      } else {
+      die "\n Converter does not know how to normalize h functions. Stopping. \n";
+      }
+   }
+}
+
+sub trafo_orbitals() {
+######################################################################
+# Transform orbital coefficients as required between the Cartesian   #
+# Gaussian basis functions from GAMESS and the Spherical Harmonic    #
+# Gaussians from CASINO.                                             #
+######################################################################
+
+
+# loop over all vectors (one vector is one MO)
+   for(my $ivec=0; $ivec < $num_vec ;$ivec++) {
+
+# initialize $icoeff
+   $icoeff=0;
+
+# loop over all AO in one vector
+#     for(my $iao=0; $iao<= $#lcao_bflabel ;$iao++) {
+      $iao=0;
+      while($iao <= $#lcao_bflabel) {
+
+# change label (S,X,Y,Z,XX,...XXX...) to index (0,1,2,3,4,...10...)
+         $sxyz=$shell_map{$lcao_bflabel[$iao]};
+
+# S orbitals unchanged
+         if($sxyz==0) {
+            push @{$lcao_trafo[$ivec]},  ${$lcao[$ivec]}[$iao] ;
+            $iao++;
+            $icoeff++;
+
+# P orbitals unchanged
+         }elsif(($sxyz==1)||($sxyz==2)||($sxyz==3)) {
+            push @{$lcao_trafo[$ivec]},  ${$lcao[$ivec]}[$iao] ;
+            $iao++;
+            if($sxyz==3) { $icoeff++;}
+
+# D orbitals changed
+         }elsif($sxyz==4) {
+            $xx=${$lcao[$ivec]}[$iao]  ;
+            $yy=${$lcao[$ivec]}[$iao+1];
+            $zz=${$lcao[$ivec]}[$iao+2];
+            $xy=${$lcao[$ivec]}[$iao+3];
+            $xz=${$lcao[$ivec]}[$iao+4];
+            $yz=${$lcao[$ivec]}[$iao+5];
+
+#           $xx1=1/sqrt(15) * (sqrt(5)/3) * ($xx + $yy + $zz) ;
+
+# the factor 1/2 in the next line comes from the normalization
+# condition imposed upon the xx-yy Gaussian, the factor 1/sqrt(3)
+# comes from transformation
+#            $yy1=1/2          * 1/sqrt(3) * ($xx-$yy)          ;
+            
+
+# the factor 1/(sqrt(3)*2 in the next line comes from the normalization
+# condition imposed upon the 2zz-xx-yy Gaussian, the factor 1/3 comes from
+# transformation
+#            $zz1=1/(sqrt(3)*2)* (1/3) * (2*$zz-$xx-$yy)        ;
+            
+#                                        corresponding basis functions            
+            $d0=(1/6)*(2*$zz-$xx-$yy);   #3z2-r2
+            $d1c=sqrt(3)*$xz;            #xz
+            $d1s=sqrt(3)*$yz;            #yz
+            $d2c=(1/2)*($xx-$yy);        #x2-y2
+            $d2s=sqrt(3)*$xy;            #xy
+
+            push @{$lcao_trafo[$ivec]}, ($d0, $d1c, $d1s, $d2c, $d2s);
+
+            if($verbose>3){print $lcao_bflabel[$iao]," copied\n";}
+            $iao=$iao+6;
+            $icoeff++;
+            
+# F orbitals changed
+         }elsif($sxyz==10) {
+            $xxx=${$lcao[$ivec]}[$iao]  ;
+            $yyy=${$lcao[$ivec]}[$iao+1];
+            $zzz=${$lcao[$ivec]}[$iao+2];
+            $xxy=${$lcao[$ivec]}[$iao+3];
+            $xxz=${$lcao[$ivec]}[$iao+4];
+            $yyx=${$lcao[$ivec]}[$iao+5];
+            $yyz=${$lcao[$ivec]}[$iao+6];
+            $zzx=${$lcao[$ivec]}[$iao+7];
+            $zzy=${$lcao[$ivec]}[$iao+8];
+            $xyz=${$lcao[$ivec]}[$iao+9];
+
+#                                                            corresponding basis functions 
+            $f0=(2/sqrt(5)*$zzz-$xxz-$yyz)/sqrt(5);          #z(5z2-3r2)
+            $f1c=(4*$zzx-3/sqrt(5)*$xxx-$yyx)/(6*sqrt(5));   #x(5z2-r2)
+            $f1s=(4*$zzy-3/sqrt(5)*$yyy-$xxy)/(6*sqrt(5));   #y(5z2-r2)
+            $f2c=($xxz-$yyz)/(6*sqrt(5));                    #z(x2-y2)
+            $f2s=$xyz/sqrt(60);                              #xyz
+            $f3c=($xxx/sqrt(5)-$yyx)/(12*sqrt(5));           #x(x2-3y2)
+            $f3s=($xxy-$yyy/sqrt(5))/(12*sqrt(5));           #y(3x2-y2)
+            
+            push @{$lcao_trafo[$ivec]}, ($f0, $f1c, $f1s, $f2c, $f2s, $f3c, $f3s);
+
+            if($verbose>3){print $lcao_bflabel[$iao]," copied\n";}
+            $iao=$iao+10;
+            $icoeff++;
+
+=proposed g transformation
+         }elsif($sxyz==20) {
+            $xxxx=${$lcao[$ivec]}[$iao]  ;
+            $yyyy=${$lcao[$ivec]}[$iao+1];
+            $zzzz=${$lcao[$ivec]}[$iao+2];
+            $xxxy=${$lcao[$ivec]}[$iao+3];
+            $xxxz=${$lcao[$ivec]}[$iao+4];
+            $yyyx=${$lcao[$ivec]}[$iao+5];
+            $yyyz=${$lcao[$ivec]}[$iao+6];
+            $zzzx=${$lcao[$ivec]}[$iao+7];
+            $zzzy=${$lcao[$ivec]}[$iao+8];
+            $xxyy=${$lcao[$ivec]}[$iao+9];
+            $xxzz=${$lcao[$ivec]}[$iao+10];
+            $yyzz=${$lcao[$ivec]}[$iao+11];
+            $xxyz=${$lcao[$ivec]}[$iao+12];
+            $yyxz=${$lcao[$ivec]}[$iao+13];
+            $zzxy=${$lcao[$ivec]}[$iao+14];
+#                                                                                corresponding basis functions             
+            $g0=(3*($xxxx+$yyyy)+8*$zzzz)/35+($xxyy-4*($xxzz+$yyzz))/sqrt(105)   #35z4-30z2r2+3r4
+            $g1c=(4*$zzzx-3*$xxxz-sqrt(5)*$xyyz)/sqrt(700)                       #xz(7z2-3r2)
+            $g1s=(4*$zzzy-3*$yyyz-sqrt(5)*$xxyz)/sqrt(700)                       #yz(7z2-3r2)
+            $g2c=($yyyy-$xxxx)/105+($xxzz-$yyzz)/sqrt(945)                       #(x2-y2)(7z2-r2)
+            $g2s=(sqrt(20)*$xyzz-$xxxy-$yyyx)/sqrt(6300)                         #xy(7z2-r2)
+            $g3c=($xxxz-sqrt(5)*$xyyz)/sqrt(25200)                               #xz(x2-3y2)
+            $g3s=($yyyz-sqrt(5)*$xxyz)/sqrt(25200)                               #yz(3x2-y2)
+
+#   these two transformations are produced in the same way as those in the f shell
+#            $g4c=(3*($xxxx+$yyyy)-sqrt(105)*$xxyy)/25200                        #x2(x2-3y2)-y2(3x2-y2)
+#            $g4s=($xxxy-$yyyx)/sqrt(100800)                                     #xy(x2-y2)
+
+#   these two transformations are equivalent to the transformations in the gaussiantoqmc script
+            $g4c=(3*($xxxx+$yyyy)-sqrt(105)*$xxyy)/2520
+            $g4s=($xxxy-$yyyx)/(4*sqrt(100800))
+
+            push @{$lcao_trafo[$ivec]}, ($g0, $g1c, $g1s, $g2c, $g2s, $g3c, $g3s, $g4c, $g4s);
+
+            if($verbose>3){print $lcao_bflabel[$iao]," copied\n";}
+            $iao=$iao+15;
+            $icoeff++;
+=cut
+
+         }else{
+           print "sxyz=$sxyz\n";
+           die print "\n Problem encountered during orbital transformation. \n";
+         }
+      }
+   }
+   print "\n Orbitals transformed successfully\n" ;
+}
+
+
+sub write_gwfn() {
+######################################################################
+# write out data into gwfn.data file for CASINO                      #
+######################################################################
+
+   open(GWFNFILE,">gwfn.data") || die "can not open file gwfn.data : $!\n" ;
+   print GWFNFILE "TITLE         \n";
+   print GWFNFILE  $run_title,  "\n";
+   print GWFNFILE "BASIC INFO    \n";
+   print GWFNFILE "------------  \n";
+   print GWFNFILE "Generated by: \n";
+   print GWFNFILE "GAMESS        \n";
+   print GWFNFILE "Method:       \n";
+   print GWFNFILE  $method,     "\n";
+   print GWFNFILE "DFT functional:\n";
+   print GWFNFILE "none          \n";
+   print GWFNFILE "Periodicity   \n";
+   print GWFNFILE "0             \n";
+   print GWFNFILE "Spin unrestricted:\n";
+   print GWFNFILE ".",$polarized,".\n";
+   print GWFNFILE "Nuclear repulsion energy (au/atom): \n";
+   print GWFNFILE $ii_energy/($#atom_symbols_all+1),  ,"\n";
+   print GWFNFILE "Number of electrons \n";
+   print GWFNFILE "  ",$num_ele ,"\n\n";
+
+   print GWFNFILE "GEOMETRY      \n";
+   print GWFNFILE "-------       \n";
+   print GWFNFILE "Number of atoms:\n";
+   print GWFNFILE " ",$#atom_symbols_all+1, "\n";
+
+   print GWFNFILE "Atomic positions (au) \n";
+   for(my $i=0; $i<= $#atom_symbols_all; $i++){
+      printf GWFNFILE "%20.13E%20.13E%20.13E\n", $atom_x[$i],$atom_y[$i],$atom_z[$i];
+   }
+
+   print GWFNFILE "Atomic numbers for each atom \n";
+   $norder=1;
+   for(my $in=0; $in<= $#atom_symbols_all; $in++) {
+# for pseudopotentials
+      if( exists $zcore{$atom_symbols_all[$in]} ) {
+         printf GWFNFILE "%10d", $zatom{$atom_symbols_all[$in]}+200 ;
+# for all-electrons
+      } else {
+         printf GWFNFILE "%10d", $zatom{$atom_symbols_all[$in]};
+      }
+      if($norder==8) {
+         print GWFNFILE "\n"; $norder=1 ; next;
+      }
+      $norder++
+   }
+   if($norder!=1) {print GWFNFILE "\n"; }
+
+   print GWFNFILE "Valence charges for each atom \n";
+   $norder=1;
+   for(my $im=0; $im<= $#atom_symbols_all; $im++) {
+      if( exists $zcore{$atom_symbols_all[$im]}) {
+         $z=$zatom{$atom_symbols_all[$im]}-$zcore{$atom_symbols_all[$im]};
+      } else {
+         $z=$zatom{$atom_symbols_all[$im]};
+      }
+      printf GWFNFILE "%20.13E", $z;
+      if($norder==4) {
+         print GWFNFILE "\n"; $norder=1 ; next;
+      }
+      $norder++
+   }
+   if($norder!=1) {print GWFNFILE "\n"; }
+   print GWFNFILE "\n";
+
+   print GWFNFILE "BASIS SET                         \n";
+   print GWFNFILE "---------                         \n";
+   print GWFNFILE "Number of Gaussian centres        \n";
+   print GWFNFILE " ", $#atom_symbols_all+1,        "\n";
+   print GWFNFILE "Number of shells                  \n";
+   print GWFNFILE " ",$num_shells_all,              "\n";
+   print GWFNFILE "Number of basis functions (AO)    \n";
+   print GWFNFILE " ", $#{$lcao_trafo[1]}+1,        "\n";
+   print GWFNFILE "Number of Gaussian primitives     \n"; # nr. of s,p,d
+   print GWFNFILE " ", $#exponents_all+1,           "\n";
+
+
+   print GWFNFILE "Highest shell angular momentum (s/p/d/f/g... 1/2/3/4/5...) \n";
+#shell type        S  P  D  F  G
+#ang. mom. l       0  1  2  3  4
+#ang. mom. (gwfn)  1  2  3  4  5
+#shell code        1  3  4  5  6
+#
+#
+# find 'shell code' for the highest angular momentum shell
+   $spd_max=$shell_code_all[0]; # initialize
+   for($i=1; $i<= $#shell_code_all; $i++) {
+      if($spd_max < $shell_code_all[$i] ) { $spd_max=$shell_code_all[$i];}
+   }
+# convert to casino-type angular momentum
+   if($spd_max==3) {$spd_max=2;}
+   if($spd_max==4) {$spd_max=3;}
+   if($spd_max==5) {$spd_max=4;}
+   if($spd_max==6) {$spd_max=5;}
+   print GWFNFILE " ", $spd_max,        "\n";
+
+
+   print GWFNFILE "Code for shell types (s/sp/p/d : 1/2/3/4) \n";
+   $norder=1;
+   $iwrite=0;
+   for (my $i=0; $i<= $#shell_spd_all; $i++) {
+      if($iwrite != $cindex_all[$i]) {
+         $iwrite=$cindex_all[$i];
+         printf GWFNFILE "%10i", $shell_code_all[$i] ;
+         if($norder==8) { print GWFNFILE "\n" ; $norder=1 ; next; }
+         $norder++ ;
+      }
+  }
+  if($norder!=1) { print GWFNFILE "\n";}
+
+
+   print GWFNFILE "Number of primitive Gaussians in each shell \n";
+   $norder=1;
+   for (my $i=0; $i<= $#num_prims_all; $i++) {
+      printf GWFNFILE "%10i", $num_prims_all[$i] ;
+      if($norder==8) {
+         print GWFNFILE "\n" ; $norder=1 ; next;
+      }
+      $norder++ ;
+   }
+   if($norder!=1) { print GWFNFILE "\n";}
+
+
+   print GWFNFILE "Sequence number of first shell on each centre \n";
+      $first_shell_on_centre = 1;
+      $norder=1;
+      foreach $symbol (@atom_symbols_all) {
+         printf GWFNFILE "%10i", $first_shell_on_centre ;
+         $first_shell_on_centre=$first_shell_on_centre+$num_shells_per_atom{$symbol};
+         if($norder==8) {
+            print GWFNFILE "\n" ; $norder=1 ; next;
+         }
+      $norder++ ;
+      }
+      printf GWFNFILE "%10i", $first_shell_on_centre;
+#     if($norder!=1) { print GWFNFILE "\n";}
+      print GWFNFILE "\n";
+
+
+   print GWFNFILE "Exponents of Gaussian primitives \n" ;
+   $norder=1;
+   for (my $i=0; $i<= $#exponents_all; $i++) {
+      printf GWFNFILE "%20.13E", $exponents_all[$i] ; # needs changing when contracted
+      if($norder==4) {
+         print GWFNFILE "\n"; $norder=1 ; next;
+      }
+      $norder++
+   }
+   if($norder!=1) {print GWFNFILE "\n";}
+
+   print GWFNFILE "Correctly normalised contraction coefficients \n";
+   $norder=1;
+   for (my $i=0; $i<= $#norm; $i++) {
+      printf GWFNFILE "%20.13E", $norm[$i] ;
+      if($norder==4) {
+         print GWFNFILE "\n"; $norder=1 ; next;
+      }
+      $norder++
+   }
+   if($norder!=1) {print GWFNFILE "\n"; }
+
+
+   print GWFNFILE "Position of each shell (au)\n";
+   for (my $ir=0; $ir<=$#atom_symbols_all; $ir++) {
+      for (my $is=1; $is<=$num_shells_per_atom{$atom_symbols_all[$ir]}; $is++) {
+         printf GWFNFILE "%20.13E%20.13E%20.13E\n",$atom_x[$ir],$atom_y[$ir],$atom_z[$ir];
+      }
+   }
+   print GWFNFILE "\n";
+
+   print GWFNFILE "MULTIDETERMINANT INFORMATION \n";
+   print GWFNFILE "---------------------------- \n";
+   print GWFNFILE "GS \n";
+   print GWFNFILE "\n";
+
+   print GWFNFILE "ORBITAL COEFFICIENTS \n";
+   print GWFNFILE "----------------------- \n";
+
+   $norder=1;
+
+# loop over eigenvectors (MO)
+   for (my $ivec=0; $ivec < $num_vec; $ivec++) {
+# loop over lcaos
+      for (my $iao=0; $iao <= $#{$lcao_trafo[1]}; $iao++) {
+         printf GWFNFILE "%20.13E", ${$lcao_trafo[$ivec]}[$iao];
+         if($norder==4) {
+            print GWFNFILE "\n"; $norder=1; next;
+         }
+         $norder++;
+      }
+   }
+   print GWFNFILE "\n\n"; # very important line break for CASINO !!!
+   close(GWFNFILE);
+   print "\n The gwfn.data file was written.\n \n " ;
+}
+
+
+sub print_usage{
+# tell how to use this program using the text after __DATA__
+    while(<DATA>){
+        print $_;
+    }
+    exit;
+}
+
+__DATA__
+gamess2qmc: conversion of geometry, basis, and orbitals from  GAMESS output
+            to formats suitable for QMC.
+
+usage: gamess2qmc [OPTIONS]  gamess_output
+       OPTIONS:
+
+           -t hf/opt/nat   read in the HF orbitals (hf),the optimized MCSCF orbitals (opt)
+                           or the natural MCSCF/CI orbitals; default is hf
+           -l vec_file     re-read lcao coefficients from vec_file previously written out
+                           by GAMESS. Make sure to delete all lines in vec_file before and
+                           after the relevant data; in MCSCF/CI calculations, the vec_file
+                           contains optimized and natural orbitals; make sure to delete the
+                           orbitals by hand that are not required
+           -v n            set verbosity level to n
+           -h              print this message

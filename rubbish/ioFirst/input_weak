@@ -1,0 +1,20 @@
+# SYSTEM
+neu               : 4              #*! Number of up electrons (Integer)
+ned               : 4              #*! Number of down electrons (Integer)
+periodic          : F              #*! Periodic boundary conditions (Boolean)
+atom_basis_type   : gaussian       #*! Basis set type (text)
+
+# RUN
+runtype           : vmc            #*! Type of calculation (Text)
+newrun            : T              #*! New run or continue old (Boolean)
+testrun           : F
+
+# VMC
+nequil            : 1000           #*! Number of equilibration steps (Integer)
+nmove             : 30000         #*! Number of steps (Integer)
+corper            : 10
+nblock            : 1              #*! 
+nwrcon            : 0              #*! Number of configs to write (Integer)
+psi_s             : slater         #*! Type of [anti]symmetrizing wfn (Text)
+complex_wf        : F              #*! Wave function real or complex (Boolean)
+

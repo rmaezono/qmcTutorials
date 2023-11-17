@@ -1,0 +1,79 @@
+#/bin/bash
+#
+# UPDATE_SRC
+# ----------
+#
+# Script to untar new CASINO distribution and update symlinks on any given 
+# machine for the majority of users who don't have access to the CASINO
+# git repository.
+#
+# Usage: update_src [-s] <CASINO version number>
+#
+# This assumes that you wish to follow MDT's practice of keeping multiple 
+# versions of CASINO in $HOME with their directories labelled by the version 
+# number e.g. CASINO_v2.13.156, with a symbolic link 'CASINO' pointing to the 
+# version you are currently using.
+#
+# This script requires the version number (2.13.156 in the above example)
+# to be supplied as a command line argument.
+#
+# If you wish to point to a 'standard' version of the code (called something
+# like CASINO_v2.13.156_standard) rather than the developer version, then
+# this can be flagged with the '-s' option. The version number should still
+# be written as e.g. 2.13.156 .
+#
+# The scripts (1) deletes any existing symbolic links called CASINO, but stops
+# if CASINO is a real directory, (2) untars a supplied CASINO_v2.13.156.tar.gz 
+# archive, (3) renames the resulting 'CASINO' directory as CASINO_v2.13.156, 
+# (4) creates a 'CASINO' symlink pointing to the CASINO_v2.13.156 directory. 
+# All appropriate error checking is performed at each stage.
+#
+# Note that you might want to put the script somewhere else in your path, as
+# it obviously won't work unless you have compiled the previous CASINO 
+# distribution that you're presumably trying to replace.
+#
+# MDT 10/2013
+
+[ "$PWD" != "$HOME" ] && { echo Not in home directory. ; exit 1 ; }
+
+if [ "$#" -ne 1 ] && [ "$#" -ne 2 ] ; then
+
+  echo "Usage: update_src [-s] <CASINO version number>"
+  exit 2
+
+else
+ 
+ if [ "$#" -eq 2 ] ; then
+  [ "$1" != "-s" ] && { echo "Usage: update_src [-s] <CASINO version number>" ; exit 3 ; }
+  standard_version=1
+  shift
+ else
+  standard_version=0
+ fi
+
+ check=$(echo $1 | sed -e '/^[0-9]*\.[0-9]*\.[0-9]*$/d')
+
+ if [[ -z $check ]] ; then
+  [ "$standard_version" -eq 1 ] && version=$1"_standard" || version=$1
+ else
+  echo "Invalid version number. Please input a number like 2.13.156 ."
+  exit 3
+ fi
+
+fi
+
+[ ! -e "CASINO_v"$version".tar.gz" ] && { echo The 'CASINO_v'$version'.tar.gz' distribution does not exist. ; exit 4 ; }
+
+[ -e "CASINO_v"$version ] && { echo ; echo This script wants to untar the "CASINO_v"$version".tar.gz" distribution and rename ; echo the resulting CASINO directory to 'CASINO_v'$version, but this latter directory. ; echo already exists. Please remove it manually. ; echo ; exit 5 ; }
+
+[ -e CASINO ] && [ ! -h CASINO ] && { echo CASINO exists but is not a symbolic link. Please rename or remove it. ; exit 6 ; }
+
+rm -f CASINO
+
+tar xvzf "CASINO_v"$version".tar.gz" > /dev/null
+
+mv CASINO CASINO_v$version
+
+ln -s CASINO_v$version CASINO
+
+echo "Updated current 'CASINO' symbolic link to point to CASINO_v$version."

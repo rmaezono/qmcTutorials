@@ -1,0 +1,18 @@
+CASINOHELP
+----------
+
+Simple script to invoke the CASINO help system.
+
+Use in any of the following modes.
+
+casinohelp <casino_keyword>     : tells you the definition and type of keyword
+casinohelp search <text>        : finds <text> in descriptions of all keywords
+casinohelp all                  : lists all possible keywords
+casinohelp basic                : lists all basic level keywords
+casinohelp inter                : lists all intermediate level keywords
+casinohelp expert               : lists all expert level keywords
+
+
+Note that if you include the keyword 'input_example' in an input file, then
+CASINO will write out an example input file containing all known keywords
+and their default values in the correct format.

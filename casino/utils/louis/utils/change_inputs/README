@@ -1,0 +1,21 @@
+#-----------------------------------------------------------------------------#
+# change_inputs                                                               #
+# -------------                                                               #
+#                                                                             #
+# This script allows the LOUIS administrator to simultaneously modify all     #
+# the many input files in the LOUIS examples directory in various ways,       #
+# reflecting changes in the list of keywords understood by LOUIS.             #
+# The current list ofthings this script can do is :                           #
+#                                                                             #
+# (1) Change the default value of a keyword from x to y.                      #
+# (2) Delete a keyword completely.                                            #
+# (3) Add a new keyword together with its default and closing blurb.          #
+# (4) Substitute every occurence of a phrase with another phrase.      
+#                                                                             #
+# Usage : type 'change_inputs' and follow the prompts.                        #
+#                                                                             #
+# This script is written in bash as various people keep whingeing at me to    #
+# do this, as csh shell scripts are apparently nasty and old fashioned.       #
+#                                                                             #
+# MDT 11.2003                                                                 #
+#-----------------------------------------------------------------------------#

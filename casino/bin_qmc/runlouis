@@ -1,0 +1,2500 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# RUNLOUIS                                                           #
+# ========                                                           #
+# Script to run LOUIS on any known machine.                          #
+#                                                                    #
+# Run with '--help' option for usage instructions.                   #
+#                                                                    #
+# MDT 2013 (adapted from runqmc)                                     #
+#--------------------------------------------------------------------#
+# Don't whinge about undefined variables
+set +u
+# Enable extended pattern-matching features
+shopt -s extglob
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+
+#######################################################################
+print_usage() {
+ # Display usage and die
+ local var desc allowed min max desc_ic allowed_ic min_ic max_ic
+ # Header
+ cat <<_EOH
+Usage
+=====
+${0##*/} [<options>] [[--] <directories>]
+
+This script will run the LOUIS calculations set up in <directories>.
+<directories> is '.' by default.  <options> can be given as GNU-style long
+options ('--option[=value]') or as UNIX-style short options ('-abc<c-value>
+-de <e-value> -f...', where the space between '-x' and '<x-value>' is
+optional).
+_EOH
+ # Functions for each of the TYPEs
+ print_opt_all() {
+  # Print options available on all machines
+  cat <<__EOH
+ --force | -f
+   Run the calculation without checking for presence/correctness of input
+   files.
+
+ --check-only | -c
+   Stop before running the calculation.  In clusters, this option can be used
+   to produce the batch submission script for manual checking; '--check-only
+   --force' would only produce a submission script in these systems.
+
+ --unlock | -u
+   Ignore existing lock files and run the calculation regardless.  Using this
+   option will remove stale lock files left over by a runlouis instance that 
+   died without being able to unlock the directory.
+
+ --home=<home> | --chome=<home> | -H <home>
+   Set the location of the CASINO installation to <home>.  By default, <home>
+   is determined by the location of this script, or set to \$HOME/CASINO if
+   unsuccessful.
+
+ --binary=<binary> | -b <binary>
+   Set the binary name to use to <binary> instead of 'louis'.  This only needs
+   to be used for custom compilations with the option 'EXECUTABLE=<binary>'.
+
+ --tpp=<tpp> | -t <tpp>
+   Set the number of OpenMP threads per process to <tpp>.  This requires having
+   compiled the code with OpenMP support, as in 'make Openmp' [NOTE LOUIS
+   DOES NOT YET SUPPORT OPENMP].
+
+ --help | -h
+   Display this help.  If the CASINO_ARCH can be determined and exists, the
+   help will display options specific to the current manchine, else all options
+   will be displayed.
+
+ --verbosity=<verbosity> | -v | -q
+   Set the verbosity level of the machine set-up process to <verbosity>.  By
+   default <verbosity> is 0.  '-v' increases the verbosity level by 1, and
+   '-q' decreases it by 1.
+
+ --info | -i
+   Report back various machine-dependent parameters whose value one might like
+   to know when deciding how to run a job, then stop. This is useful
+   for inquiring what runlouis believes to be e.g. the number of cores per node,
+   according to the currently activated arch file.
+__EOH
+ }
+ print_opt_workstation() {
+  # Print options available on workstations
+  cat <<__EOH
+ --background | -B
+   Run LOUIS in the background, returning control to the shell after starting
+   the run.  This has the same effect as '${0##*/} & disown', whereby the
+   LOUIS process is detached from the shell, so if one wants to stop the run
+   'kill' or 'killall' must be used.  It is safe to log out after running with
+   this option, the calculation will continue - no need for nohup/disown.
+   Running multiple jobs causes them to run in the background whether this
+   option is specified or not.
+
+ --print-out | -P
+   Print out the output of LOUIS as it is being run.  Implies --background.
+   [CTRL]-[C] will stop the print-out, and the LOUIS job will remain in the
+   background.  This option is ignored when running multiple jobs.
+
+ --debugger=<debugger> | --gdb|-g | --valgrind
+   Run the code through the a debugger.  This automatically sets <version> to
+   'debug' if no version had been selected.  --gdb and -g are equivalent to
+   --debugger="gdb -q".  --valgrind is equivalent to --debugger="valgrind"
+   Note that specific debuggers tend to work better with specific compilers,
+   for example the gdb debugger tends works better with GCC's gfortran than
+   with Intel's ifort.
+__EOH
+ }
+ print_opt_all_parallel() {
+  # Print options available on parallel workstations and clusters
+  if [ "$UTILS_MODE" != native ] ; then
+   cat <<___EOH
+ --no-mpi | -1
+   Run the binary directly without invoking mpirun etc.  This option is applied
+   before any others, and makes this script behave as if the machine was a
+   single-core machine.
+
+___EOH
+  fi
+  cat <<__EOH
+ --nproc=<nproc> | -p <nproc>
+   Set the number of MPI processes to <nproc>.  This will have to be consistent
+   with <tpp>, <nnode>, <ppn> and the machine information in the relevant
+   .arch file.
+
+ --ppn=<ppn>
+   Set the number of MPI processes per physical, multi-core node to <ppn>.
+   This will have to be consistent with <tpp>, <nproc>, <nnode>, <ppn> and the
+   machine information in the relevant .arch file.
+
+ --shm[=<numablk>] | --shmem[=<numablk>] | -s
+   Enable shared memory (which currently only affects storage of orbital
+   coefficients in blip or Gaussian mode). If <numablk> is provided, set the 
+   number of processes among which to share memory to <numablk>, otherwise 
+   shared memory is used across all cores on the same node by default. This 
+   option requires having compiled the code with shared memory support, e.g. 
+   with 'make shm'. [NOTE LOUIS DOES NOT YET SUPPORT SHM]
+
+ --diagram | -D
+   Draw a diagram of the processes and threads on each node to the terminal
+   during set-up.
+__EOH
+ }
+ print_opt_cluster() {
+  # Print options available on clusters
+  if [ "$UTILS_MODE" != native ] ; then
+   cat <<___EOH
+ --no-cluster | -l
+   Run the calculation directly on the login node of a cluster without
+   producing a submission script.  This option is applied before any others,
+   and makes this script behave as if the machine was a multi-core workstation.
+
+___EOH
+  fi
+  cat <<__EOH
+ --nnode=<nnode> | -n <nnode>
+   Set the number of physical, (possibly) multi-core nodes to use to <nnode>.
+   This will have to be consistent with <tpp>, <nnode>, <ppn> and the machine
+   information in the relevant .arch file.
+
+ --walltime=<walltime> | -T <walltime>
+   Set the wall-time limit for the run to <walltime>, given in the format
+   [<days>d][<hours>h][<minutes>m][<seconds>s].
+
+ --coretime=<coretime> | -C <coretime>
+   Set the core-time (i.e., wall-time times number of reserved cores) limit for
+   the run to <coretime>, given in the format
+   [<days>d][<hours>h][<minutes>m][<seconds>s].
+
+ --name=<name> | -N <name>
+   Set the submission script name and job name to <name>.
+__EOH
+ }
+ print_opt_user() {
+  # Print --user.* options for this machine
+  [ -z "$user_varlist" ] && return
+  echo
+  echo "Additional options on this particular machine:"
+  for var in $(uniq_list $user_varlist) ; do
+   echo " --user.$(uncap $var)=<$(uncap $var)>"
+   eval "desc=\"\$user_description_$var\" ;\
+    default=\"\$user_default_$var\" ;\
+    allowed=\"\$user_allowed_$var\" ;\
+    min=\"\$user_min_$var\" ;\
+    max=\"\$user_max_$var\" ;\
+    default_ic=\"\$user_default_${var}_is_command\" ;\
+    allowed_ic=\"\$user_allowed_${var}_is_command\" ;\
+    min_ic=\"\$user_min_${var}_is_command\" ;\
+    max_ic=\"\$user_max_${var}_is_command\""
+   ((default_ic==1)) && default="<determined at run time>"
+   ((allowed_ic==1)) && allowed="<determined at run time>"
+   ((min_ic==1)) && min="<determined at run time>"
+   ((max_ic==1)) && max="<determined at run time>"
+   [ -z "$desc" ] && echo "   <No description>" || pretty_print 3 3 "$desc"
+   [ -z "$default" ] || pretty_print 3 3 "Default value: $default"
+   [ -z "$allowed" ] || pretty_print 3 3 "Allowed values: $allowed"
+   [ -z "$min" ] || pretty_print 3 3 "Minimum value: $min"
+   [ -z "$max" ] || pretty_print 3 3 "Maximum value: $max"
+   echo
+  done
+ }
+ # Print options relevant to this machine, or all of them if machine type
+ # unknown.
+ case "$TYPE" in
+ single)
+  echo ; echo "Allowed options on this machine type:"
+  print_opt_all
+  echo
+  print_opt_workstation
+  print_opt_user ;;
+ parallel)
+  echo ; echo "Allowed options on this machine type:"
+  print_opt_all
+  echo
+  print_opt_workstation
+  echo
+  print_opt_all_parallel
+  print_opt_user ;;
+ cluster)
+  echo ; echo "Allowed options on this machine type:"
+  print_opt_all
+  echo
+  print_opt_all_parallel
+  echo
+  print_opt_cluster
+  print_opt_user ;;
+ *)
+  echo ; echo "Allowed options on all machines:"
+  print_opt_all
+  echo ; echo "Allowed options on single- and multi-processor workstations:"
+  print_opt_workstation
+  echo ; echo "Allowed options on multi-processor workstations and clusters:"
+  print_opt_all_parallel
+  echo ; echo "Allowed options on clusters:"
+  print_opt_cluster ;;
+ esac
+ exit
+}
+
+######################## START BASIC FUNCTIONS ########################
+# Output field number $1 of $2-$n
+field() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i:1}" ; }
+
+# Output all fields of $2-$n from number $1 onwards
+fields_from() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i}" ; }
+
+# Ouput last field in $*
+last_field() { (($#>0)) && echo ${@:$#} ; }
+
+which_field() {
+ # Output the field number of string $1 in $2-$n, or 0 if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+in_line() {
+ # Like which_field, but only set return value, no other output
+ local str="$1"
+ while (($#>1)) ; do shift ; [ "$str" = "$1" ] && return 0 ; done
+ return 1
+}
+
+next_field() {
+ # Output field after $1 in $2-$n, or nothing.
+ local str="$1"
+ while (($#>2)); do shift; [ "$1" = "$str" ] && { echo "$2" ; return ; } ; done
+}
+
+repeat() {
+ # Print $2 $1 times
+ local i=0 string=""
+ while ((i<$1)) ; do i=$((i+1)) ; string="$string$2" ; done
+ echo "$string"
+}
+
+# Print $1 spaces
+space() { (($1>0)) && printf "%${1}s\n" "" ; }
+# Add spaces to the left of $2 until it has $1 characters.
+pad() { echo "$(space $(($1-${#2})))$2" ; }
+# Add zeroes to the left of $2 until it has $1 characters.
+zero_pad() { echo "$(repeat $(($1-${#2})) 0)$2" ; }
+
+readlink_custom() {
+ # Replacement for readlink
+ if type -P readlink >& /dev/null ; then
+  readlink "$1"
+ else
+  next_field "->" $(/bin/ls -l "$1" 2>/dev/null)
+ fi
+}
+
+chase_link() {
+ # Find the physical file corresponding to $1, possibly
+ # by following a chain of soft links
+ local file="$1" dir linkto linkdir
+ while [[ "$file" == */ ]] ; do file=${file%/} ; done
+ dir=${file%/*}/ ; dir=$(cd "$dir" ; pwd) ; [[ "$dir" != */ ]] && dir="$dir/"
+ file=$dir${file##*/}
+ while : ; do
+  [ ! -L "$file" ] && { echo "$file" ; return ; }
+  linkto=$(readlink_custom "$file") ; linkdir=${linkto%/*}/
+  dir=$(cd "$dir" ; cd "$linkdir" ; pwd) ; [[ "$dir" != */ ]] && dir="$dir/"
+  file="$dir${linkto##*/}"
+ done
+}
+
+# Check whether $1 is a positive integer
+check_number_N() { [[ "$1" == +([[:digit:]]) ]] ; }
+# Check whether $1 is an integer
+check_number_Z() { [[ "$1" == ?([+-])+([[:digit:]]) ]] ; }
+
+check_number_R() {
+ # Check whether $1 is a real number (in Fortran format)
+ [[ "$1" ==\
+  ?([+-])+([[:digit:]])?(.)*([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]] ||
+  [[ "$1" ==\
+  ?([+-])*([[:digit:]]).+([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]]
+}
+
+check_logical() {
+local b
+b=$(unpad "$1")
+b="${b#.}"
+case "$b" in
+t*|T*|f*|F*) return 0 ;;
+*) return 1 ;;
+esac
+}
+
+get_logical() {
+local b
+b=$(unpad "$1")
+b="${b#.}"
+case "$b" in
+t*|T*) echo  1 ;;
+f*|F*) echo  0 ;;
+*)     echo -1 ;;
+esac
+}
+
+fortran_to_decimal() {
+ # Give the decimal representation of Fortran-formatted real number $1.
+ local n="$1" b e bb decb idot sign=""
+ check_number_R "$n" || return
+ b="${n%[dDeE]*}"
+ [ "$b" = "$n" ] && { echo "$b" ; return ; }
+ e="${n#*[dDeE]}"
+ ((e==0)) && { echo "$b" ; return ; }
+ bb="${b/./}"
+ if [ "${bb:0:1}" = - ] ; then
+  sign=- ; bb=${bb:1}
+ fi
+ case "$b" in
+ $sign$bb|$sign$bb.) idot=0 ;;
+ $sign.$bb) idot=-${#bb} ;;
+ *) decb="${b#*.}" ; idot=-${#decb} ;;
+ esac
+ ((e>0)) && e="+10#${e#+}" || e="-10#${e#-}"
+ idot=$((idot+e))
+ if ((idot>0)) ; then
+  echo "$sign$bb$(repeat $idot 0)"
+ elif ((idot==0)) ; then
+  echo "$sign$bb"
+ elif ((idot<-${#bb})) ; then
+  echo "$sign.$(zero_pad ${idot#-} "$bb")"
+ else # idot in [-${#bb}, -1]
+  nint=$((${#bb}+idot))
+  echo "$sign${bb:0:$nint}.${bb:$nint}"
+ fi
+}
+
+unpad() {
+ # Remove leading and trailing blanks from "$@"
+ local string="$@"
+ while [ "${string:0:1}" = " " ] ; do
+  string="${string:1}"
+ done
+ while [ "${string:$((${#string}-1)):1}" = " " ] ; do
+  string="${string:0:$((${#string}-1))}"
+ done
+ echo "$string"
+}
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ uncap() {
+  # Turn upper case into lower case in $1.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ }
+ cap() {
+  # Turn lower case into upper case in $1.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   a) c=A ;; b) c=B ;; c) c=C ;; d) c=D ;; e) c=E ;; f) c=F ;; g) c=G ;;
+   h) c=H ;; i) c=I ;; j) c=J ;; k) c=K ;; l) c=L ;; m) c=M ;; n) c=N ;;
+   o) c=O ;; p) c=P ;; q) c=Q ;; r) c=R ;; s) c=S ;; t) c=T ;; u) c=U ;;
+   v) c=V ;; w) c=W ;; x) c=X ;; y) c=Y ;; z) c=Z ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ }
+ ;;
+*)
+ uncap() { echo "${1,,}" ; }
+ cap() { echo "${1^^}" ; }
+ ;;
+esac
+
+rem_list() {
+ # Remove item $1 from $2-$n
+ local item out=""
+ for item in ${@:2} ; do [ "$item" = "$1" ] || out="$out $item" ; done
+ echo "$out"
+}
+
+uniq_list() {
+ local x ; unpad $({ for x in "$@"; do echo $x ; done ; } | sort | uniq)
+}
+
+pretty_print() {
+ # Print $3 with line folding at column $lwidth, with indentation $1 on the
+ # first line and indentation $2 on the following.
+ local indent1=$1 indent_rest=$2 text word line el="" lwidth=79
+ text="$(unpad "$3")"
+ line=""
+ while ((${#text}>0)) ; do
+  word="${text%% *}"
+  text="$(unpad "${text:${#word}}")"
+  if [ -z "$line" ] ; then # only happens first time around
+   line="$(printf "%${indent1}s")$word"
+  else
+   if ((${#line}+1+${#word}>lwidth)) ; then
+    echo "$line$el" ; line="$(printf "%${indent_rest}s")$word"
+   else
+    line="$line $word"
+   fi
+  fi
+ done
+ [ -z "$line" ] || echo "$line$el"
+}
+
+# Errors, warnings and infos
+errstop() {
+ echo ; pretty_print 0 7 "ERROR: $1" ; echo
+ touch .louis_finished
+ exit 1
+}
+
+errstopd() {
+ echo ; pretty_print 0 7 "ERROR [$1]: $2" ; echo
+ touch .louis_finished
+ exit 1
+}
+
+errwarn() { pretty_print 0 9 "WARNING: $1" ; }
+errwarnd() { pretty_print 0 9 "WARNING [$1]: $2" ; }
+info() { (($1<=verbosity)) && pretty_print 0 1 "$2" ; }
+
+# Print T if input is 1 and F if input is 0.
+boolean() { case "$1" in 1) echo T ;; 0) echo F ;; esac ; }
+
+force_ratio() {
+ # Force ratio $1=$2*$3, where all parameters are supposed to be integers.
+ local a_name b_name c_name a b c
+ a_name=$1 b_name=$2 c_name=$3
+ eval "a=\$$a_name ; b=\$$b_name ; c=\$$c_name"
+ if ((a>0)) ; then
+  if ((b>0)) ; then
+   if ((c>0)) ; then
+    ((a!=b*c)) && errstop "Inconsistent values of $a_name, $b_name and $c_name"
+   else
+    ((a%b>0)) && errstop "$a_name not divisible by $b_name"
+    c=$((a/b))
+    eval $c_name=$c
+    info 3 "Made $c_name=$c as $a_name=$a and $b_name=$b"
+    return 0
+   fi
+  else # b==0
+   if ((c>0)) ; then
+    ((a%c>0)) && errstop "$a_name not divisible by $c_name"
+    b=$((a/c))
+    eval $b_name=$b
+    info 3 "Made $b_name=$b as $a_name=$a and $c_name=$c"
+    return 0
+   fi
+  fi
+ else # a==0
+  if ((b>0)) && ((c>0)) ; then
+   a=$((b*c))
+   eval $a_name=$a
+   info 3 "Made $a_name=$a as $b_name=$b and $c_name=$c"
+   return 0
+  fi
+ fi
+ return 1
+}
+
+seconds_to_smhd() {
+ # Given a number of seconds $1, print seconds, minutes, hours and days
+ local d h m s=$1
+ check_number_N "$s" || { echo 0 0 0 0 ; return ; }
+ m=$((s/60)) ; s=$((s-60*$m))
+ h=$((m/60)) ; m=$((m-60*$h))
+ d=$((h/24)) ; h=$((h-24*$d))
+ echo $s $m $h $d
+}
+
+seconds_to_casino_time() {
+ # Given a number of seconds $1, print time in CASINO format.
+ local out=""
+ set -- $(seconds_to_smhd $1)
+ (($4!=0)) && out=$out$4d
+ (($3!=0)) && out=$out$3h
+ (($2!=0)) && out=$out$2m
+ (($1!=0)) && out=$out$1s
+ [ -z "$out" ] && out=0s
+ echo $out
+}
+
+casino_time_to_seconds() {
+ # Given a CASINO-formatted time $1, print number of seconds.
+ local ctime="$1" s=0 t1 ct x
+ for x in d h m s ; do
+  ct="${ctime#*$x}"
+  if [ "$ctime" != "$ct" ] ; then
+   t1="${ctime%$x*}"
+   check_number_N "$t1" || break
+   s=$((s+t1))
+   ctime="$ct"
+  fi
+  case $x in
+  d) s=$((s*24)) ;;
+  h|m) s=$((s*60)) ;;
+  esac
+ done
+ [ -z "$ctime" ] && ((s>0)) || s=0
+ echo $s
+}
+######################### END BASIC FUNCTIONS #########################
+
+########################### START FUNCTIONS ###########################
+init_runlouis() {
+ # Set host name
+ hostname=$(hostname)
+ # Set current directory
+ base_pwd="$(pwd)"
+ doterr_file=".err"
+ out_file="out"
+ dotout_file=".out_node"
+ # Set $home to location of this script by default
+ my_loc=$(chase_link $0) ; my_bin=${my_loc##*/}
+ if [[ "$my_loc" == */utils/louis/runlouis/$my_bin ]] ; then
+  home="${my_loc%%/utils/louis/runlouis/$my_bin}"
+ else
+  home="$HOME/CASINO"
+ fi
+}
+
+parse_cmdline() {
+ # Parse command line
+ local option option1 val valmin var t1 t2
+ local -a abs_job_dir
+ # Initialize verbosity
+ verbosity=0
+ # Initialize to null
+ version=""
+ force_nocheck="" ; check_only="" ; diagram=""
+ unlock=""
+ requested_features="" ; name="" ; binary_name=""
+ nompi="" ; nocluster=""
+ nnode="" ; tpp="" ; ppn="" ; nproc="" ; walltime=""
+ shm="" ; numablk=""
+ background="" ; print_out=""
+ debugger="" ; valgrind=""
+ help_mode=""
+ inquire="0"
+ # Parse command line.
+ while (($#>0)) ; do
+  case "$1" in
+  --) shift ; break ;;
+  --*) # GNU-style "long" options
+   option="${1#--}"
+   case "$option" in
+   gdb) debugger="gdb -q" ; [ -z "$version" ] && version=debug ;;
+   valgrind) debugger="valgrind" ; [ -z "$version" ] && version=debug ;;
+   no-mpi) nompi=1 ;;
+   no-cluster) nocluster=1 ;;
+   info) inquire=1 ;;
+   background) background=1 ;;
+   print-out) print_out=1 ; background=1 ;;
+   check-only) check_only=1 ;;
+   check_only) check_only=1 ;;
+   force) force_nocheck=1 ;;
+   unlock) unlock=1 ;;
+   diagram) diagram=1 ;;
+   shmem) shm=1 ;;
+   shm) shm=1 ;;
+   help) help_mode=1 ;;
+   opt|dev|debug|prof) version="$option" ;;
+   *=*) # long options with integer arguments
+    var="${option%%=*}" ; val="${option#*=}"
+    case "$var" in
+    nnode|nproc|tpp|ppn|verbosity|shmem|shm)
+     check_number_Z $val || errstop "Argument to --$var must be an integer."
+     case "$var" in
+     verbosity) minval="" ;;
+     shmem) minval=0 ;;
+     shm) minval=0 ;;
+     *) minval=1
+     esac
+     [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to --$var must\
+      be an integer greater than or equal to $minval."
+     case "$var" in
+     shmem) var=numablk ;;
+     shm) var=numablk ;;
+     esac
+     eval "$var=\"\$val\"" ;;
+    name|home|coretime|walltime|binary|version|debugger)
+     # Long options with string args
+     case "$var" in
+     binary) var=binary_name ;;
+     debugger) [ -z "$version" ] && version=debug ;;
+     esac
+     eval "$var=\"\$val\"" ;;
+    user.*) # user variables
+     var="${var#*.}"
+     [[ "$var" == +([[:lower:][:digit:]_]) ]]\
+      || errstop "Bad user variable name $var in command-line option\
+      '$option' (should be of the form --user.variable=<value>. Note that\
+      variable names must be lowercase)."
+     var=$(cap $var)
+     cl_varlist="$cl_varlist user_$var"
+     eval "user_$var=\"\$val\"" ;;
+    *) errstop "Unrecognized option --$option." ;;
+    esac ;;
+   *) errstop "Unrecognized option --$option."
+   esac ;;
+  -*) # Unix-style "short" options
+   option=${1#-}
+   [ -z "$option" ] && errstop "Bad option '-'."
+   while ((${#option}>0)) ; do
+    option1=${option:0:1}
+    option=${option:1}
+    case "$option1" in
+    v) verbosity=$((verbosity+1)) ;;
+    q) verbosity=$((verbosity-1)) ;;
+    d) version=debug ;;
+    g) debugger="gdb -q" ; [ -z "$version" ] && version=debug ;;
+    1) nompi=1 ;;
+    l) nocluster=1 ;;
+    i) inquire=1 ;;
+    B) background=1 ;;
+    P) print_out=1 ; background=1 ;;
+    c) check_only=1 ;;
+    f) force_nocheck=1 ;;
+    u) unlock=1 ;;
+    D) diagram=1 ;;
+    s) shm=1 ;;
+    h) help_mode=1 ;;
+    n|p|t) # short options with integer arguments
+     if [ ! -z "$option" ] ; then
+      val="$option" ; option=""
+     else
+      (($#==1)) && errstop "-$option1 must be followed by an integer argument."
+      shift ; val="$1"
+     fi
+     check_number_N $val || errstop "Argument to -$option1 must be a positive\
+     integer."
+     case "$option1" in
+     n) var=nnode ; minval=1 ;;
+     p) var=nproc ; minval=1 ;;
+     t) var=tpp ; minval=1 ;;
+     esac
+     [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to -$option1\
+      must be an integer greater than or equal to $minval."
+     eval "$var=\"\$val\"" ;;
+    N|H|C|T|b) # short options with string arguments
+     if [ ! -z "$option" ] ; then
+      val="$option" ; option=""
+     else
+      (($#==1)) && errstop "-$option1 must be followed by a string argument."
+      shift ; val="$1"
+     fi
+     case "$option1" in
+     N) var=name ;;
+     H) var=home ;;
+     C) var=coretime ;;
+     T) var=walltime ;;
+     b) var=binary_name ;;
+     esac
+     eval "$var=\"\$val\"" ;;
+    *) errstop "Unrecognized option -$option1." ;;
+    esac
+   done ;;
+  *) break ;;
+  esac
+  shift
+ done
+
+ # Parse directories from command line
+ njob=0 ; unset job_dir abs_job_dir
+ while (($#>0)) ; do
+  [ -e $1 ] || errstop "Directory '$1' specified on command line does not\
+   exist."
+  [ -d $1 ] || errstop "Directory '$1' specified on command line is not a\
+   directory."
+  if [ "$RELPATHNAMES" != yes ] ; then
+   # Get absolute path not involving symlinks
+   t1="$(cd "$base_pwd" ; cd "$1" ; pwd -P)"
+   t2="$(cd "$base_pwd" ; cd "$1" ; pwd)"
+  else
+   # Don't use absolute pathnames since different file system on compute nodes
+   t1="$1"
+   t2="$1"
+  fi
+  # Check job directory exists and has the correct permissions
+  [ -d "$t1" ] || errstop "Directory '$1' does not exist."
+  [ -r "$t1" ] || errstop "Directory '$1' is not readable."
+  [ -x "$t1" ] || errstop "Directory '$1' is not traversable."
+  [ -w "$t1" ] || errstop "Directory '$1' is not writable."
+  # Check job directory is not repeated
+  ijob=0 ; while ((ijob<njob)) ; do ijob=$((ijob+1))
+   [ "$t1" = "${abs_job_dir[$ijob]}" ] && errstop "Two directories specified\
+    on the command line, '${job_dir[$ijob]}' and '$t2', resolve to the same\
+    directory, '$t1'."
+  done
+  # Add directory to list
+  njob=$((njob+1)) ; job_dir[$njob]="$t2" ; abs_job_dir[$njob]="$t1"
+  shift
+ done
+
+ # Set the current directory as the only target if none specified
+ if ((njob==0)) ; then
+  njob=1 
+  if [ "$RELPATHNAMES" != yes ] ; then
+   job_dir[1]="$(cd "$base_pwd" ; pwd)"
+  else
+   job_dir[1]="."
+  fi
+ fi
+
+ # Check for options incompatible with multijob runs.
+ # Auto-correct path to CASINO if parent directory was given instead, and
+ # get CASINO version and patch level.
+ [ ! -e "$home/VERSION" ] && [ -d "$home/CASINO" ] && home="$home/CASINO"
+ casino_version=unknown
+ [ -f "$home/VERSION" ]\
+  && casino_version=$(source "$home/VERSION" ; echo $VERSION)
+ tpp_set=0 ; [ ! -z "$tpp" ] && tpp_set=1
+}
+
+get_arch_params_init() {
+ # Locate arch definitions file
+ cd "$home/arch/data"
+ if [ ! -f "$CASINO_ARCH.arch" ] ; then
+  errstop "File '$CASINO_ARCH.arch' not found.  Make sure it exists."
+ fi
+ # Define architecture parameters required before parse_cmdline 
+ # (i.e. RELPATHNAMES)
+ define_tags_init
+ clear_tags
+ load_tags "$CASINO_ARCH.arch"
+ # Return to current directory.
+ cd "$base_pwd"
+}
+
+get_arch_params() {
+ # Decide what parameters to use for each machine
+ local mpirun="mpirun -np" host_HOSTNAME host_ARCH host_KERNEL
+ local host_OS mismatch_var hvalue fvalue found v
+ cd "$home/arch/data"
+ # Define architecture parameters
+ define_tags
+ # Set default values
+ TYPE=single
+ # Load architecture parameters
+ info 1 "Loading tags from $CASINO_ARCH.arch"
+ clear_tags
+ load_tags "$CASINO_ARCH.arch"
+ [ -z "$ENVIRONMENT_COMMAND" ] && ENVIRONMENT_COMMAND=:
+ var_F90="$ENVIRONMENT_COMMAND ; $F90"
+ var_CC="$ENVIRONMENT_COMMAND ; $CC"
+ var_CXX="$ENVIRONMENT_COMMAND ; $CXX"
+ # Declare dependencies
+ merge_vardeps RUN_TOPOLOGY "NPROC NNODE NCORE TPN TPP PPN NJOB NPROC_TOTAL\
+  NNODE_TOTAL NCORE_TOTAL"
+ declare_vardeps META.RUN_TOPOLOGY "CORES_PER_NODE CORES_PER_NODE_CLUSTER\
+  MIN_NCORE MAX_NCORE MIN_NNODE MAX_NNODE ALLOWED_NNODE ALLOWED_NCORE" \
+  eval_topology
+ declare_vardeps WALLTIME "TIME_FORMAT WALLTIME_CODES ALLOWED_WALLTIME\
+  MIN_WALLTIME MAX_WALLTIME MIN_CORETIME MAX_CORETIME CORES_PER_NODE"\
+  eval_walltime
+ # Report any errors about the .arch file, in the hope that people will
+ # fix them and we can keep the database as clean and functional as possible.
+ # Users would otherwise be satisfied with an "it seems to work" even if half
+ # of what they've written is not being parsed.
+ report_errors
+ # Match auto-detection variables and warn user if this appears to be the
+ # wrong machine.  Ignore compilers, though, since the code may have been built
+ # elsewhere.
+ host_ARCH=$(uname -m 2> /dev/null)
+ host_KERNEL=$(uname -s 2> /dev/null)
+ host_OS=$(uname -o 2> /dev/null)
+ host_HOSTNAME=$hostname
+ mismatch_var=""
+ for var in HOSTNAME ARCH KERNEL OS ; do
+  eval hvalue=\"\$host_$var\"
+  eval fvalue=\"\$$var\"
+  if [ ! -z "$fvalue" ] && [ ! -z "$hvalue" ] ; then
+   found=0
+   while ((${#fvalue}>0)) ; do
+    v="${fvalue%%,*}"
+    fvalue="$(unpad "${fvalue:${#v}}")"
+    fvalue="$(unpad "${fvalue#,}")"
+    v="$(unpad "$v")"
+    [[ "$hvalue" == $v ]] && { found=1 ; break ; }
+   done
+   ((found==0)) && mismatch_var="$mismatch_var $var"
+  fi
+ done
+ [ -z "$mismatch_var" ] || errwarn "Current CASINO_ARCH=$CASINO_ARCH does not\
+  match the following parameters of the current machine:$mismatch_var"
+ # Return to current directory
+ cd "$base_pwd"
+ info 1 "TYPE of machine is '$TYPE'"
+}
+
+process_cmdline() {
+ local temp temp2 temp3 i my_loc my_bin te teo target_tags dbg
+ #local te_list="gnome-terminal/-x konsole/-e xterm/-e"
+ local te_list="xterm/-e"
+ set_default() {
+  # Set default value of variable $1 to $2 if empty, and complain about having
+  # set the relevant option ('-$1') if $TYPE is of any of the types listed in
+  # $3.
+  local var="$1" val="$2" forbid="$3" varval
+  eval "varval=\"\$$var\""
+  if [ -z "$varval" ] ; then
+   eval "$var=\"\$val\""
+  elif [ ! -z "$forbid" ] ; then
+   if in_line $TYPE $forbid ; then
+    errwarn "option --$var ignored on this machine"
+    eval "$var=\"\$val\""
+   fi
+  fi
+ }
+ # TYPE-changing options
+ if [ "$UTILS_MODE" != native ] ; then
+  case "$TYPE.$nompi.$nocluster" in
+  cluster..1)
+   TYPE=parallel ; nocluster="" ; info 1 "TYPE changed to $TYPE" ;;
+  cluster.1.*)
+   TYPE=single ; nompi="" ; nocluster="" ; info 1 "TYPE changed to $TYPE";;
+  parallel.1.*)
+   TYPE=single ; nompi="" ; info 1 "TYPE changed to $TYPE" ;;
+  esac
+ else
+  [ "$nocluster" = 1 ] && errstop "Option --no-cluster | -l forbidden since\
+   the main LOUIS binary on this cluster is cross-compiled. You can still run\
+   LOUIS on the log-in node of this cluster by defining a separate\
+   CASINO_ARCH of TYPE=parallel for this specific purpose."
+  [ "$nompi" = 1 ] && errstop "Option --no-mpi | -1 forbidden since\
+   the LOUIS binaries on this cluster are cross-compiled. You can still run\
+   LOUIS on the log-in node of this cluster by defining a separate\
+   LOUIS_ARCH of TYPE=single or TYPE=parallel for this specific purpose."
+ fi
+ # Set defaults if not set from command line
+ set_default version opt
+ set_default check_only 0
+ set_default force_nocheck 0
+ set_default unlock 0
+ set_default tpp 1
+ set_default binary_name louis
+ set_default background 0 "cluster"
+ set_default print_out 0 "cluster"
+ set_default debugger "" "cluster"
+ set_default nproc 0 "single"
+ set_default numablk 0 "single"
+ set_default shm 0 "single"
+ set_default ppn 0 "single"
+ set_default diagram 0 "single"
+ set_default name "$binary_name" "single parallel"
+ set_default nnode 0 "single parallel"
+ set_default walltime "" "single parallel"
+ set_default coretime "" "single parallel"
+ set_default nfile "" "single parallel"
+ set_default attr "" "single parallel"
+ # Convert input parameters to variables for substitution
+ var_TYPE=$TYPE
+ var_TPP=$tpp
+ var_NPROC=$nproc
+ var_PPN=$ppn
+ var_NNODE=$nnode
+ var_TPN=0
+ var_SCRIPT=$name
+ var_NJOB=$njob
+ var_NNODE_TOTAL=0
+ var_NPROC_TOTAL=0
+ # Check options that should not be set for multijob runs, and set var_OUT
+ if ((njob>1)) ; then
+  if ((print_out==1)) ; then
+   errwarn "Option --print-out ignored for multi-job runs."
+   print_out=0 ; background=0
+  elif ((background==1)) ; then
+   errwarn "Option --background ignored for multi-job runs: multiple jobs are\
+    always put in the background."
+   background=0
+  fi
+  var_OUT="$base_pwd/runlouis_stderr.log"
+ else
+  var_OUT="${job_dir[1]}/.err"
+ fi
+ # Set features
+ ((numablk>0)) && shm=1
+ ((tpp>1)) || ((tpp_set==1)) && requested_features="$requested_features Openmp"
+ ((shm==1)) && requested_features="$requested_features Shm"
+ # Determine binary to use
+ binary_not_found=""
+ if ! find_binary ; then
+  binary_not_found="T"
+  if ((check_only==1)) ; then
+   # Let the script go on to catch other issues -- good for testing a
+   # CASINO_ARCH on a different machine or prior to compilation.
+   var_BINARY="&BINARY&"
+  else
+   errstop "Quitting."
+  fi
+ fi
+ # Set up debugger support
+ if [ ! -z "$debugger" ] ; then
+  var_BINARY="$debugger $var_BINARY"
+  dbg=$(field 1 $debugger)
+  type $dbg >& /dev/null || errstop "Debugger '$dbg' not found in path."
+  [ "$version" != debug ] && errwarn "Using a debugger with a non-debug\
+   exectuable is probably pointless."
+  if ((print_out==1)) ; then
+   errwarn "Option --print-out ignored when a debugger is used."
+   print_out=0 ; background=0
+  elif ((background==1)) ; then
+   errwarn "Option --background ignored when a debugger is used."
+   background=0
+  fi
+  if [ "$TYPE" = parallel ] ; then
+   [ -z "$DISPLAY" ] && errstop "Cannot use a debugger in parallel without an\
+    X server connection.  You can however use --no-mpi to run a single process\
+    under the debugger."
+   [[ "$DISPLAY" != *:0.0 ]] && errwarn "Using a debugger for a parallel run\
+    in a remote X session may incur a large network overhead."
+   terminal_emulator=''
+   for te in $te_list ; do
+    teo=${te#*/} ; te=${te%/*}
+    type $te >& /dev/null && { terminal_emulator="$te $teo" ; break ; }
+   done
+   [ -z "$terminal_emulator" ] && errstop "No known terminal emulator found\
+    (${te_list//\// }), needed for using a debugger on a parallel machine."
+   var_BINARY="$terminal_emulator bash -lc \"$var_BINARY\""
+  elif [ "$TYPE" = cluster ] ; then
+   errstop "Cannot use a debugger on clusters.  You can however use\
+    --no-cluster or --no-mpi and run the debugger on the login node."
+  fi
+ fi
+ # Set things depending on architecture parameters and command line arguments.
+ case "$TYPE" in
+ single)
+  # Force parameters
+  var_NNODE=1 ; var_NNODE_TOTAL=1 ; var_NPROC=1 ; var_PPN=1
+  # Define defaults
+  [ -z "$RUN_SINGLE" ] && RUN_SINGLE="&BINARY&"
+  info 1 "Have set RUN_SINGLE='$RUN_SINGLE'"
+  target_tags="RUN_SINGLE" ;;
+ parallel)
+  # Force parameters
+  var_NNODE=1 ; var_NNODE_TOTAL=1
+  # Define defaults
+  [ -z "$RUN_PARALLEL" ] && RUN_PARALLEL="mpirun -np &NPROC& &BINARY&"
+  info 1 "Have set RUN_PARALLEL='$RUN_PARALLEL'"
+  target_tags="RUN_PARALLEL" ;;
+ cluster)
+  # Get run mode
+  if [ -z "$CLUSTER_RUN_MODE" ] ; then
+   if [ -z "$RUN_CLUSTER" ] ; then
+    CLUSTER_RUN_MODE=batch
+   elif [ -z "$SUBMIT_SCRIPT" ] ; then
+    CLUSTER_RUN_MODE=direct
+   else
+    CLUSTER_RUN_MODE=batch
+   fi
+  else
+   resolve_dependencies "CLUSTER_RUN_MODE" "info 2" || errstop "Quitting."
+  fi
+  case "$CLUSTER_RUN_MODE" in
+  batch)
+   # Define defaults
+   [ -z "$SUBMIT_SCRIPT" ] && SUBMIT_SCRIPT="qsub &SCRIPT&"
+   info 1 "Have set SUBMIT_SCRIPT='$SUBMIT_SCRIPT'"
+   target_tags="SCRIPT_HEAD SCRIPT_RUN SUBMIT_SCRIPT"
+   # Check dependencies required for multi-job runs on clusters
+   if ((var_NJOB>1)) ; then
+    in_line NJOB $SCRIPT_HEAD_deps\
+     || in_line NNODE_TOTAL $SCRIPT_HEAD_deps\
+     || in_line NCORE_TOTAL $SCRIPT_HEAD_deps\
+     || in_line NPROC_TOTAL $SCRIPT_HEAD_deps\
+     || errstop "Tag SCRIPT_HEAD does not depend on NJOB, NNODE_TOTAL,\
+     NCORE_TOTAL or NPROC_TOTAL, hence multi-job runs are not supported for\
+     this CASINO_ARCH."
+   fi ;;
+  direct)
+   target_tags="RUN_CLUSTER"
+   ((var_NJOB>1)) && errstop "Multi-job runs not supported for\
+    CLUSTER_RUN_MODE=direct." ;;
+  esac ;;
+ *) errstop "Wrong value TYPE='$TYPE' in $CASINO_ARCH.arch." ;;
+ esac
+
+ # Get all necessary parameters
+ resolve_dependencies "$target_tags" "info 2" || errstop "Quitting."
+
+ # Display diagram
+ ((diagram==1)) && topology_diagram
+
+ # Check and load run commands, and generate batch script when required
+ run_command=""
+ case "$TYPE" in
+ single)
+  [ -z "$RUN_SINGLE" ] && errstop "RUN_SINGLE resolved to empty string;\
+   don't know how to run LOUIS."
+  run_command="$RUN_SINGLE" ;;
+ parallel)
+  [ -z "$RUN_PARALLEL" ] && errstop "RUN_PARALLEL resolved to empty string;\
+   don't know how to run LOUIS."
+  run_command="$RUN_PARALLEL" ;;
+ cluster)
+  case "$CLUSTER_RUN_MODE" in
+  batch)
+   [ -z "$SUBMIT_SCRIPT" ] && errstop "SUBMIT_SCRIPT resolved to empty string;\
+    don't know how to run LOUIS."
+   [ -z "$SCRIPT_RUN" ] && SCRIPT_RUN='mpirun -np &NPROC& &BINARY&'
+   in_line SCRIPT $SUBMIT_SCRIPT_deps || errwarn "in $CASINO_ARCH.arch\
+    SUBMIT_SCRIPT does not depend on &SCRIPT&." ;;
+  direct)
+   [ -z "$RUN_CLUSTER" ] && errstop "RUN_CLUSTER resolved to empty string;\
+    don't know how to run LOUIS."
+   run_command="$RUN_CLUSTER" ;;
+  esac ;;
+ esac
+
+ # Make sure we use a numablk>0 if shm=1
+ if ((shm==1)) && ((numablk==0)) ; then
+  if [ ! -z "$var_PPN" ] && ((var_PPN>0)) ; then
+   numablk=$var_PPN
+  elif [ ! -z "$CORES_PER_NODE" ] && ((CORES_PER_NODE>0)) ; then
+   numablk=$CORES_PER_NODE
+  else
+   numablk=1
+  fi
+ fi
+}
+
+process_time_format() {
+ # Given a number of seconds $1 and set of variables $2, output the days,
+ # hours, minutes and seconds in the format required by the variables.
+ local d h m s ld lh lm ls fmt="$2" fmt2 carry fmt_time
+ # Get separate time components
+ set -- $(seconds_to_smhd $1)
+ s=$1 ; m=$2 ; h=$3 ; d=$4
+ ls=0 ; lm=0 ; lh=0 ; ld=0
+ # Parse time format string for required variables
+ fmt2="${fmt//D/}" ; ld=$((${#fmt}-${#fmt2}))
+ fmt2="${fmt//H/}" ; lh=$((${#fmt}-${#fmt2}))
+ fmt2="${fmt//M/}" ; lm=$((${#fmt}-${#fmt2}))
+ fmt2="${fmt//S/}" ; ls=$((${#fmt}-${#fmt2}))
+ # Remove unused components
+ carry=0
+ ((ld==0)) && { h=$((h+d*24)) ; d=0 ; }
+ ((lh==0)) && { m=$((m+h*60)) ; h=0 ; }
+ ((lm==0)) && { s=$((s+m*60)) ; m=0 ; }
+ ((ls==0)) && { carry=$s ; s=0 ; }
+ # Carry
+ if ((carry>0)) && ((lm>0)) ; then
+  m=$((m+1)) ; s=0 ; carry=0 ; ((m>60)) && carry=1
+ fi
+ if ((carry>0)) && ((lh>0)) ; then
+  h=$((h+1)) ; m=0 ; carry=0 ; ((h>24)) && carry=1
+ fi
+ if ((carry>0)) && ((ld>0)) ; then
+  d=$((d+1)) ; h=0 ; carry=0
+ fi
+ # Apply padding
+ ((ld>1)) && d=$(zero_pad $ld $d)
+ ((lh>1)) && h=$(zero_pad $lh $h)
+ ((lm>1)) && m=$(zero_pad $lm $m)
+ ((ls>1)) && s=$(zero_pad $ls $s)
+ # Set variables
+ fmt_time="$fmt"
+ ((ld>0)) && fmt_time="${fmt_time//$(repeat $ld D)/$d}"
+ ((lh>0)) && fmt_time="${fmt_time//$(repeat $lh H)/$h}"
+ ((lm>0)) && fmt_time="${fmt_time//$(repeat $lm M)/$m}"
+ ((ls>0)) && fmt_time="${fmt_time//$(repeat $ls S)/$s}"
+ echo "$fmt_time"
+}
+
+eval_topology() {
+ # Evaluate the run topology/size.
+ local t1 l1 t2 l2 nthread var divisor_NNODE divisor_NCORE
+ # Evaluate the machine's topology.
+ [ "$TYPE" = cluster ] && check_number_N $CORES_PER_NODE_CLUSTER \
+  && CORES_PER_NODE=$CORES_PER_NODE_CLUSTER \
+  && info 1 "CORES_PER_NODE_CLUSTER is defined: CORES_PER_NODE overridden"
+ check_number_N $CORES_PER_NODE || CORES_PER_NODE=0
+ ((CORES_PER_NODE>0)) && info 1 "Evaluated CORES_PER_NODE=$CORES_PER_NODE"
+ # Make sure the values are of the correct type
+ l1="" ; l2=""
+ for t1 in $ALLOWED_NNODE ; do
+  if check_number_N $t1 ; then
+   ((t1>0)) && l1="$l1 $t1"
+  elif [ "${t1:0:1}" = % ] && check_number_N ${t1:1} ; then
+   t2=${t1:1}
+   ((t2>1)) && l2="$l2 $t2"
+  fi
+ done
+ ALLOWED_NNODE="$l1"
+ divisor_NNODE="$l2"
+ if ((CORES_PER_NODE>0)) ; then
+  l1="" ; l2=""
+  for t1 in $ALLOWED_NCORE ; do
+   if check_number_N $t1 ; then
+    ((t1>0)) && ((t1%CORES_PER_NODE==0)) && l1="$l1 $t1"
+   elif [ "${t1:0:1}" = % ] && check_number_N ${t1:1} ; then
+    t2=${t1:1}
+    ((t2>1)) && ((t2%CORES_PER_NODE==0)) && l2="$l2 $t2"
+   fi
+  done
+  ALLOWED_NCORE="$l1"
+  divisor_NCORE="$l2"
+ else
+  ALLOWED_NCORE=""
+  divisor_NCORE=""
+ fi
+ check_number_N $MIN_NNODE || MIN_NNODE=0
+ check_number_N $MAX_NNODE || MAX_NNODE=0
+ ((CORES_PER_NODE>0)) && check_number_N $MIN_NCORE && \
+ ((MIN_NCORE>CORES_PER_NODE)) && ((MIN_NCORE%CORES_PER_NODE!=0)) && MIN_NCORE=0
+ ((CORES_PER_NODE>0)) && check_number_N $MAX_NCORE && \
+ ((MAX_NCORE>CORES_PER_NODE)) && ((MAX_NCORE%CORES_PER_NODE!=0)) && MAX_NCORE=0
+ ((MIN_NCORE>0)) && info 2 "Evaluated MIN_NCORE=$MIN_NCORE"
+ ((MAX_NCORE>0)) && info 2 "Evaluated MAX_NCORE=$MAX_NCORE"
+ [ -z "$ALLOWED_NCORE" ] || info 2 "Evaluated ALLOWED_NCORE='$ALLOWED_NCORE'"
+ [ -z "$divisor_NCORE" ] || info 2 "Evaluated divisor_NCORE='$divisor_NCORE'"
+ ((MIN_NNODE>0)) && info 2 "Evaluated MIN_NNODE=$MIN_NNODE"
+ ((MAX_NNODE>0)) && info 2 "Evaluated MAX_NNODE=$MAX_NNODE"
+ [ -z "$ALLOWED_NNODE" ] || info 2 "Evaluated ALLOWED_NNODE='$ALLOWED_NNODE'"
+ [ -z "$divisor_NNODE" ] || info 2 "Evaluated divisor_NNODE='$divisor_NNODE'"
+ # Get the topology of the run using a iterative algorithm to determine
+ # all determinable parameters.
+ # Set default values for unspecified parameters
+ ((var_TPP<1)) && var_TPP=1
+ # Add parameters not available on command line
+ for var in nthread nthread_total ; do eval $var=0 ; done
+ if [ "$TYPE" = cluster ] ; then
+  while : ; do
+   # Force ratios on integer triplets
+   force_ratio nthread_total var_NJOB nthread && continue
+   force_ratio var_NPROC_TOTAL var_NJOB var_NPROC && continue
+   force_ratio var_NNODE_TOTAL var_NJOB var_NNODE && continue
+   force_ratio nthread var_TPP var_NPROC && continue
+   force_ratio var_NPROC var_PPN var_NNODE && continue
+   force_ratio var_TPN var_TPP var_PPN && continue
+   force_ratio nthread var_TPN var_NNODE && continue
+   # Solve remaining situations.
+   if ((var_NPROC>0)) && ((var_NNODE==0)) && ((CORES_PER_NODE>0)) ; then
+    # Maximize tpn
+    var_TPN=$CORES_PER_NODE
+    while ((var_TPN>0)) && ( ((var_NPROC*var_TPN%nthread>0))\
+     || ((nthread%var_TPN>0)) ) ; do
+     var_TPN=$((var_TPN-1))
+    done
+    ((var_TPN<var_TPP)) && var_TPN=$var_TPP
+    info 3 "Implicit topology assumption (T1): TPN=$var_TPN"
+    continue
+   fi
+   if ((var_PPN>0)) && ((var_NNODE==0)) ; then
+    if ((MAX_NNODE>0)) ; then
+     # Maximize var_NNODE
+     var_NNODE_TOTAL=$MAX_NNODE
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S1a): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif ((MAX_NCORE>0)) && ((CORES_PER_NODE>0)) ; then
+     # Maximize var_NNODE
+     var_NNODE_TOTAL=$((MAX_NCORE/CORES_PER_NODE))
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S1b): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    fi
+   fi
+   if ((var_NNODE>0)) && ((var_PPN==0)) && ((CORES_PER_NODE>0)) ; then
+    # Maximize tpn
+    var_TPN=$CORES_PER_NODE
+    while ((var_TPN%var_TPP>0)) ; do var_TPN=$((var_TPN-1)) ; done
+    ((var_TPN<var_TPP)) && var_TPN=$var_TPP
+    info 3 "Implicit topology assumption (T2): TPN=$var_TPN"
+    continue
+   fi
+   if ((var_NNODE==0)) && ((var_NPROC==0)) && ((var_PPN==0)) ; then
+    # Maximize var_NNODE
+    if ((MAX_NNODE>0)) ; then
+     var_NNODE_TOTAL=$MAX_NNODE
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2a): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif [ ! -z "$ALLOWED_NNODE" ] ; then
+     for t1 in $ALLOWED_NNODE ; do
+      ((t1>var_NNODE_TOTAL)) && ((t1%var_NJOB==0)) && var_NNODE_TOTAL=$t1
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2b): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif ((MAX_NCORE>0)) && ((CORES_PER_NODE>0)) ; then
+     var_NNODE_TOTAL=$((MAX_NCORE/CORES_PER_NODE))
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2c): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif [ ! -z "$ALLOWED_NCORE" ] && ((CORES_PER_NODE>0)) ; then
+     for t1 in $ALLOWED_NCORE ; do
+      ((t1%CORES_PER_NODE==0)) && ((t1/CORES_PER_NODE>var_NNODE_TOTAL))\
+       && (((t1/CORES_PER_NODE)%var_NJOB==0))\
+       && var_NNODE_TOTAL=$((t1/CORES_PER_NODE))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2d): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    fi
+   fi
+   break
+  done
+ else # "$TYPE" != cluster
+  var_NNODE=1 ; var_NNODE_TOTAL=1
+  while : ; do
+   # Force ratios on integer triplets
+   force_ratio nthread_total var_NJOB nthread && continue
+   force_ratio var_NPROC_TOTAL var_NJOB var_NPROC && continue
+   force_ratio nthread var_TPP var_NPROC && continue
+   force_ratio var_NPROC var_PPN var_NNODE && continue
+   force_ratio var_TPN var_TPP var_PPN && continue
+   force_ratio nthread var_TPN var_NNODE && continue
+   # Solve remaining situations.
+   if ((var_NNODE>0)) && ((var_PPN==0)) && ((CORES_PER_NODE>0)) ; then
+    # Maximize tpn
+    var_TPN=$((CORES_PER_NODE/var_NJOB))
+    while ((var_TPN%var_TPP>0)) ; do var_TPN=$((var_TPN-1)) ; done
+    ((var_TPN<var_TPP)) && var_TPN=$var_TPP
+    info 3 "Implicit topology assumption (T2): TPN=$var_TPN"
+    continue
+   fi
+   break
+  done
+ fi
+ # Report
+ ((var_NPROC>0)) && info 1 "Evaluated NPROC=$var_NPROC"
+ ((var_TPP>0)) && info 1 "Evaluated TPP=$var_TPP"
+ ((var_PPN>0)) && info 1 "Evaluated PPN=$var_PPN"
+ ((var_NNODE>0)) && info 1 "Evaluated NNODE=$var_NNODE"
+ # Convert nodes to cores
+ var_NCORE=0 ; var_NCORE_TOTAL=0
+ if ((var_NNODE>0)) && ((CORES_PER_NODE>0)) ; then
+  if ((MAX_NCORE<CORES_PER_NODE)) ; then
+   var_NCORE=$MAX_NCORE
+   var_NCORE_TOTAL=$((var_NNODE_TOTAL*MAX_NCORE))
+  else
+   var_NCORE=$((var_NNODE*CORES_PER_NODE))
+   var_NCORE_TOTAL=$((var_NNODE_TOTAL*CORES_PER_NODE))
+  fi
+ fi
+ # Check we have the required parameters
+ ((var_NPROC==0)) && ((need_NPROC>0)) && ((inquire!=1)) && errstop \
+  "NPROC parameter required on \
+  this machine but could not be deduced from input. Please provide it."
+ ((var_NNODE==0)) && ((need_NNODE>0)) && ((inquire!=1)) && errstop \
+  "NNODE parameter required on\
+  this machine but could not be deduced from input. Please provide it."
+ ((var_PPN==0)) && ((need_PPN>0)) && ((inquire!=1)) && errstop "PPN parameter \
+  required on this \
+  machine but could not be deduced from input. Please provide it."
+ ((var_NCORE==0)) && ((need_NCORE>0)) && ((inquire!=1)) && errstop "NCORE \
+  parameter required on this machine but could not be deduced from input. \
+  Please provide more input."
+ # Check limits
+ if ((var_NNODE>0)) ; then
+  ((MIN_NNODE>0)) && ((var_NNODE_TOTAL<MIN_NNODE)) && errstop\
+   "NNODE_TOTAL=$var_NNODE_TOTAL is below minimum value of $MIN_NNODE"
+  ((MAX_NNODE>0)) && ((var_NNODE_TOTAL>MAX_NNODE)) && errstop\
+   "NNODE_TOTAL=$var_NNODE_TOTAL exceeds maximum value of $MAX_NNODE"
+  ((MIN_NNODE_ENSEMBLE)) && ((var_NNODE<MIN_NNODE_ENSEMBLE)) && errstop\
+   "NNODE=$var_NNODE is below minimum value of $MIN_NNODE_ENSEMBLE"
+  if [ ! -z "$ALLOWED_NNODE" ] || [ ! -z "$divisor_NNODE" ] ; then
+   if ! in_line $var_NNODE_TOTAL $ALLOWED_NNODE ; then
+    t1=0
+    for t2 in $divisor_NNODE ; do
+     ((var_NNODE_TOTAL%t2==0)) && { t1=1 ; break ; }
+    done
+    if ((t1==0)) ; then
+     [ -z "$divisor_NNODE" ] && errstop "NNODE_TOTAL=$var_NNODE_TOTAL is not\
+      in allowed list '$ALLOWED_NNODE'"
+     [ -z "$ALLOWED_NNODE" ] && errstop "NNODE_TOTAL=$var_NNODE_TOTAL is not\
+      divisible by any of '$divisor_NNODE'"
+     errstop "NNODE_TOTAL=$var_NNODE_TOTAL is not in allowed list\
+      '$ALLOWED_NNODE', and is not divisible by any of '$divisor_NNODE'"
+    fi
+   fi
+  fi
+ fi
+ if ((var_NCORE>0)) ; then
+  ((MIN_NCORE>0)) && ((var_NCORE_TOTAL<MIN_NCORE)) && errstop\
+   "NCORE_TOTAL=$var_NCORE_TOTAL is below minimum value of $MIN_NCORE"
+  ((MAX_NCORE>0)) && ((var_NCORE_TOTAL>MAX_NCORE)) && errstop\
+   "NCORE_TOTAL=$var_NCORE_TOTAL exceeds maximum value of $MAX_NCORE"
+  if [ ! -z "$ALLOWED_NCORE" ] || [ ! -z "$divisor_NCORE" ] ; then
+   if ! in_line $var_NCORE_TOTAL $ALLOWED_NCORE ; then
+    t1=0
+    for t2 in $divisor_NCORE ; do
+     ((var_NCORE_TOTAL%t2==0)) && { t1=1 ; break ; }
+    done
+    if ((t1==0)) ; then
+     [ -z "$divisor_NCORE" ] && errstop "NCORE_TOTAL=$var_NCORE_TOTAL is not\
+      in allowed list '$ALLOWED_NCORE'"
+     [ -z "$ALLOWED_NCORE" ] && errstop "NCORE_TOTAL=$var_NCORE_TOTAL is not\
+      divisible by any of '$divisor_NCORE'"
+     errstop "NCORE_TOTAL=$var_NCORE_TOTAL is not in allowed list\
+      '$ALLOWED_NCORE', and is not divisible by any of '$divisor_NCORE'"
+    fi
+   fi
+  fi
+ fi
+ # Check we are not over/undersubscribing nodes without explicit instructions
+ # from the user
+ if [ "$TYPE" != single ] && ((CORES_PER_NODE>0)) && ((var_PPN>0))\
+  && ((var_TPP>0)) ; then
+  t1=$((var_PPN*var_TPP)) ; t2=$ppn ; t3="'--ppn=$var_PPN'"
+  if [ "$TYPE" != cluster ] ; then
+   t1=$((t1*var_NJOB))
+   ((nproc>ppn)) && t2=$nproc
+   t3="'--ppn=$var_PPN' or '--nproc=$var_NPROC'"
+  fi
+  t1=$((t1-CORES_PER_NODE))
+  if ((t1>0)) ; then
+   # Nodes oversubscribed
+   if ((t2==0)) ; then
+    # Not explicitly requested: stop
+    errstop "Running more processes/threads per node than cores there are in\
+     a node. If this was intended, set $t3 explicitly in the command line"
+   else
+    # Explicitly requested: warn
+    errwarn "Running more processes/threads per node than cores there are in\
+     a node."
+   fi
+  elif ((t1<0)) ; then
+   # Nodes undersubscribed
+   if ((t2==0)) ; then
+    # Not explicitly requested: stop
+    errstop "Not using all cores in each node. If this was intended, set\
+     $t3 explicitly in the command line"
+   else
+    # Explicitly requested: warn
+    errwarn "Not using all cores in each node."
+   fi
+  fi
+ fi
+}
+
+eval_walltime() {
+ # Evaluate WALLTIME
+ local t1 lt lt2 lc lc2 ltp ltp2 ifield MIN_WALLTIME2 MAX_WALLTIME2 mintime
+ local maxtime allowed
+ # Convert to seconds
+ MIN_WALLTIME=$(casino_time_to_seconds $MIN_WALLTIME)
+ MAX_WALLTIME=$(casino_time_to_seconds $MAX_WALLTIME)
+ MIN_CORETIME=$(casino_time_to_seconds $MIN_CORETIME)
+ MAX_CORETIME=$(casino_time_to_seconds $MAX_CORETIME)
+ ((MIN_WALLTIME>0)) && info 2 "Evaluated MIN_WALLTIME=$(seconds_to_casino_time\
+  $MIN_WALLTIME)"
+ ((MAX_WALLTIME>0)) && info 2 "Evaluated MAX_WALLTIME=$(seconds_to_casino_time\
+  $MAX_WALLTIME)"
+ ((MIN_CORETIME>0)) && info 2 "Evaluated MIN_CORETIME=$(seconds_to_casino_time\
+  $MIN_CORETIME)"
+ ((MAX_CORETIME>0)) && info 2 "Evaluated MAX_CORETIME=$(seconds_to_casino_time\
+  $MAX_CORETIME)"
+ # First process allow list
+ allowprint=""
+ if [ ! -z "$ALLOWED_WALLTIME" ] ; then
+  lt="" ; ltp=""
+  for t1 in $ALLOWED_WALLTIME ; do
+   t1=$(casino_time_to_seconds $t1)
+   ((t1==0)) && continue
+   lt="$lt $t1"
+   ltp="$ltp $(seconds_to_casino_time $t1)"
+  done
+  ALLOWED_WALLTIME="$lt"
+  allowprint="$ltp"
+ fi
+ # Then process code list, and merge lists if necessary
+ if [ ! -z "$WALLTIME_CODES" ] ; then
+  lt="" ; lc="" ; ltp=""
+  for t1 in $WALLTIME_CODES ; do
+   c1="${t1%=*}"
+   [ -z "$t1" ] && continue
+   t1="${t1##*=}" ; t1=$(casino_time_to_seconds $t1)
+   ((t1==0)) && continue
+   lt="$lt $t1" ; lc="$lc $c1"
+   ltp="$ltp $(seconds_to_casino_time $t1)"
+  done
+  if [ ! -z "$ALLOWED_WALLTIME" ] ; then
+   lt2="" ; lc2="" ; ltp2=""
+   for t1 in $ALLOWED_WALLTIME ; do
+    ifield=$(which_field $t1 $lt)
+    ((ifield==0)) && continue
+    c1=$(field $ifield $ct)
+    lt2="$lt2 $t1" ; lc2="$lc2 $c1"
+    ltp2="$ltp2 $(seconds_to_casino_time $t1)"
+   done
+   WALLTIME_CODES="$lc2" ; ALLOWED_WALLTIME="$lt2"
+   allowprint="$ltp2"
+  else
+   WALLTIME_CODES="$lc" ; ALLOWED_WALLTIME="$lt"
+   allowprint="$ltp"
+  fi
+ fi
+ if [ ! -z "$allowprint" ] ; then
+  allowprint="$(unpad $allowprint)"
+  info 2 "Evaluated ALLOWED_WALLTIME='$allowprint'"
+  if [ ! -z "$WALLTIME_CODES" ] ; then
+   WALLTIME_CODES=$(unpad $WALLTIME_CODES)
+   info 2 "Evaluated WALLTIME_CODES='$WALLTIME_CODES'"
+  fi
+ fi
+ walltime=$(casino_time_to_seconds $walltime)
+ coretime=$(casino_time_to_seconds $coretime)
+ case "$walltime.$coretime" in
+ 0.0|*.0) : ;;
+ 0.*)
+  ((var_NCORE>0)) || errstop "Cannot convert -coretime since the number of\
+   cores could not be deduced from the input.  Specify walltime instead."
+  walltime=$((coretime/var_NCORE)) ;;
+ *.*) errstop "Cannot specify both -walltime and -coretime" ;;
+ esac
+ MIN_WALLTIME2=0 ; MAX_WALLTIME2=0
+ if ((var_NCORE>0)) ; then
+  MIN_WALLTIME2=$((MIN_CORETIME/var_NCORE))
+  MAX_WALLTIME2=$((MAX_CORETIME/var_NCORE))
+ fi
+ mintime=$MIN_WALLTIME
+ ((MIN_WALLTIME2>0)) && ( ((MIN_WALLTIME==0))\
+  || ((MIN_WALLTIME2>MIN_WALLTIME)) ) && mintime=$MIN_WALLTIME2
+ maxtime=$MAX_WALLTIME
+ ((MAX_WALLTIME2>0)) && ( ((MAX_WALLTIME==0))\
+  || ((MAX_WALLTIME2<MAX_WALLTIME)) ) && maxtime=$MAX_WALLTIME2
+ if ((walltime==0)) ; then
+  # See if we can evaluate a default value
+  case "$mintime.$maxtime.$ALLOWED_WALLTIME" in
+  0.0.|*.0.) : ;;
+  0.*.) walltime="$maxtime" ;;
+  *.*.) ((mintime<=maxtime)) && walltime="$maxtime" ;;
+  0.0.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && walltime=$t1
+   done ;;
+  0.*.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ((t1<=maxtime)) && walltime=$t1
+   done ;;
+  *.0.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ((t1>=mintime)) && walltime=$t1
+   done ;;
+  *.*.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ((t1<=maxtime)) && ((t1>=mintime)) && walltime=$t1
+   done ;;
+  esac
+  ((walltime==0)) && ((inquire!=1)) && errstop "This machine requires a\
+   WALLTIME variable, but\
+   no walltime was provided on the command line and could not figure out a\
+   sensible default. Please provide a walltime."
+ else
+  if [ ! -z "$ALLOWED_WALLTIME" ] && ! in_line $walltime $ALLOWED_WALLTIME\
+   ; then
+   # Try to match time in allowlist
+   wt=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ( ((wt==0)) || ((wt>t1)) ) && wt=$t1
+   done
+   ((wt==0)) && errstop "No walltime in allowed walltime list '$allowprint'\
+    could be chosen to fit the requested walltime of $(seconds_to_casino_time\
+    $walltime)."
+   # Check limits
+   ((MIN_WALLTIME>0)) && ((wt<MIN_WALLTIME)) && errstop "Requested walltime is\
+    below wall-time minimum of $(seconds_to_casino_time $MIN_WALLTIME)."
+   ((MAX_WALLTIME>0)) && ((wt>MAX_WALLTIME)) && errstop "No walltime\
+    in allowed walltime list '$allowprint' could be chosen to fit the\
+    requested walltime of $(seconds_to_casino_time $walltime) without going\
+    over the walltime limit of $(seconds_to_casino_time $MAX_WALLTIME).\
+    The best fit in the list was $(seconds_to_casino_time $wt)."
+   ((MIN_WALLTIME2>0)) && ((wt<MIN_WALLTIME2)) && errstop "Requested walltime\
+    is below core-time minimum of $(seconds_to_casino_time $MIN_CORETIME)."
+   ((MAX_WALLTIME2>0)) && ((wt>MAX_WALLTIME2)) && errstop "No walltime\
+    in allowed walltime list '$allowprint' could be chosen to fit the\
+    requested walltime of $(seconds_to_casino_time $walltime) without going\
+    over the core-time limit of $(seconds_to_casino_time $MAX_CORETIME).\
+    This limit is usually set from accounting credit information. You should\
+    check you have enough credits to run this calculation.  The best fit in\
+    the list was $(seconds_to_casino_time $wt)."
+   # Apply change
+   info 1 "Corrected walltime request from $(seconds_to_casino_time $walltime)\
+    to $(seconds_to_casino_time $wt) from allowed list"
+   walltime=$wt
+  else
+   # Just check limits
+  ((MIN_WALLTIME>0)) && ((walltime<MIN_WALLTIME)) && errstop "Requested\
+   walltime is below wall-time minimum of\
+   $(seconds_to_casino_time $MIN_WALLTIME)."
+  ((MAX_WALLTIME>0)) && ((walltime>MAX_WALLTIME)) && errstop "Requested\
+   walltime exceeds wall-time maximum of $(seconds_to_casino_time\
+   $MAX_WALLTIME)."
+  ((MIN_WALLTIME2>0)) && ((walltime<MIN_WALLTIME2)) && errstop "Requested\
+   walltime is below core-time minimum of\
+   $(seconds_to_casino_time $MIN_CORETIME)."
+  ((MAX_WALLTIME2>0)) && ((walltime>MAX_WALLTIME2)) && errstop "Requested\
+   walltime exceeds core-time maximum of $(seconds_to_casino_time\
+   $MAX_CORETIME).  This limit is usually set from accounting credit\
+   information. You should check you have enough credits to run this\
+   calculation."
+  fi
+ fi
+ # Generate var_WALLTIME
+ if [ ! -z "$WALLTIME_CODES" ] ; then
+  var_WALLTIME=$(field $(which_field $walltime $ALLOWED_WALLTIME)\
+   $WALLTIME_CODES)
+ elif [ ! -z "$TIME_FORMAT" ] ; then
+  var_WALLTIME=$(process_time_format "$walltime" "$TIME_FORMAT")
+ else
+  errstop "$CASINO_ARCH.arch does not provide a TIME_FORMAT or a\
+   WALLTIME_CODES tag, so runlouis will not be able to produce a submission\
+   script."
+ fi
+ info 1 "Evaluated WALLTIME='$var_WALLTIME'"
+}
+
+topology_diagram() {
+ # Draw a diagram of the topology of the calculation
+ local icore iproc ithread max_width t1 nx ny ix ix1 iy
+ local core_border_top core_border_bottom empty_core line1 line2 line3
+ local ppn_total append
+ local -a core_run
+ ((CORES_PER_NODE>0)) && ((var_TPP>0)) && ((var_PPN>0)) || return
+ # Get contents of diagram
+ max_width=0 ; icore=0
+ ppn_total=$var_PPN
+ [ "$TYPE" != cluster ] && ppn_total=$((ppn_total*var_NJOB))
+ if ((var_TPP>1)) && ((var_TPP*ppn_total<=CORES_PER_NODE)) ; then
+  # Interleave Ps and ts for a clearer picture
+  iproc=0 ; while ((iproc<ppn_total)) ; do iproc=$((iproc+1))
+   icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+   t1="P${core_run[$icore]}"
+   ((${#t1}>max_width)) && max_width=$((${#t1}))
+   core_run[$icore]="$t1"
+   ithread=0 ; while ((ithread<var_TPP-1)) ; do ithread=$((ithread+1))
+    icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+    t1="${core_run[$icore]}t"
+    ((${#t1}>max_width)) && max_width=$((${#t1}))
+    core_run[$icore]="$t1"
+   done
+  done
+ else
+  # Place Ps and ts sequentially for accuracy
+  iproc=0 ; while ((iproc<ppn_total)) ; do iproc=$((iproc+1))
+   icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+   t1="P${core_run[$icore]}"
+   ((${#t1}>max_width)) && max_width=$((${#t1}))
+   core_run[$icore]="$t1"
+  done
+  ithread=0 ; while ((ithread<(var_TPP-1)*ppn_total)) ; do
+   ithread=$((ithread+1))
+   icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+   t1="${core_run[$icore]}t"
+   ((${#t1}>max_width)) && max_width=$((${#t1}))
+   core_run[$icore]="$t1"
+  done
+ fi
+ # Define size of diagram
+ nx=1 ; ny=$CORES_PER_NODE
+ ix=1 ; while ((ix*ix<CORES_PER_NODE)) ; do ix=$((ix+1))
+  iy=$((CORES_PER_NODE/ix))
+  if ((CORES_PER_NODE%ix==0)) && ((ix<iy)) ; then
+   nx=$ix ; ny=$iy
+  fi
+ done
+ if ((nx*2<ny)) ; then
+  nx=$ix
+  ny=$((CORES_PER_NODE/nx)) ; ((CORES_PER_NODE%nx>0)) && ny=$((ny+1))
+  ((nx>ny)) && { nx=$ny ; ny=$ix ; }
+ fi
+ # Print diagram
+ echo "Diagram of the calculation (cores in a node, $nx x $ny grid):"
+ core_border_top=" +$(repeat $((2+max_width)) -)+"
+ core_border_bottom=" +$(repeat $((2+max_width)) -)+"
+ empty_core="$(repeat $((5+max_width)) " ")"
+ echo "+$(repeat $((nx*(5+max_width)+1)) -)+"
+ icore=0
+ iy=0 ; while ((iy<ny)) ; do iy=$((iy+1))
+  line1="|" ; line2="|" ; line3="|"
+  ix=0 ; while ((ix<nx)) ; do ix=$((ix+1))
+   icore=$((icore+1))
+   if ((icore>CORES_PER_NODE)) ; then
+    line1="$line1$empty_core"
+    line2="$line2$empty_core"
+    line3="$line3$empty_core"
+   else
+    line1="$line1$core_border_top"
+    line2="$line2 | $(pad $max_width ${core_run[$icore]}) |"
+    line3="$line3$core_border_bottom"
+   fi
+  done
+  line1="$line1 |" ; line2="$line2 |" ; line3="$line3 |"
+  echo "$line1" ; echo "$line2" ; echo "$line3"
+ done
+ append=""
+ if [ "$TYPE" = cluster ] ; then
+  append="$append x $var_NNODE"
+  ((var_NJOB>1)) && append="$append x $var_NJOB"
+ fi
+ echo "+$(repeat $((nx*(5+max_width)+1)) -)+$append"
+ if ((var_TPP>1)) ; then
+  echo " [P]: process, [t]: OpenMP thread"
+ else
+  echo " [P]: process"
+ fi
+}
+
+find_binary() {
+ # Locate binary depending on version and features.
+ local feature_dir f base_dir dir_list line
+ [ "$inquire" = "1" ] && return 0
+ # Check base directory exists.
+ base_dir="$home/bin_qmc/utils/$CASINO_ARCH"
+ [ -d "$base_dir" ] || { errwarn "Binary directory $base_dir not found." ;\
+  return 1 ; }
+ # Sort features alphabetically.
+ requested_features=$({ for f in $requested_features ; do echo $f ; done ; }\
+  | sort)
+ # Try the exact feature combination.
+ feature_dir="${requested_features// /}"
+ [ -z "$feature_dir" ] || feature_dir="$feature_dir/"
+ var_BINARY="$base_dir/$feature_dir$version/$binary_name"
+ [ -x "$var_BINARY" ] && requested_features=$feature_dir && return 0
+ # Find subdirectories of base_dir.
+ dir_list=""
+ {
+  while read line ; do
+   dir_list="$dir_list ${line#$base_dir/}"
+  done
+ } < <(find "$base_dir" -maxdepth 1 -mindepth 1 -type d 2> /dev/null | sort)
+ (exit 0) # bypass bash fd leak (v3.2 - v4.1)
+ [ -z "$dir_list" ] && { errwarn "Binary not found in $base_dir." ;\
+  return 1 ; }
+ # Try to locate appropriate binary in one of the subdirectories.
+ for feature_dir in $dir_list ; do
+  # Check the binary in the directory would have the required features.
+  if [ ! -z "$requested_features" ] ; then
+   for f in $requested_features ; do
+    [ "${feature_dir//$f/}" = "$feature_dir" ] && continue 2
+   done
+  fi
+  # Check that the binary exists.
+  var_BINARY="$base_dir/$feature_dir/$version/$binary_name"
+  [ -x "$var_BINARY" ] && requested_features=$feature_dir && return 0
+ done
+ if [ -z "$requested_features" ] ; then
+  errwarn "Binary not found in $base_dir and its subdirectories."
+ else
+  errwarn "Binary compiled with support for '$requested_features' not found in\
+   $base_dir and its subdirectories."
+ fi
+ return 1
+}
+
+clean_pwd() {
+ # Remove pre-existing output files.
+ local pwd="$1" is_first_job=$2
+ rm -f "$pwd/$out_file" >& /dev/null
+ rm -f "$pwd/$doterr_file" >& /dev/null
+ [ "$TYPE" = cluster ] && ((is_first_job==1)) && rm -f "$var_OUT" >& /dev/null
+}
+
+run_louis() {
+ # Run LOUIS under directory $1
+ local pwd="$1" is_first_job=$2 is_last_job=$3
+ [ -z "$pwd" ] && pwd=.
+
+ if ((check_only==0)) ; then
+  # Create lock file
+  touch "$pwd/.runlouis.lock"
+  # Print header
+  touch "$pwd/$out_file" >& /dev/null
+  touch "$pwd/$doterr_file" >& /dev/null
+  touch "$var_OUT" >& /dev/null
+  echo "LOUIS ${casino_version}" >> "$pwd/$out_file"
+  echo "Running on $hostname [$CASINO_ARCH]" >> "$pwd/$out_file"
+  if [ -z "$requested_features" ] ; then
+   echo "Binary compiled in $version mode" >> "$pwd/$out_file"
+  else
+   echo "Binary compiled in $version mode with $requested_features"\
+    >> "$pwd/$out_file"
+  fi
+  if [ "$binary_name" != louis ] ; then
+   echo "Using binary named $binary_name" >> "$pwd/$out_file"
+  fi
+ fi
+
+ if [ ! -z "$run_command" ] ; then
+  # Single-/multi-processor workstations, or clusters that can submit to the
+  # queue without a batch script.
+
+  ((check_only==1)) && return
+  # Finish printing header
+  echo "Job started: $(date)" >> "$pwd/$out_file"
+  # Set environment
+  [ -z "$ENVIRONMENT_COMMAND" ] || eval "$ENVIRONMENT_COMMAND"
+  export OMP_NUM_THREADS=$var_TPP
+  if ((numablk>0)) ; then
+   export CASINO_NUMABLK=$numablk
+  else
+   unset CASINO_NUMABLK
+  fi
+  # Run LOUIS
+  cd "$pwd"
+  if [ -z "$debugger" ] ; then
+   if ((background==1)) && type -P setsid >& /dev/null ; then
+    { setsid bash -c "eval $run_command" ; } < /dev/null\
+     >> "$doterr_file" 2>&1
+   else
+    { eval $run_command ; } < /dev/null >> "$doterr_file" 2>&1
+   fi
+  else # need interactivity
+   eval $run_command
+  fi
+
+  # Clean up output files
+  node=0
+  while ((node<var_NPROC-1)) ; do node=$((node+1))
+   if [ -s "$pwd/$dotout_file$node" ] ; then
+    echo >> "$pwd/$out_file"
+    echo "--Output from node #$node--" >> "$pwd/$out_file"
+    echo >> "$pwd/$out_file"
+    cat "$pwd/$dotout_file$node" >> "$pwd/$out_file"
+    echo >> "$pwd/$out_file"
+   fi
+   rm -f "$pwd/$dotout_file$node" >& /dev/null
+  done
+  if [ -s "$pwd/$doterr_file" ] ; then
+   echo >> "$pwd/$out_file"
+   echo "--Job's stderr--" >> "$pwd/$out_file"
+   echo >> "$pwd/$out_file"
+   cat "$pwd/$doterr_file" >> "$pwd/$out_file"
+  fi
+  rm -f "$pwd/$doterr_file" >& /dev/null
+  echo >> "$pwd/$out_file"
+  echo "Job finished: $(date)" >> "$pwd/$out_file"
+
+  cd "$base_pwd"
+
+  # Delete lock file
+  rm -f "$pwd/.runlouis.lock" >& /dev/null
+  touch "$pwd/.louis_finished"
+
+ else
+  # Clusters with batch scripts
+
+  if ((is_first_job==1)) ; then
+   # Start writing batch script
+   write_batch_script_header
+  fi
+  # Create lock file
+  touch "$pwd/.runlouis.lock"
+  # Job execution
+  if [ "$RELPATHNAMES" != yes ] ; then
+   write_batch_script_run "$pwd"
+  else
+   if ((is_first_job==1)) ; then
+    write_batch_script_run "$pwd"
+   else
+    write_batch_script_run "../$pwd"
+   fi
+  fi
+  if ((is_last_job==1)) ; then
+   # Finish writing batch script
+   write_batch_script_footer
+   ((check_only==1)) && { rm "$pwd/.runlouis.lock" ; return ; }
+   # Finish printing header
+   ((is_first_job==1)) && echo "Job submitted: $(date)" >> "$pwd/$out_file"
+   # Submit script
+   eval "$SUBMIT_SCRIPT" | tee -a "$var_OUT"
+  fi
+
+ fi # run directly / submit batch script
+}
+
+write_batch_script_header() {
+ # Create submission script and print header part.
+ [ -z "$var_SCRIPT" ] && return
+ rm -f "$var_SCRIPT"
+ touch "$var_SCRIPT"
+ chmod u+x "$var_SCRIPT"
+ # Evaluate and write the heder
+ print_block_tag SCRIPT_HEAD >> "$var_SCRIPT"
+ # Write start time, export environment variables
+ [ -z "$ENVIRONMENT_COMMAND" ]\
+  || echo "$ENVIRONMENT_COMMAND" >> "$var_SCRIPT"
+
+ if [ "$SCRIPTCSH" != "yes" ] ; then # bash
+
+  echo "export OMP_NUM_THREADS=$var_TPP" >> "$var_SCRIPT"
+  if ((numablk>0)) ; then
+   echo "export CASINO_NUMABLK=$numablk" >> "$var_SCRIPT"
+  else
+   echo "unset CASINO_NUMABLK" >> "$var_SCRIPT"
+  fi
+  echo "njob=0" >> "$var_SCRIPT"
+
+ else # weird machines which insist on csh scripts
+
+  echo "set OMP_NUM_THREADS=$var_TPP" >> "$var_SCRIPT"
+  if ((numablk>0)) ; then
+   echo "set CASINO_NUMABLK=$numablk" >> "$var_SCRIPT"
+  else
+   echo "unset CASINO_NUMABLK" >> "$var_SCRIPT"
+  fi
+  echo "set njob=0" >> "$var_SCRIPT"
+  echo "set job_dir=\"\"" >> "$var_SCRIPT"
+
+ fi
+}
+
+write_batch_script_run() {
+ # Evaluate and write the run command
+ local pwd="$1"
+ [ -z "$var_SCRIPT" ] && return
+ pwd2="$pwd"
+ [ "$RELPATHNAMES" = yes ] && pwd2=${pwd##*/}
+ # Set job directory (for use later at the clean-up stage)
+ echo "cd \"$pwd\"" >> "$var_SCRIPT"
+
+ if [ "$SCRIPTCSH" != "yes" ] ; then # bash
+
+  echo "njob=\$((njob+1)) ; job_dir[\$njob]=\"$pwd2\"" >> "$var_SCRIPT"
+  # Write start time.
+  echo "echo \"Job started: \$(date)\" >> \"$out_file\"" >> "$var_SCRIPT"
+  # Print run command
+  ((njob>1)) && echo "{" >> "$var_SCRIPT"
+  print_block_tag SCRIPT_RUN >> "$var_SCRIPT"
+  ((njob>1)) && echo "} &" >> "$var_SCRIPT"
+
+ else # weird machines which insist on csh scripts
+
+  echo "@ njob++ 
+  set job_dir=(\$job_dir \"$pwd2\")" >> "$var_SCRIPT"
+  # Write start time.
+  echo "echo \"Job started: \`date\`\" >> \"$out_file\"" >> "$var_SCRIPT"
+  # Print run command
+  if ((njob>1)) ; then
+   print_block_tag_csh SCRIPT_RUN >> "$var_SCRIPT"
+  else
+   print_block_tag SCRIPT_RUN >> "$var_SCRIPT"
+  fi
+
+ fi
+}
+
+write_batch_script_footer() {
+ local ijob
+ # Write the clean-up section of the batch script
+ [ -z "$var_SCRIPT" ] && return
+
+ if [ "$SCRIPTCSH" != "yes" ] ; then
+
+  if [ "$RELPATHNAMES" != yes ] ; then
+   echo "cd \"$base_pwd\"" >> "$var_SCRIPT"
+  else
+   ((njob>1)) && echo "cd .." >> "$var_SCRIPT"
+  fi
+  cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+wait
+ijob=0 ; while ((ijob<njob)) ; do ijob=\$((ijob+1))
+ pwd="\${job_dir[\$ijob]}"
+ node=0 ; while ((node<$var_NPROC-1)) ; do node=\$((node+1))
+  if [ -s "\$pwd/$dotout_file\$node" ] ; then
+   echo >> "\$pwd/$out_file"
+   echo "--Output from node #\$node--" >> "\$pwd/$out_file"
+   echo >> "\$pwd/$out_file"
+   cat "\$pwd/$dotout_file\$node" >> "\$pwd/$out_file"
+   echo >> "\$pwd/$out_file"
+  fi
+  rm -f "\$pwd/$dotout_file\$node" >& /dev/null
+ done
+ if [ -s "\$pwd/$doterr_file" ] ; then
+  echo >> "\$pwd/$out_file"
+  echo "--Job's stderr--" >> "\$pwd/$out_file"
+  echo >> "\$pwd/$out_file"
+  cat "\$pwd/$doterr_file" >> "\$pwd/$out_file"
+ fi
+ rm -f "\$pwd/$doterr_file" >& /dev/null
+ echo >> "\$pwd/$out_file"
+ echo "Job finished: \$(date)" >> "\$pwd/$out_file"
+ rm -f "\$pwd/.runlouis.lock" >& /dev/null
+done
+_EOF
+
+ else
+
+  echo "cd \"$base_pwd\"" >> "$var_SCRIPT"
+  nn=$((var_NPROC-1))
+  cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+wait
+set ijob=0 
+while ( \$ijob < \$njob ) 
+ @ ijob++
+ set pwd="\${job_dir[\$ijob]}"
+ set node=0 
+ while ( \$node < $nn ) 
+  @ node++
+  if ( -e "\$pwd/$dotout_file\$node" && ! -z "\$pwd/$dotout_file\$node" ) then
+   echo >> "\$pwd/$out_file"
+   echo "--Output from node #\$node--" >> "\$pwd/$out_file"
+   echo >> "\$pwd/$out_file"
+   cat "\$pwd/$dotout_file\$node" >> "\$pwd/$out_file"
+   echo >> "\$pwd/$out_file"
+  endif
+  rm -f "\$pwd/$dotout_file\$node" >& /dev/null
+ end
+ if ( -e "\$pwd/$doterr_file" && ! -z "\$pwd/$doterr_file" ) then
+  echo >> "\$pwd/$out_file"
+  echo "--Job's stderr--" >> "\$pwd/$out_file"
+  echo >> "\$pwd/$out_file"
+  cat "\$pwd/$doterr_file" >> "\$pwd/$out_file"
+ endif
+ rm -f "\$pwd/$doterr_file" >& /dev/null
+ echo >> "\$pwd/$out_file"
+ echo "Job finished: \`date\`" >> "\$pwd/$out_file"
+ rm -f "\$pwd/.runlouis.lock" >& /dev/null
+ rm -f \$pwd/louis*.0.out >& /dev/null # Hitachi peculiarity - not removable
+ rm -f \$pwd/louis*.0.err>& /dev/null  # or renameable in any other way.
+end
+_EOF
+ fi
+  if [ "$RELPATHNAMES" = yes ] ; then 
+   echo 'touch "$pwd/.louis_finished"' >> "$var_SCRIPT"
+  fi
+  cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+rm -f "$var_SCRIPT"
+_EOF
+}
+
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ kword_unique() {
+  # Turn upper case into lower case in $1, and remove punctuation.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;; -|_|.) c="" ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ } ;;
+*)
+ kword_unique() { local string ; string="${1,,}" ; echo "${string//[_.-]/}" ; }
+ ;;
+esac
+
+kword_check() {
+ # Check that keyword value corresponds to keyword type.
+ # Return "!error" if not. Also convert T/F to 1/0 for logical type.
+ local kw_type=$1 kw_val=$2 kw_units="" char
+ case $kw_type in
+ integer) check_number_Z $kw_val || { echo "!error" ; return ; } ;;
+ natural) check_number_Z $kw_val && ((kw_val>0))\
+  || { echo "!error" ; return ; } ;;
+ znatural) check_number_Z $kw_val && ((kw_val>=0))\
+  || { echo "!error" ; return ; } ;;
+ real) ! check_number_R $kw_val && { echo "!error" ; return ; } ;;
+ logical)
+  kw_val=$(uncap $kw_val)
+  case $kw_val in
+  t|.true.) kw_val=1 ;;
+  f|.false.) kw_val=0 ;;
+  *) echo "!error" ; return ;;
+  esac ;;
+ physical)
+  kw_units=$3 ; [ -z "$kw_units" ] && { echo "!error" ; return ; }
+  char=${kw_units:0:1}
+  case $char in
+  "#"|"!") echo "!error" ; return ;;
+  esac
+  ! check_number_R $kw_val && { echo "!error" ; return ; } ;;
+ text) : ;;
+ *) echo "!ierror" ; return ;;
+ esac
+ echo $kw_val $kw_units
+}
+
+read_input() {
+ local input_file=$1 bopen=0 iline=0 dupl bname lblock kw char kw_val var
+ [ ! -s $input_file ] && errstop "File $input_file missing or empty."
+ for var in $blocklist ; do unset block_$var blockline_$var ; done
+ for var in $keywordlist ; do unset keyword_$var keywordval_$var ; done
+ blocklist="" ; keywordlist=""
+ { while : ; do
+  ! read line && break
+  iline=$((iline+1)) ; line=${line%%#*} ; line=${line%%!*}
+  # Skip empty lines (or comments)
+  [ -z "$line" ] && continue
+  # Reduce first field in line to simplest ESDF form.
+  kw=$(kword_unique $(field 1 $line))
+  case "$kw" in
+  %block) # Block opening
+   bname=$(kword_unique $(field 2 $line))
+   ((bopen>0)) && errstop "Input file, line $iline: tried to open\
+    block while block $bname was still open."
+   bopen=1 ; dupl=0
+   [ -z "$bname" ] && errstop "Input file, line $iline: block opened\
+    with no name."
+   eval\
+    "[ ! -z \"\$block_$bname\" ] || [ ! -z \"\$keyword_$bname\" ] && dupl=1"
+   ((dupl==1)) && errstop "Input file, line $iline: keyword $bname duplicated."
+   lblock=0 ; eval "block_$bname=1" ; blocklist="$blocklist $bname" ;;
+  %endblock) # Block closing
+   ((bopen==0)) && errstop "Input file, line $iline: tried to close\
+    block, but no block was open."
+   char=$(kword_unique $(field 2 $line))
+   [ -z "$char" ] && errstop "Input file, line $iline: must specify name\
+    ($bname) of block to close."
+   [ "$bname" != "$char" ] && errstop "Input file, line $iline: block\
+    $bname closed with name $char."
+   ((lblock==0)) && errstop "Input file, line $iline: block $bname is\
+    empty."
+   bopen=0 ; eval "blocklength_$bname=$lblock" ; bname="" ;;
+  *)
+   if ((bopen==1)) ; then # Block line
+    lblock=$((lblock+1)) ; eval "blockline_$bname[$lblock]=\"$line\""
+    continue
+   fi
+   # Keyword
+   dupl=0
+   case "$(field 2 $line)" in
+   :|=) kw_val="$(fields_from 3 $line)" ;;
+   *) kw_val="$(fields_from 2 $line)" ;;
+   esac
+   [ -z "$kw_val" ] && errstop "Input file, line $iline: keyword $kw does\
+    not have a value."
+   eval "[ ! -z \"\$block_$kw\" ] || [ ! -z \"\$keyword_$kw\" ] && dupl=1"
+   ((dupl==1)) && errstop "Input file, line $iline: keyword $kw duplicated."
+   eval "keyword_$kw=1 ; keywordval_$kw=\"$kw_val\""
+   keywordlist="$keywordlist $kw" ;;
+  esac
+ done ; } < $input_file
+ ((bopen==1)) && errstop "Input file, line $iline: block $bname\
+  not closed."
+}
+
+get_param() {
+ # Return the value of parameter $1 of type $2 from input.
+ local i n kw="$1" kw_type="$2" line_in_block in_block exist val
+ local search_string char char2
+ kw=$(kword_unique $kw)
+ if [[ "$kw_type" = block* ]] ; then
+  exist=0 ; eval "[ ! -z \"\$block_$kw\" ] && exist=1"
+  ((exist==0)) && { echo "!notpresent" ; return ; }
+  eval "n=\$blocklength_$kw"
+  in_block="${kw_type#block}"
+  kw_type=block
+  case "$in_block" in
+  "") echo "!present" ; return ;;
+  "#"*)
+   line_in_block=${in_block:1}
+   ((line_in_block<1)) && { echo "!ierror" ; return ; }
+   ((line_in_block>n)) && { echo "!undefined" ; return ; }
+   eval "echo \"\${blockline_$kw[$line_in_block]}\"" ;;
+  :*)
+   search_string=${in_block:1}
+   i=0 ; while ((i<n)) ; do i=$((i+1))
+    eval "char=\"\${blockline_$kw[$i]}\""
+    char2="${char//$search_string/}"
+    [ "$char" != "$char2" ] && { echo "$char" ; return ; }
+   done
+   echo "!undefined" ;;
+  *) echo "!ierror" ; return ;;
+  esac
+ else
+  exist=0 ; eval "[ ! -z \"\$keyword_$kw\" ] && exist=1"
+  ((exist==0)) && { echo "!notpresent" ; return ; }
+  eval "kword_check $kw_type \"\$keywordval_$kw\""
+ fi
+}
+
+check_pwd() {
+ # Check we can run in directory $1
+ local anyvalid found fpath t1 job_pwd="$1" abs_pwd final_fpath
+ if [ ! -z "$FORCE_PATH" ] ; then
+  abs_pwd="$(cd "$job_pwd" ; pwd -P)"
+  found=0 ; anyvalid=0
+  eval_tag FORCE_PATH
+  fpath="$FORCE_PATH"
+  final_fpath=""
+  while ((${#fpath}>0)) ; do
+   t1="${fpath%%,*}"
+   fpath="$(unpad "${fpath:${#t1}}")"
+   fpath="$(unpad "${fpath#,}")"
+   t1="$(unpad "$t1")"
+   [ -z "$t1" ] && continue
+   anyvalid=1
+   [[ "$job_pwd" == $t1/* ]] || [[ "$abs_pwd" == $t1/* ]]\
+    && { found=1 ; break ; }
+   if [ -z "$final_fpath" ] ; then
+    final_fpath="$t1"
+   elif ((${#fpath}==0)) ; then
+    final_fpath="$final_fpath or $t1"
+   else
+    final_fpath="$final_fpath, $t1"
+   fi
+  done
+  ((anyvalid==1)) && ((found==0)) && errstop "Cannot run under directory\
+   '$job_pwd'.  On this machine you are only allowed to run under $final_fpath"
+ fi
+ [ -e "$job_pwd/.louis_finished" ] && rm -f "$job_pwd/.louis_finished"
+ if [ -e "$job_pwd/.runlouis.lock" ] ; then
+  if ((unlock==1)) ; then
+   rm -f "$job_pwd/.runlouis.lock" >& /dev/null
+  else
+   errstop "Directory '$job_pwd' locked: there appears to be an active\
+    calculation in this directory, so stopping to avoid problems. However it\
+    is also possible that a previous runlouis died before being able to remove\
+    the lock file. If this is the case, use the '-u' or '--unlock' option to\
+    remove the lock file and run under this directory."
+  fi
+ fi
+}
+
+check_params() {
+ # Full consistency check of input file $1/input.
+ # NB, declaring variables is unnecessary in bash UNLESS you want to define
+ # them as strictly local. This is encouraged to avoid cockups, so if you add
+ # something to this function, remember to declare the variables you use.
+
+ local pwd="$1"
+ local calc_type dimensionality int_algorithm timing_info vel_type
+ local cell_x cell_y cell_z
+ local maxstp init_eps init_h converg_maxdiff
+ local time_direction xstart ystart zstart straj_time_start straj_time_end
+ local plot_all_traj dtsave den_ntimes nlattice nscgrain den_time_start
+ local plot_raw plot_cg plot_smooth hfunction
+ local wfn_type nmodes negphase transposephase testrun verbose
+
+ [ -z "$pwd" ] && pwd=.
+
+ # Declare internal functions
+
+ get_var() {
+  # Get variable[=default] $1 of [attrib/][type|block[#n|:s]] $2, check for
+  # error codes and write value to variable $3 (or to $1 if $3 not provided).
+  local var="$1" vartype="$2" outvar="$3" value attrib="" default=""
+  case "$var" in
+  *=*) default="${var#*=}" ; var="${var%%=*}" ;;
+  esac
+  case "$vartype" in
+  mandatory/*|redundant/*|forbid/*)
+   attrib="${vartype%%/*}"
+   vartype="${vartype#*/}" ;;
+  esac
+  value=$(get_param "$var" "$vartype")
+  case "$value" in
+  "!error")
+   case "$vartype" in
+   text) errstopd "$pwd" "Value of $var could not be parsed." ;;
+   logical) errstopd "$pwd" "Value of $var should be Boolean." ;;
+   integer) errstopd "$pwd" "Value of $var should be an integer." ;;
+   natural) errstopd "$pwd" "Value of $var should be a positive integer." ;;
+   znatural) errstopd "$pwd" "Value of $var should be zero or a positive\
+    integer." ;;
+   real) errstopd "$pwd" "Value of $var should be a real number." ;;
+   physical) errstopd "$pwd" "Value of $var should be a real number with\
+    physical units." ;;
+   block*) errstopd "$pwd" "Block $var could not be parsed." ;;
+   *) errstopd "$pwd" "Type '$vartype' of $var not known." ;;
+   esac ;;
+  "!ierror") errstopd "$pwd" "Bug in RUNLOUIS parsing $var of type $vartype." ;;
+  "!notpresent")
+   [ "$attrib" = mandatory ] && errstopd "$pwd" "$var must be provided on\
+    input."
+   [ ! -z "$default" ] && [ "$attrib" != forbid ] && value="$default" ;;
+  *)
+   [ "$attrib" = forbid ] && { errstopd "$pwd" "$var cannot be used in\
+    conjunction with other keywords present in the input file." ; return ; }
+   if [ "$vartype" = logical ] ; then
+    case "$value" in
+    0|1) : ;; *) errstopd "$pwd" "Bug in RUNLOUIS's boolean parser ($var)." ;;
+    esac
+   fi
+   [ "$attrib" = redundant ] && { errwarnd "$pwd" "$var is redundant and its\
+    value is ignored." ; return ; } ;;
+  esac
+  if [ -z "$outvar" ] ; then
+   eval "$var=\"\$value\""
+  else
+   eval "$outvar=\"\$value\""
+  fi
+ }
+
+ err_unk() { errstopd "$pwd" "Unrecognized value of $1." ; }
+
+ # Convert files to UNIX if necessary
+ input_files_dos2unix "$pwd"
+ # Read input
+ read_input "$pwd/input"
+
+ # Read keywords
+
+ # INSERT SPECIFIC CHECKS HERE LATER
+
+}
+
+input_files_dos2unix() {
+ # Run dos2unix on input files, if necessary (and possible).
+ local pwd="$1" i cr_char is_dos have_dos2unix=0
+ [ -z "$pwd" ] && pwd=.
+ cr_char=$(echo -e "\015")
+ type dos2unix >& /dev/null && [[ "$CASINO_ARCH" != *sun* ]] && have_dos2unix=1
+ { while read i ; do
+  [ -f "$pwd/$i" ] && [ -r "$pwd/$i" ] && [ -w "$pwd/$i" ] || continue
+  case "$i" in
+  input)
+   is_dos=$(head -n 50 "$pwd/$i" | grep -c "$cr_char$")
+   if ((is_dos>0)) ; then
+    if ((have_dos2unix==1)) ; then
+     echo -n "File '$pwd/$i' appears to be in DOS format. Converting..."
+     dos2unix -k "$pwd/$i" >& /dev/null
+     echo " Done."
+    else
+     errstop "File '$pwd/$i' appears to be in DOS format. DOS2UNIX cannot be\
+      found.  Please convert this file by hand, or use the -f option to\
+      runlouis to bypass error checking."
+    fi
+   fi ;;
+  esac
+ done ; } < <(/bin/ls -1 "$pwd/")
+ (exit 0) # bypass bash fd leak (v3.2 - v4.1)
+}
+
+modify_input_file() {
+ # Given a list of keyword-value pairs, modify the input file accordingly.
+ # Blocks cannot be modified.
+ local kw val pwd="$1" backup_to="$2"
+ shift 2 ; (($#==0)) && return
+ read_input "$pwd/input"
+ while (($#>0)) ; do
+  kw=$(kword_unique $1) ; val="$2" ; shift 2
+  eval "keyword_$kw=1 ; keywordval_$kw=\"$val\""
+  keywordlist="$(rem_list $kw $keywordlist) $kw"
+ done
+ [ ! -e "$pwd/input_orig" ] && cp "$pwd/input" "$pwd/input_orig" >& /dev/null
+ mv -f "$pwd/input" "$backup_to" >& /dev/null
+ dump_input_file "$pwd/input"
+}
+
+dump_input_file() {
+ # Generate a file '$1' containing the (possibly modified) input parameters
+ local filename=$1 kwvar kw first i n line
+ # Create file, write header
+ touch $filename
+ cat >> $filename <<_EOF
+#-------------------#
+# LOUIS input file  #
+#-------------------#
+
+# RUNLOUIS-generated input file
+
+# KEYWORDS - ALPHABETICAL
+
+_EOF
+ # Dump keywords
+ for kw in $keywordlist ; do
+  eval "val=\"\$keywordval_$kw\""
+  printf '%-23s: %-20s\n' "$kw" "$val" >> "$filename"
+ done
+ # Dump blocks
+ first=1
+ for kw in $blocklist ; do
+  if ((first==1)) ; then
+   echo >> "$filename"
+   echo "# BLOCKS - ALPHABETICAL" >> "$filename"
+   first=0
+  fi
+  echo >> "$filename"
+  echo "%block $kw" >> "$filename"
+  eval "n=blocklength_$kw" ; i=0
+  while ((i<n)) ; do i=$((i+1))
+   eval "line=\"\${blockline_$kw[$i]}\""
+   echo "$line" >> $filename
+  done
+  echo "%endblock $kw" >> $filename
+ done
+}
+
+info_params () {
+# Echo parameters that may be useful in deciding how to run a job.
+# Activate with 'runlouis --inquire' or 'runlouis -i'.
+ echo 
+ echo RUNLOUIS info
+ echo =============
+ echo
+ echo Currently active CASINO_ARCH : $CASINO_ARCH
+ [ ! -z "$DESCRIPTION" ] && echo $DESCRIPTION
+ echo
+ [ ! -z "$TYPE" ] && echo "TYPE             : "$TYPE
+ echo
+ [ ! -z "$CORES_PER_NODE" ] && echo "CORES_PER_NODE   : "$CORES_PER_NODE
+ if [ "$TYPE" = "cluster" ] ; then
+  [ ! -z "$CORES_PER_NODE_CLUSTER" ] && echo "CORES_PER_NODE_CLUSTER: "\
+$CORES_PER_NODE_CLUSTER
+  [ ! -z "$ALLOWED_NCORE" ] && echo "ALLOWED_NCORE    :$ALLOWED_NCORE"
+  [ ! -z "$ALLOWED_NNODE" ] && echo "ALLOWED_NNODE    :$ALLOWED_NNODE"
+  ((MIN_NCORE>0)) && echo "MIN_NCORE        : "$MIN_NCORE
+  ((MAX_NCORE>0)) && echo "MAX_NCORE        : "$MAX_NCORE
+  ((MIN_NNODE>0)) && echo "MIN_NNODE        : "$MIN_NNODE
+  ((MAX_NNODE>0)) && echo "MAX_NNODE        : "$MAX_NNODE
+  [ ! -z "$MIN_WALLTIME" ] && ((MIN_WALLTIME>0)) && \
+   echo "MIN_WALLTIME     : "$MIN_WALLTIME
+  [ ! -z "$MAX_WALLTIME" ] && ((MAX_WALLTIME>0)) && \
+   echo "MAX_WALLTIME     : "$MAX_WALLTIME
+  [ ! -z "$WALLTIME_CODES" ] && echo "WALLTIME_CODES   :  "$WALLTIME_CODES
+  [ ! -z "$ALLOWED_WALLTIME" ] && echo "ALLOWED_WALLTIME :  "$ALLOWED_WALLTIME
+  [ ! -z "$SUBMIT_SCRIPT" ] && echo "SUBMIT_SCRIPT    : "$SUBMIT_SCRIPT
+ fi
+ echo 
+ [ ! -z "$F90" ] && echo "F90              : "$F90
+ [ ! -z "$CC" ] && echo "CC               : "$CC
+ [ ! -z "$CXX" ] && echo "CXX              : "$CXX
+ echo 
+ if [ ! -z "$SUPPORT_OPENMP" ] ; then
+  echo "SUPPORT_OPENMP   : "$SUPPORT_OPENMP
+ else
+  echo "SUPPORT_OPENMP   : unknown"
+ fi
+ if [ ! -z "$SUPPORT_SHM" ] ; then 
+  echo "SUPPORT_SHM      : "$SUPPORT_SHM
+ else
+  echo "SUPPORT_SHM      : unknown"
+ fi
+ echo 
+} 
+
+wait_until_finished() {
+ [ "$TYPE" != cluster ] && return
+ while [ ! -e .louis_finished ] ; do
+  sleep 10
+ done
+ rm .louis_finished
+}
+
+batch_wait_and_clean_up() { 
+# Wait for job to finish, then execute clean up (intended to tidy the 
+# submission directory on the login nodes for machines with separate
+# file systems on the compute nodes, which cannot be done with a submitted 
+# batch script).
+ [ "$TYPE" != cluster ] && return
+ while [ ! -e .louis_finished ] ; do
+  sleep 10
+ done
+ if ((njob==1)) ; then
+  rm -f .runlouis.lock 
+ else
+  ijob=0 ; while ((ijob<njob)) ; do ijob=$((ijob+1))
+   rm ${job_dir[$ijob]##*/}/.runlouis.lock
+  done
+ fi
+ rm -f louis .louis_finished
+ exit 0
+}
+############################ END FUNCTIONS ############################
+
+# Initialize script.
+init_runlouis
+# Load library of bash functions for handling the tag system.
+[ -e "$home/arch/taglib.sh" ]\
+ || errstop "$home/arch/taglib.sh library not found."
+source "$home/arch/taglib.sh"
+# Get architecture-dependent stuff required before command-line parsing.
+get_arch_params_init
+# Parse command line.
+parse_cmdline "$@"
+# Get architecture-dependent stuff.
+get_arch_params
+ # Print usage at this point if requested.
+[ "$help_mode" = "1" ] && print_usage
+# Check command-line arguments for parameters incompatible with arch.
+process_cmdline
+# Info function
+if [ "$inquire" = "1" ] ; then 
+ info_params
+ exit 0
+fi
+# Loop over jobs
+ijob=0 ; while ((ijob<njob)) ; do ijob=$((ijob+1))
+ check_pwd "${job_dir[$ijob]}"
+ is_first_job=0 ; ((ijob==1)) && is_first_job=1
+ is_last_job=0 ; ((ijob==njob)) && is_last_job=1
+ # Check consistency of input file, etc
+ ((force_nocheck==0)) && check_params "${job_dir[$ijob]}"
+ [ ! -z $binary_not_found ] && exit 1
+ # Clean current directory
+ [ "$RELPATHNAMES" != yes ] && ((check_only==0)) && clean_pwd \
+  "${job_dir[$ijob]}" $is_first_job
+ # Run LOUIS
+ if [ "$TYPE" = cluster ] ; then
+  run_louis "${job_dir[$ijob]}" $is_first_job $is_last_job
+  [ "$RELPATHNAMES" = yes ] && batch_wait_and_clean_up & disown -a
+  rm -f .louis_finished
+ else
+  if ((njob==1)) && ((background==0)) ; then
+   info 1 "Running LOUIS job #$ijob as foreground task"
+   run_louis "${job_dir[$ijob]}" $is_first_job $is_last_job
+   rm -f .louis_finished
+  else
+   info 1 "Running LOUIS job #$ijob as background task"
+   run_louis "${job_dir[$ijob]}" $is_first_job $is_last_job \
+    >& /dev/null & disown -a
+   if ((check_only==0)) && ((print_out==1)) ; then
+    # Poll for output file, then tail and attach tail to LOUIS pid
+    pid=$!
+    while [ ! -e "${job_dir[$ijob]}/$out_file" ] ; do
+     sleep 1
+     in_line $pid $(ps h -u$USER -o pid) || break
+    done
+    tail --pid=$pid -f "${job_dir[$ijob]}/$out_file"
+   fi
+   rm -f .louis_finished
+  fi
+ fi
+done

@@ -1,0 +1,43 @@
+PLOT_BF scripts
+===============
+These scripts use GNUplot to display the backflow displacement
+vector field on a test electron, as produced by using the input
+block plot_backflow (see `casinohelp plot_backflow` for info).
+GNUplot must hence be installed and available in a directory
+specified in the PATH environment variable.
+
+It is possible to modify the graph using the mouse and keybord
+as indicated by the on-screen help of the scripts. If specified,
+a .ps/.eps/.png/.jpg file can be written on exit.
+
+PLOT_BFFIELD
+============
+The data contained in bffield.dat is plotted in 2D (the z-component
+is dropped). Notice that the backflow dispacement vector field in
+this file is renormalized so that it is easier to get a global
+picture of the field. Generally, the actual displacements are much
+smaller.
+
+The file bffield.dat is compulsory. The data from bfconfig.dat and
+bfions.dat will be loaded if present.
+
+Usage: plot_bffield [-ps|-eps|-png|-jpeg] [bffield_file]
+
+A sample 'bffield.eps' is given in the current directory (use e.g. 'gv'
+to view this file).
+
+PLOT_BFPHI
+==========
+This utility does the same as bffield, but displays only the
+contribution to the backflow displacement of one set and spin-pair
+of the Phi term.
+
+The file bfphi_<s>_<set>.dat is compulsory. The input file is used
+to determine the position of the fixed electron i, and, if not present,
+the user is asked to supply it. If not supplied, the position of the
+fixed electron is not plotted.
+
+Usage: plot_bfphi [-ps|-eps|-png|-jpeg] [bfphi_file]
+
+A sample 'bfphi.eps' is given in the current directory (use e.g. 'gv'
+to view this file).

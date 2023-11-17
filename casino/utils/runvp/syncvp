@@ -1,0 +1,131 @@
+#!/bin/bash
+######################################################
+# Script to fetch the contents of remote directories #
+# after the end of a VP calculation.                 #
+# PLR 12.2009                                        #
+######################################################
+
+set +u
+
+# Define functions
+
+# Output field number $1 of $2-$n
+function field { local i=$1 ; shift ; echo "${@:$i:1}" ; }
+
+function which_field {
+ # Output the field number of string $1 in $2-$n, or 0 if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+# Read command line
+keep_files=0
+while (($#>0)) ; do
+ case "$1" in
+ -k) keep_files=1 ;;
+ *) echo "Usage: ${0##*/} [-k]" ; exit 1 ;;
+ esac
+ shift
+done
+
+# Set up.
+set -- $(rna --info=name,login,port .)
+host=$1 ; user=$2 ; port=$3
+
+# Check this hasn't been done yet.
+if [ -d vpinfo/files ] ; then
+ echo "Files have already been sync'd."
+ exit 1
+fi
+
+# Check for required files.
+if [ ! -e vpinfo/NODES ] || [ ! -e vpinfo/PIDS ] || [ ! -e vpinfo/DIRS ] ; then
+ echo "This script must be run in the directory under which RUNVP was invoked,"
+ echo "and vpinfo/NODES, vpinfo/PIDS and vpinfo/DIRS files must be present."
+ exit 1
+fi
+
+# Gather list of computers.
+npcs=0
+pclist=""
+{
+ while read ipc pc dum ; do npcs=$((npcs+1))
+  pc_array[$npcs]="$pc"
+  pclist="$pclist $pc"
+ done
+} < vpinfo/NODES
+
+# Sanity checks.
+if ((npcs==0)) ; then
+ echo "No computers in this VP calculation?"
+ exit 1
+fi
+if [ "${pc_array[1]}" != "$host" ] ; then
+ echo "This utility must be run from the master VP node, ${pc_array[1]}."
+ exit 1
+fi
+
+# Gather list of PIDs to check for.
+{
+ while read pc pidlist ; do
+  pidlist=${pidlist%%#*}
+  pidlist=${pidlist% } # remove extra space, if present, for pretty-printing
+  ipc=$(which_field $pc $pclist)
+  pidlist_array[$ipc]="${pidlist_array[$ipc]} $pidlist"
+ done
+} < vpinfo/PIDS
+
+# Gather list of directories to fetch files from.
+{
+ while read pc dir ; do
+  ipc=$(which_field $pc $pclist)
+  dir_array[$ipc]="$dir"
+ done
+} < vpinfo/DIRS
+
+# Check calculation is not still running.
+echo "- Checking whether calculation has finished."
+command='case $RNA_INFO_NAME in '
+ipc=0 ; while ((ipc<npcs)) ; do ipc=$((ipc+1))
+ command="$command ${pc_array[$ipc]}) pidlist=\"${pidlist_array[$ipc]}\" ;;"
+done
+command="$command esac ; for pid in \$pidlist ; do ps \$pid >& /dev/null\
+ && echo yes ; done"
+rnaout=$(rna -kqr "$command" $pclist)
+if [ ! -z "$rnaout" ] ; then
+ echo "Calculation has not finished yet."
+ exit 1
+fi
+
+# Create target directories.
+echo "- Creating target directories."
+mkdir vpinfo/files || { echo "Could not create 'files' directory." ; exit 1 ; }
+cd vpinfo/files
+ipc=0 ; while ((ipc<npcs)) ; do ipc=$((ipc+1))
+ mkdir node$ipc || { echo "Could not create 'node$ipc' directory." ;\
+  exit 1 ; }
+done
+
+# Copy files over.
+echo "- Fetching files."
+command='case $RNA_INFO_NAME in '
+ipc=0 ; while ((ipc<npcs)) ; do ipc=$((ipc+1))
+ command="$command ${pc_array[$ipc]}) dir=\"${dir_array[$ipc]}\" ;\
+  masterdir=\"$(pwd)/node$ipc\";;"
+done
+command="$command esac ; cd \"\$dir\" ; filelist=\"\" ;\
+ for file in \$(find . 2>/dev/null) ; do\
+  file=\${file#./} ;\
+  case \"\$file\" in\
+  out|.out_*|.err|parameters.*|correlation.*|*.hist|expval.data) : ;;\
+  *) continue ;;\
+  esac ;\
+  filelist=\"\$filelist \$file\"
+ done ;\
+ scp -P $port \$filelist $user@$host:\$masterdir"
+((keep_files==0)) && command="$command ; cd ; rm -rf \"\$dir\""
+rna -kqr "$command" $pclist
+echo "Finished."

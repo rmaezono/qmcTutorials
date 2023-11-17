@@ -1,0 +1,444 @@
+#!/bin/bash
+###########################################################################
+# Script for showing VMC energies from CASINO output files,
+#
+# Features:
+# * Colour output (!).
+# * Handling of multi-block VMC runs.
+# * Handling of multi-run 'out' files (VMC_OPT/OPT_VMC runs).
+# * Print-out of energy components.
+# * Print-out of CPU time.
+# * Correlation-corrected error bars.
+#
+# v0.80 (MDT) Allowed envmc to work with BLOCK_TIME VMC outputs where the number
+#       of moves contributing to a block average is allowed to vary between
+#       blocks.
+# v0.70 (MDT) Made it work with new format VMC output files (3/2014)
+# v0.60 Also format errorbars in envmc_helper for speed.
+# v0.50 Now read files using the much faster envmc_helper.f90 program.
+# v0.40 Use correlation time to correct error bar. Updated expected
+#       format of 'out' file with v2.1 features.
+# v0.30 Transformed seevarmin into envmc. Added -nf option.
+# v0.21 Update for v2.0 internal job-chaining feature. Printout of
+#       correlation.out.x associated with data.
+# v0.20 Added output from CALC_VARIANCE, which is reliable. Added formatting
+#       in the form of e.g. '-5.4379(7) au'. Removed use of temp files.
+# v0.15 Corrected energy and errorbar so that they are exact.
+# v0.14 Removed 'ls -v': non-standard option. Now using 'sort'.
+# v0.13 Sorting for nruns>9 (through $(ls -v)). Take corrections into
+#       account. Using functions for better-looking code.
+# v0.12 Bugfix: print "NaN" if energy out of format range. Bugfix: temp
+#       file now correctly removed.
+# v0.11 Units corrected. Removed 'grep -A': non-standard option.
+#       Energy mean corrected: now weighted by 1/stderr^2.
+# v0.10 for CASINO_v1.7.5_beta PLR 16-06-2004
+###########################################################################
+version_no="0.80"
+
+# Read arguments if present
+show_colours=1 ; nfig=1 ; die=0
+get_VT=0 ; get_KEI=0 ; get_TI=0 ; get_FI2=0 ; get_VEE=0 ; get_VEI=0 ; get_VNL=0
+get_VR=0 ; get_REL=0 ; get_CT=0 ; get_TIM=0 ; print_warn=1
+while (($#>0)) ; do
+ case "$1" in
+ -nc|--nocolours) show_colours=0 ;; -nf) shift ; (($#>0)) && nfig=$1 ;;
+ -pe|--potential) get_VT=1 ;; -kei|--kinetic) get_KEI=1 ;;
+ -ti) get_TI=1 ;; -fisq) get_FI2=1 ;; -vee) get_VEE=1 ;;
+ -vei|--local) get_VEI=1 ;; -vnl|--nonlocal) get_VNL=1 ;; -vr) get_VR=1 ;;
+ -rel|--relativistic) get_REL=1 ;; -ct) get_CT=1 ;; -time|--time) get_TIM=1 ;;
+ -nowarn|--nowarn) print_warn=0 ;; *) break ;;
+ esac
+ shift
+done
+(($#==0)) && set -- "./out"
+
+# Colour definition
+[[ "$TERM" == xterm-* ]] && export TERM=xterm
+type -p tput >& /dev/null && tput_string="$(echo -e "sgr0 \nht\n bold \nht\n\
+ setf 0 \nht\n setf 1 \nht\n setf 2 \nht\n setf 3 \nht\n\
+ setf 4 \nht\n setf 5 \nht\n setf 6 \nht\n setf 7 \nht\n\
+ setb 0 \nht\n setb 1 \nht\n setb 2 \nht\n setb 3 \nht\n\
+ setb 4 \nht\n setb 5 \nht\n setb 6 \nht\n setb 7 \nht\n"\
+ | tput -S 2> /dev/null)"
+tab=$(echo -e "\t")
+for v in\
+ default bold\
+ black blue green cyan red purple brown grey\
+ bblack bblue bgreen bcyan bred bpurple bbrown bgrey ; do
+ t="${tput_string%%$tab*}"
+ tput_string="${tput_string#$t$tab}"
+ eval "$v=\"\$t\""
+done
+lblack=$bold$black    ; lblue=$bold$blue       ; lgreen=$bold$green
+lcyan=$bold$cyan      ; lred=$bold$red         ; lpurple=$bold$purple
+lbrown=$bold$brown    ; lgrey=$bold$grey
+
+# Colour assignment. User-definable
+if ((show_colours==1)) ; then
+ plain=$default ; comment=$brown ; fname=$cyan ; hlight=$purple
+ vmccol=$green ; failure=$red   ; warning=$blue
+else
+ plain=""   ; comment="" ; fname="" ; hlight=""
+ vmccol="" ; failure="" ; warning=""
+fi
+
+# Display title and usage
+title="${comment}ENVMC v$version_no$plain: Script to extract VMC energies\
+ from CASINO output files."
+usage="${comment}Usage$plain: envmc [-kei] [-ti] [-fisq] [-pe] [-vee] [-vei]\
+ [-vnl] [-nc]"
+usage2="          [-vr] [-rel] [-ct] [-nf <no. of figures in error bars>]\
+ [files]"
+echo -e "$title"
+echo -e "$usage"
+echo -e "$usage2"
+echo
+
+############################## Functions ##############################
+function echo_break {
+  # Print a message with line breaks so as to fit in 80 columns
+ local message="$*" word i=0 l
+ for word in $message ; do
+  l=${#word}
+  if ((l<79)) ; then
+   ((l+i+1>79)) && { echo ; i=0 ; }
+   echo -n "$word " ; i=$((i+l+1))
+  else
+   ((i>0)) && echo
+   echo "$word" ; i=0
+  fi
+ done
+ ((i>0)) && echo
+ return 0
+}
+
+# Print error message and stop.
+function errstop { echo -e "${failure}ERROR$plain: $1" ; exit 1 ; }
+
+function read_and_display_data {
+ #####################################################
+ # Read output of envmc_helper and format appropriately.
+ #####################################################
+ local line asterisk=0 ivmc icorr units_set file_complete label_pre
+ local label_post startat totvmc units ename edata d nwarn=0 warn warnword
+ local save_CT vmc_is_empty
+
+ # Read TOTVMC, STARTAT and 'VMC i', plus any warnings
+ totvmc=-1 ; startat=-1
+ while : ; do
+  read line || { echo -e\
+   "$failure      No response from Fortran helper application\
+ 'envmc_helper'.$plain" ;\
+   echo -e "$failure      Make sure it has been compiled.$plain" ; return ; }
+  set -- $line
+
+  case "$1" in
+  not_found)
+   echo -e "$failure      CASINO output file missing or empty.$plain"
+   return ;;
+  not_valid) echo -e "$failure      does not contain VMC data or is from an\
+ older/newer version.$plain" ; return ;;
+  alloc_error) echo -e "$failure      Allocation problem in Fortran helper\
+ application 'envmc_helper'. Bug.$plain" ; return ;;
+  iblock_error) echo -e "$failure      The output file appears to have bad\
+ block numbering.$plain" ; return ;;
+  TOTVMC) totvmc=$2 ;;
+  STARTAT) startat=$2 ;;
+  Warning|Warning:)
+   nwarn=$((nwarn+1))
+   ((print_warn==1)) && { echo -ne "$warning" ; echo_break "$*" ;\
+    echo -ne "$plain" ; } ;;
+  VMC) break ;;
+  *)
+   echo -e "$failure      Incorrect response from Fortran helper application \
+'envmc_helper'.$plain"
+   echo -e "$failure      Make sure it has been compiled.$plain"
+   return ;;
+  esac
+ done
+
+ if ((totvmc<0)) || ((startat<0)) ; then
+  echo -e "$failure      Bug in Fortran helper application 'envmc_helper'.\
+ Please report.$plain"
+  return
+ fi
+
+ # Loop over VMC runs
+ ivmc=0 ; icorr=$((startat-1)) ; units_set=0 ; file_complete=0
+ vmc_is_empty=1
+ while ((ivmc<totvmc)) ; do
+  ivmc=$((ivmc+1)) ; icorr=$((icorr+1))
+  label_pre="" ; label_post=""
+  if ((totvmc>1)) ; then
+   label_pre="${comment}VMC #$ivmc$plain:"
+   label_post=""
+   if [ -e correlation.out.0 ] && [ -e parameters.0.casl ] ; then
+    label_post="(correlation.out.$icorr, parameters.$icorr.casl)"
+   elif [ -e correlation.out.0 ] ; then
+    label_post="(correlation.out.$icorr)"
+   elif [ -e parameters.0.casl ] ; then
+    label_post="(parameters.$icorr.casl)"
+   fi
+  fi
+  # Loop over ENVMC_HELPER lines regarding this VMC run
+  while : ; do
+   read line || { echo -e "$failure      Further data N/A.$plain" ; return ; }
+   set -- $line
+   if ((units_set==0)) && [ "$1" != UNITS ] && [ "$1" != Warning ] \
+    && [ "$1" != Warning: ] ; then
+    echo -e "$comment      (unidentifiable units)$plain"
+    units_set=1
+   fi
+   d=${@:2}
+   case "$1" in
+   UNITS)
+    if ((units_set==1)) ; then
+     echo -e "${failure}The envmc_helper application is repeating itself.\
+ Bug.$plain" ; return
+    fi
+    units=$d ; units_set=1
+    if ((restart>0)) ; then 
+     if ((totvmc>1)) ; then
+      echo -e "${comment}Block averages recomputed for current run (without\
+ data from previous runs).$plain"
+     else
+      echo -e "${comment}Block average recomputed for current run (without\
+ data from previous runs).$plain"
+     fi 
+    else
+     if ((totvmc>1)) ; then
+      echo -e "${comment}Block averages recomputed for current run.$plain"
+     else
+      echo -e "${comment}Block average recomputed for current run.$plain"
+     fi 
+    fi
+    echo "${comment}Corrected for serial correlation using correlation time\
+ method.$plain"
+    if ((totvmc>1)) ; then
+     echo -e "${comment}Energies in $units, sample variances in au.$plain"
+    else
+     echo -e "${comment}Energy in $units, sample variance in au.$plain"
+    fi 
+    echo ;;
+   TAU)
+    case "$d" in
+    NaN) label_post="$label_post$hlight*$plain" ; asterisk=1 ;;
+    esac
+    save_CT=$d ;;
+   E_TOTAL)
+    vmc_is_empty=0
+    ename="${comment}E$plain     =" ; edata="$vmccol$d$plain" ;;
+   VAR)
+    if [ "$d" = N/A ] || ((nfig==0)) ; then
+     echo -e "$label_pre $ename $edata $label_post"
+     ((totvmc>1)) && { label_pre="       " ; label_post="" ; }
+    fi
+    [ "$d" = N/A ] && continue
+    vname="${comment}var$plain  =" ; vdata="$vmccol$d$plain"
+    if ((nfig==0)) ; then
+     echo -e "$label_pre $vname $vdata"
+    else
+     echo -e "$label_pre $ename $edata ; $vname $vdata $label_post"
+    fi
+    ((totvmc>1)) && { label_pre="       " ; label_post="" ; }
+    # Print TAU here
+    d=$save_CT
+    if ((get_CT==1)) && [ "$d" != N/A ] ; then
+     ename="${comment}CT$plain    =" ; edata="$vmccol$d$vmccol"
+     echo -e "$label_pre $ename $edata"
+    fi ;;
+   E_ALT) [ "$d" = N/A ] && continue
+    ename="${comment}E_ALT$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_KEI) ((get_KEI==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_KEI$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_TI) ((get_TI==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_TI$plain  =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_FISQ) ((get_FI2==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_FI2$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_V) ((get_VT==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}V_T$plain   =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Vee) ((get_VEE==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}V_ee$plain  =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Vei) ((get_VEI==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}V_ei$plain  =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Vnl) ((get_VNL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}V_nl$plain  =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_R) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_R   $plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Rmp) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_Rmp $plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Rmv) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_Rmv $plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Rend) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_Rend$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Reed) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_Reed$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Rret) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_Rret$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   E_Rtot) ((get_REL==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}E_Rtot$plain =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   VR) ((get_VR==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}VR$plain    =" ; edata="$vmccol$d$vmccol"
+    echo -e "$label_pre $ename $edata" ;;
+   BLOCK_TIME) ((get_TIM==0)) || [ "$d" = N/A ] && continue
+    ename="${comment}Average time per block$plain :::"
+    edata="$vmccol$d$comment seconds$plain"
+    echo -e "$label_pre $ename $edata" ;;
+   TOTAL_TIME)
+    ename="${comment}Total CASINO CPU time$plain  :::"
+    edata="$vmccol$d$comment seconds$plain"
+    echo -e "$label_pre $ename $edata" ; file_complete=1 ;;
+   Warning|Warning:)
+    nwarn=$((nwarn+1))
+    ((print_warn==1)) && { echo -ne "$warning" ; echo_break "$*" ;\
+     echo -ne "$plain" ; } ;;
+   EOF)
+    if ((file_complete==0)) ; then
+     addtag=""
+     if ((totvmc>1)) ; then
+      if ((vmc_is_empty==1)) ; then
+       if ((ivmc==totvmc)) ; then
+        addtag="(1 VMC cycle missing)"
+       else
+        addtag="($((1+totvmc-ivmc)) VMC cycles missing)"
+       fi
+      else
+       if ((ivmc==totvmc)) ; then
+        addtag="(1 VMC cycle incomplete)"
+       else
+        addtag="(1 VMC cycle incomplete, $((totvmc-ivmc)) missing)"
+       fi
+      fi
+     fi
+     [ ! -z "$label_pre" ] && label_pre='       '
+     echo -e "$label_pre$failure File is incomplete$plain $addtag"
+    fi
+    break 2 ;;
+   VMC)
+    vmc_is_empty=1
+    continue 2 ;;
+   EFINAL)
+    if ((totvmc==1)) && ((restart>0)) ; then
+     echo
+     echo "${comment}Final result from CASINO out file - includes data from\
+ previous run(s):$plain"
+     echo "${comment}Corrected for serial correlation using stated methods.\
+ $plain"
+     echo
+     ename="${comment}E$plain     =" ; edata="$vmccol$d$vmccol"
+     echo -e " $ename $edata |${hlight}[no correction]$plain" | awk -F "|"\
+ '{ printf("%-45s %-s\n", $1, $2); }' 
+     fi ;;
+   EFINAL_CT)
+    if ((totvmc==1)) && ((restart>0)) ; then
+     ename="${comment}E$plain     =" ; edata="$vmccol$d$vmccol"
+     if [ "$d" = N/A ] ; then 
+      echo -e " $ename  $edata |${hlight}[correlation time\
+ method]$plain" | awk -F "|" '{ printf("%-45s %-s\n", $1, $2); }'
+      else
+       echo -e " $ename $edata |${hlight}[correlation time\
+ method]$plain" | awk -F "|" '{ printf("%-45s %-s\n", $1, $2); }'
+      fi
+    fi ;;
+   EFINAL_OTFR)
+    if ((totvmc==1)) && ((restart>0)) ; then
+     ename="${comment}E$plain     =" ; edata="$vmccol$d$vmccol"
+     if [ "$d" = N/A ] ; then 
+      echo -e " $ename  $edata |${hlight}[on-the-fly reblocking\
+; not implemented for restarts]$plain" | awk -F "|" '{ printf("%-45s %-s\n",\
+ $1, $2); }'
+     else
+      echo -e " $ename $edata  |${hlight}[on-the-fly reblocking\
+ method]$plain" |  awk -F "|" '{ printf("%-45s %-s\n",$1, $2); }'
+     fi
+    fi ;;
+   EFINAL2) 
+    if ((totvmc==1)) && ((restart>0)) ; then
+     [ "$d" = N/A ] && continue
+     ename="${comment}E_ALT$plain =" ; edata="$vmccol$d$vmccol"
+     echo -e " $ename $edata |${hlight}[no correction]$plain" | awk -F "|"\
+ '{ printf("%-45s %-s\n", $1, $2); }'
+     print_reblock_alt="1"
+    fi ;;
+   EFINAL2_CT) 
+    if ((totvmc==1)) && ((restart>0)) ; then
+     [ "$d" = N/A ] && continue
+     ename="${comment}E_ALT$plain =" ; edata="$vmccol$d$vmccol"
+     echo -e " $ename $edata |${hlight}[correlation time method]$plain" |\
+ awk -F "|" '{ printf("%-45s %-s\n", $1, $2); }'
+    fi ;;
+   EFINAL2_OTFR) 
+    if ((totvmc==1)) && ((restart>0)) ; then
+     ename="${comment}E_ALT$plain =" ; edata="$vmccol$d$vmccol"
+     if [ "$d" = N/A ] && [[ "$print_reblock_alt" ]] ; then 
+      echo -e "$label_pre $ename  $edata |${hlight}[on-the-fly reblocking\
+; not implemented for restarts]$plain" | awk -F "|" '{ printf("%-45s %-s\n",\
+ $1, $2); }'
+     else
+      [[ "$print_reblock_alt" ]] && echo -e "$label_pre $ename $edata   \
+${hlight}[on-the-fly reblocking method]$plain"
+     fi
+    fi ;;
+   esac
+  done
+ done
+
+ ((asterisk==1)) && echo -e \
+  "$label_pre $hlight*$plain: ${failure}error bars need reblocking$plain"
+ if ((nwarn>0)) ; then
+  warnword="warnings" ; ((nwarn==1)) && warnword="warning"
+  echo -e "$label_pre $warning$nwarn $warnword encountered$plain"
+ fi
+}
+
+function check_number_N {
+ # Check whether $1 is a positive integer
+ local num=$1 size i=0 c
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in 1|2|3|4|5|6|7|8|9|0) ;; *) return 1 ;; esac
+ done
+ return 0
+}
+
+############################## End functions ##############################
+# Checks
+! check_number_N "$nfig" || ((nfig<1)) && nfig=0
+type envmc_helper >& /dev/null || errstop "Fortran helper application \
+ 'envmc_helper' not found. Please compile the utilities."
+
+orig_dir=$(pwd)
+
+
+# Loop over files
+for file in "$@" ; do
+ # Begin file
+ echo -e "${comment}File$plain: $fname$file$plain"
+ dir="${file%/*}" ; [ -z "$dir" ] || [ "$dir" = "$file" ] && dir=.
+ if [ ! -d "$dir" ] ; then
+  echo -e "$failure      Directory $dir does not exist.$plain"
+  echo ; continue
+ fi
+ restart=$(grep -c "Starting from saved VMC state" "$file" 2>/dev/null)
+ # Pipe envmc_helper output into function to get and print data
+ cd "$dir"
+ echo -e "${file##*/}\n$nfig" | envmc_helper 2> /dev/null\
+  | read_and_display_data
+ cd "$orig_dir"
+ echo
+done

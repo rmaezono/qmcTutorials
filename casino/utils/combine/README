@@ -1,0 +1,38 @@
+COMBINE utilities
+=================
+
+This directory contains utilities which allow one to combine wave
+function parameter sets into a single set of parameter by averaging.
+
+When optimizing a wave function, the first few (often just the first)
+iterations move the parameters towards the region of the minimum, and
+afterwards the parameters oscillate around the minimum without any
+further convergence due to the numerics of the process. It turns out
+that the values each parameter takes in this stage of the optimization
+are normally distributed around the optimum value (J.R. Trail, to be
+published), so it makes sense to simply average them to attempt to
+produce the best wave function.
+
+It is possible that correlations between different parameters could be
+taken into account in order to improve the final estimate, but at present
+the COMBINE utilities merely average the parameter values.
+
+This directory currently contains only one combining utility,
+COMBINE_CDATA.
+
+COMBINE_CDATA
+=============
+This program averages parameters inside two or more correlation.data files.
+On standard input it requires the name of the correlation.data files (the
+first of which is taken as the reference) and an additional newline to
+signal the end of the file list. It then produces a correlation.data file
+on standard output. Note that the program communicates with the user
+via standard error.
+
+The command line to invoke this program should be:
+
+ combine_cdata > cdata_final
+
+and then the user would enter the names of the files, or more compactly:
+
+ echo -e "cdata1\ncdata2\ncdata3\n" | combine_cdata > cdata_final 2> /dev/null

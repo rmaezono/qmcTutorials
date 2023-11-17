@@ -1,0 +1,1093 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# TWISTAV_PWSCF                                                      #
+# =============                                                      #
+# Script to automate collection of twist-averaged data with PWSCF    #
+# and CASINO.                                                        #
+#                                                                    #
+# Mike Towler 11.2011                                                #
+#--------------------------------------------------------------------#
+
+# Don't whinge about undefined variables
+set +u
+# Enable extended pattern-matching features
+shopt -s extglob
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+
+######################################################################
+
+print_usage() {
+ # Display usage and die
+ cat <<_EOH
+
+Usage
+=====
+${0##*/} [--help/-h  --nproc_dft=I --splitqmc[=N] --startqmc=M --dft_only/--qmc_only --ntwist=L --check_only --background/-B [<runqmc/runpwscf options>]
+
+  This script is used to automate the collection of twist-averaged data using
+  CASINO and the PWSCF DFT code (part of the Quantum espresso package -
+  available at www.quantum-espresso.org). PWSCF must be version 4.3 or later.
+
+  This script works by repeatedly calling the 'runpwscf' and 'runqmc' scripts
+  which know how to run PWSCF/CASINO on any individual machine. With the
+  exception of those listed above, almost all optional arguments to this
+  script are the same as for runpwscf/runqmc and are passed on automatically
+  to these subsidiary run scripts (the --background/-B option is also used by
+  twistav_pwscf, and for the same purpose). Type 'runpwscf --help' or
+  'runqmc --help' to find out what these options are. The short list of
+  optional flags specific to twistav_pwscf are described below.
+
+  It is assumed that PWSCF lives in ~/espresso and CASINO lives in ~/CASINO.
+  There are override options available if this is not the case.
+
+  If you are running on a multi-user machine with an account to be
+  charged for the calculations, you might consider aliasing 'twistav_pwscf' as
+  alias twistav_pwcf="twistav_pwscf --user.account=CPH005mdt "
+  or whatever.
+
+  To run a twist-averaged calculation you should in general do something like 
+  the following:
+
+  Setup the PWSCF input ('in.pwscf') and the CASINO input ('input' etc. but no
+  wave function file) in the same directory. For the moment we assume you have
+  an optimized Jastrow from somewhere.
+
+  Have the PWSCF input file setup as 'calculation = "scf"' (control section)
+  with both 'nosym' and 'noinv' (system section) set to T, wf_collect (control
+  section) set to T, and 'verbosity' (control section) to 'high'. Some
+  required k-point information is not printed in output without the latter. The
+  in.pwscf file must also contain a K_POINTS block written using the 'crystal'
+  format i.e. something like:
+
+  K_POINTS crystal
+  8
+   0.250000   0.250000   0.250000   0.1250000
+  -0.250000   0.250000   0.250000   0.1250000
+   0.250000  -0.250000   0.250000   0.1250000
+  -0.250000  -0.250000   0.250000   0.1250000
+   0.250000   0.250000  -0.250000   0.1250000
+  -0.250000   0.250000  -0.250000   0.1250000
+   0.250000  -0.250000  -0.250000   0.1250000
+  -0.250000  -0.250000  -0.250000   0.1250000
+
+  This block will be manipulated by {\tt twistav\_pwscf} and the runscripts that
+  it calls.
+
+  In your CASINO input file, complex_wf must be T. Note that the VMC/DMC runs
+  for each twist can be relatively short and need not be fully converged; the
+  idea is that we collect enough data to achieve an acceptable error bar when
+  the data is averaged over all twist angles. If a normal run without
+  twist-averaging takes N moves to arrive at an acceptable error bar, then
+  each twist angle might be run for around N/ntwist moves.
+
+  The twistav_pwscf script will then repeatedly run PWSCF to generate 'ntwist'
+  xwfn.data files (ntwist default = 12, or change with optional argument
+  --ntwist=xx), then it will run CASINO on each of the xwfn.data. The CASINO
+  out files, xwfn.data files, config.out and vmc.hist/dmc.hist files will be
+  renamed with an appropriate integer suffix.
+
+  The calculation can be run through pwfn.data, bwfn.data or bwfn.data.b1
+  formats as specified in the pw2casino.dat file (see CASINO and PWSCF
+  documentation). When PWSCF is upgraded to produce new-format bwfn.data.bin
+  files, then this script will need to be changed - ask MDT to do so.
+
+  If you wish to do the (fast) DFT wave function generation calculations and the
+  (slow) QMC calculations on different machines, for example to avoid batch
+  queue waiting time, then use the --dft_only option to generate the full set of
+  xwfn.data files, transfer these to the more powerful machine, then run on that
+  using the --qmc_only} option---see below.
+
+  The clearup_twistav script can be used to clear up the output from a PWSCF
+  twist-averaging run.
+
+
+  Default behaviour of twistav_pwscf (on all machines):
+  ----------------------------------
+
+  Note : in the following NTWIST IS 12, or the value of the optional argument
+  --ntwist , while  xwfn.data refers to whatever wave function file is specified
+  in the pw2casino.dat file (either bwfn.data.b1 [default], bwfn.data or
+  pwfn.data).
+
+  For a complete TWISTAV run, the following steps are performed in sequence:
+
+  (A) PWSCF generates NTWIST xwfn.data.$ files, where $ is a sequence number
+    from 1 to NTWIST. Each succeeding run will have a different twist.
+  (B) CASINO runs a full VMC or VMC-DMC run on each of the xwfn.data.
+
+  On batch queue systems, twistav_pwscf will by default do *two* batch script
+  submissions, the first - handled by the runpwscf script - executing step (A),
+  and the second - handled by the runqmc script - executing step (B).
+
+  In principle, this wastes some unnecessary time (the time spent waiting for
+  the QMC batch script to start) but this is unavoidable if twistav_pwscf uses
+  separate runpwscf and runqmc scripts to handle the DFT xwfn generation and
+  QMC calculations. This may be changed in the future if anyone
+  thinks it's worth it.
+
+  Note that usually all calculations will be done on the number of cores
+  requested on the command line (with the --nproc or -p flag) irrespective of
+  whether they are DFT or QMC calculations.  Since typically DFT calculations
+  in fact require fewer cores, you may override this for the DFT calculations by
+  using the --nproc_dft flag to twistav_pwscf.
+
+  Modifications to default behaviour (batch machines only)
+  ----------------------------------
+
+  On batch machines, there is an additional complication because of the presence
+  of walltime limits. Full twist-averaging runs might need to be split into
+  multiple sections if all \emph{ntwist} QMC calculations run one after another
+  would exceed the walltime limit. The following method may be used to do this.
+
+  (4) twistav_pwscf --splitqmc=N : Split step B into N separate batch script
+       submissions. If no value is supplied [--splitqmc] the run will be split
+       into two.
+
+  Example : NTWIST=13, and twistav_pwscf --splitqmc=4 will result in
+  four step B batch submissions with 3, 3, 3, 4 twists. Recall that
+  the QMC calculations for each twist angle are considerable shorter than
+  normal, and the entire twist-averaging run should not take much longer than
+  a standard calculation done with a constant twist angle.
+
+  Note there is no facility for splitting step A into sections i.e. all
+  DFT wave function generation runs will always be run in a single batch
+  script submission. This is because we assume the DFT runs are fast and you
+  have adequate job time limits. If this is not the case then simply do
+  multiple sets of twistav_pwscf runs.
+
+  The use of ensemble jobs (which are anyway supported only on some machines) to
+  run the multiple short QMC runs simultaneously is currently not supported; it
+  could in principle be implemented. However, if you are choosing to run
+  ntwist calculations simultaneously on ntwist times M cores
+  rather than running sequentially on M cores, then why not just run the
+  sequential run on ntwist times M cores using fewer moves (that way you
+  avoid multiplying the queueing time - which can be weeks on overcrowded
+  machines - by ntwist.
+
+  The twistav_pwscf script needs to run in the background throughout the 
+  sequence of calculations, so make sure it stays alive. Logging out is 
+  inadvisable on some machines..
+
+  Note finally that we expect to generalize the new twistanalysis_castep utility
+  to pwscf very soon; if this is urgent, tell MDT.
+
+  There is a set of input files demonstrating how to setup twist-averaging
+  calculations with PWSCF in the examples/crystal/twistav/PWSCF directory of the
+  main CASINO distribution. If attempting to do twist-averaging on a complicated
+  batch machine, users are advised to first use this set of files to verify that
+  everything works before concentrating on their own calculations.
+
+_EOH
+ exit
+}
+
+#################### START BASIC FUNCTIONS ###########################
+
+# Output field number $1 of $2-$n
+field() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i:1}" ; }
+
+# Output all fields of $2-$n from number $1 onwards
+fields_from() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i}" ; }
+
+unpad() {
+ # Remove leading and trailing blanks from "$@"
+ local string="$@"
+ while [ "${string:0:1}" = " " ] ; do
+  string="${string:1}"
+ done
+ while [ "${string:$((${#string}-1)):1}" = " " ] ; do
+  string="${string:0:$((${#string}-1))}"
+ done
+ echo "$string"
+}
+
+rem_list() {
+ # Remove item $1 from $2-$n
+ local item out=""
+ for item in ${@:2} ; do [ "$item" = "$1" ] || out="$out $item" ; done
+ echo "$out"
+}
+
+pretty_print() {
+ # Print $3 with line folding at column $lwidth, with indentation $1 on the
+ # first line and indentation $2 on the following.
+ local indent1=$1 indent_rest=$2 text word line el="" lwidth=79
+ text="$(unpad "$3")"
+ line=""
+ while ((${#text}>0)) ; do
+  word="${text%% *}"
+  text="$(unpad "${text:${#word}}")"
+  if [ -z "$line" ] ; then # only happens first time around
+   line="$(printf "%${indent1}s")$word"
+  else
+   if ((${#line}+1+${#word}>lwidth)) ; then
+    echo "$line$el" ; line="$(printf "%${indent_rest}s")$word"
+   else
+    line="$line $word"
+   fi
+  fi
+ done
+ [ -z "$line" ] || echo "$line$el"
+}
+
+# Check whether $1 is a positive integer
+check_number_N() { [[ "$1" == +([[:digit:]]) ]] ; }
+
+# Check whether $1 is an integer
+check_number_Z() { [[ "$1" == ?([+-])+([[:digit:]]) ]] ; }
+
+check_number_R() {
+ # Check whether $1 is a real number (in Fortran format)
+ [[ "$1" ==\
+  ?([+-])+([[:digit:]])?(.)*([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]] ||
+  [[ "$1" ==\
+  ?([+-])*([[:digit:]]).+([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]]
+}
+
+check_logical() {
+local b
+b=$(unpad "$1")
+b="${b#.}"
+case "$b" in
+t*|T*|f*|F*) return 0 ;;
+*) return 1 ;;
+esac
+}
+
+get_logical() {
+local b
+b=$(unpad "$1")
+b="${b#.}"
+case "$b" in
+t*|T*) echo  1 ;;
+f*|F*) echo  0 ;;
+*)     echo -1 ;;
+esac
+}
+
+# Errors, warnings and infos
+errstop() { echo ; pretty_print 0 7 "ERROR: $1" ; echo ; exit 1 ; }
+cerrstop() { echo ; pretty_print 0 7 "CASINO ERROR: $1" ; echo ; exit 1 ; }
+perrstop() { echo ; pretty_print 0 7 "PWSCF ERROR: $1" ; echo ; exit 1 ; }
+errstopd() { echo ; pretty_print 0 7 "ERROR [$1]: $2" ; echo ; exit 1 ; }
+errwarn() { pretty_print 0 9 "WARNING: $1" ; }
+cerrwarn() { pretty_print 0 9 "CASINO WARNING: $1" ; }
+perrwarn() { pretty_print 0 9 "PWSCF WARNING: $1" ; }
+errwarnd() { pretty_print 0 9 "WARNING [$1]: $2" ; }
+info() { (($1<=verbosity)) && pretty_print 0 1 "$2" ; }
+
+# Print T if input is 1 and F if input is 0.
+boolean() { case "$1" in 1) echo T ;; 0) echo F ;; esac ; }
+
+# Wait for CASINO or PWSCF to finish
+wait_pwscf() {
+ while [ ! -e .pwscf_finished ] ; do
+  sleep 10
+ done
+ rm .pwscf_finished
+}
+wait_casino() {
+ while [ ! -e .casino_finished ] ; do
+  sleep 10
+ done
+ rm .casino_finished
+}
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ uncap() {
+  # Turn upper case into lower case in $1.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ } ;;
+*) uncap() { echo "${1,,}" ; } ;;
+esac
+
+#################### END BASIC FUNCTIONS #############################
+
+###################### START FUNCTIONS ###############################
+
+parse_cmdline() {
+
+# First check that all twistav_pwscf flags must occur *before* the 
+# runqmc/runpwscf ones in the list on the command line.
+a=("$@")
+x=0 
+die=0
+for i in "${a[@]}" ; do
+ case "$i" in
+  --help) ((x==1)) && { die=1 ; break; } ;;
+  --dft_only) ((x==1)) && { die=1; break; } ;;
+  --qmc_only) ((x==1)) && { die=1; break; } ;;
+  --check-only) ((x==1)) && { die=1; break; } ;;
+  --check_only) ((x==1)) && { die=1; break; } ;;
+  --background) ((x==1)) && { die=1; break; } ;;
+  --splitqmc*) ((x==1)) && { die=1; break; } ;;
+  --startqmc=*) ((x==1)) && { die=1; break; } ;;
+  --ntwist=*) ((x==1)) && { die=1; break; } ;;
+  -h) ((x==1)) && { die=1; break; } ;;
+  -B) ((x==1)) && { die=1; break; } ;;
+  *) x=1 ;;
+ esac
+done
+
+((die==1)) && cat <<_EOH
+
+Usage
+=====
+${0##*/} [--help/-h --nproc_dft=I --splitqmc[=N] --startqmc=M --dft_only/--qmc_only --ntwist=L --check_only --background/-B [<runqmc/runpwscf options>]
+_EOH
+
+((die==1)) && errstop "Command line arguments are in the wrong order. Please\
+ put all twistav_pwscf arguments before the ones intended to be passed to the run scripts."
+
+# Now parse the command line properly
+
+ help_mode=""
+ dft="1"
+ qmc="1"
+ splitqmc="1"
+ startqmc="1"
+ background=""
+ check_only=""
+ ntwist="$default_ntwist"
+ while (($#>0)) ; do
+  case "$1" in
+   --) errstop "The twistav_pwscf script does not yet support jobs run in multiple directories flagged by e.g. '-- dir1 dir 2'." ;;
+   --*) # GNU-style "long" options
+    option="${1#--}"
+    case "$option" in
+     help) help_mode=1 ;;
+     dft_only) qmc=0 ;;
+     qmc_only) dft=0 ;;
+     check-only) check_only=1 ;;
+     check_only) check_only=1 ;;
+     splitqmc) splitqmc=2 ;;
+     background) background=1 ;;
+     *=*) # long options with integer arguments
+      var="${option%%=*}" ; val="${option#*=}"
+      case "$var" in
+       startqmc|ntwist)
+        minval=1
+        check_number_Z $val || errstop "Argument to --$var must be an integer."
+        [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to --$var \
+        must be an integer greater than or equal to $minval."
+        eval "$var=\"\$val\"" ;;
+       splitqmc)
+        minval=2
+        check_number_Z $val || errstop "Argument to --$var must be an integer."
+        [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to --$var \
+        must be an integer greater than or equal to $minval."
+        eval "$var=\"\$val\"" ;;
+       *) ;;
+      esac ;;
+     *) ;;
+    esac ;;
+   -*) # Unix-style "short" options
+    option=${1#-}
+    [ -z "$option" ] && errstop "Bad option '-'."
+    while ((${#option}>0)) ; do
+     option1=${option:0:1}
+     option=${option:1}
+     case "$option1" in
+      h) help_mode=1 ;;
+      B) background=1 ;;
+     esac
+    done ;;
+   *) break ;;
+  esac
+  shift
+ done
+
+}
+
+kword_check() {
+ # Check that keyword value corresponds to keyword type.
+ # Return "!error" if not. Also convert T/F to 1/0 for logical type.
+ local kw_type=$1 kw_val=$2 kw_units="" char
+ case $kw_type in
+ integer) check_number_Z $kw_val || { echo "!error" ; return ; } ;;
+ natural) check_number_Z $kw_val && ((kw_val>0))\
+  || { echo "!error" ; return ; } ;;
+ znatural) check_number_Z $kw_val && ((kw_val>=0))\
+  || { echo "!error" ; return ; } ;;
+ real) ! check_number_R $kw_val && { echo "!error" ; return ; } ;;
+ logical)
+  kw_val=$(uncap $kw_val)
+  case $kw_val in
+  t|.true.) kw_val=1 ;;
+  f|.false.) kw_val=0 ;;
+  *) echo "!error" ; return ;;
+  esac ;;
+ physical)
+  kw_units=$3 ; [ -z "$kw_units" ] && { echo "!error" ; return ; }
+  char=${kw_units:0:1}
+  case $char in
+  "#"|"!") echo "!error" ; return ;;
+  esac
+  ! check_number_R $kw_val && { echo "!error" ; return ; } ;;
+ text) : ;;
+ *) echo "!ierror" ; return ;;
+ esac
+ echo $kw_val $kw_units
+}
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ kword_unique() {
+  # Turn upper case into lower case in $1, and remove punctuation.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;; -|_|.) c="" ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ } ;;
+*)
+ kword_unique() { local string ; string="${1,,}" ; echo "${string//[_.-]/}" ; }
+ ;;
+esac
+
+get_param() {
+ # Return the value of parameter $1 of type $2 from input.
+ local i n kw="$1" kw_type="$2" line_in_block in_block exist val
+ local search_string char char2
+ kw=$(kword_unique $kw)
+ if [[ "$kw_type" = block* ]] ; then
+  exist=0 ; eval "[ ! -z \"\$block_$kw\" ] && exist=1"
+  ((exist==0)) && { echo "!notpresent" ; return ; }
+  eval "n=\$blocklength_$kw"
+  in_block="${kw_type#block}"
+  kw_type=block
+  case "$in_block" in
+  "") echo "!present" ; return ;;
+  "#"*)
+   line_in_block=${in_block:1}
+   ((line_in_block<1)) && { echo "!ierror" ; return ; }
+   ((line_in_block>n)) && { echo "!undefined" ; return ; }
+   eval "echo \"\${blockline_$kw[$line_in_block]}\"" ;;
+  :*)
+   search_string=${in_block:1}
+   i=0 ; while ((i<n)) ; do i=$((i+1))
+    eval "char=\"\${blockline_$kw[$i]}\""
+    char2="${char//$search_string/}"
+    [ "$char" != "$char2" ] && { echo "$char" ; return ; }
+   done
+   echo "!undefined" ;;
+  *) echo "!ierror" ; return ;;
+  esac
+ else
+  exist=0 ; eval "[ ! -z \"\$keyword_$kw\" ] && exist=1"
+  ((exist==0)) && { echo "!notpresent" ; return ; }
+  eval "kword_check $kw_type \"\$keywordval_$kw\""
+ fi
+}
+
+read_input() {
+ local input_file=$1 bopen=0 iline=0 dupl bname lblock kw char kw_val var
+ [ ! -s $input_file ] && errstop "File $input_file missing or empty."
+ for var in $blocklist ; do unset block_$var blockline_$var ; done
+ for var in $keywordlist ; do unset keyword_$var keywordval_$var ; done
+ blocklist="" ; keywordlist=""
+ { while : ; do
+  ! read line && break
+  iline=$((iline+1)) ; line=${line%%#*} ; line=${line%%!*}
+  # Skip empty lines (or comments)
+  [ -z "$line" ] && continue
+  # Reduce first field in line to simplest ESDF form.
+  kw=$(kword_unique $(field 1 $line))
+  case "$kw" in
+  %block) # Block opening
+   bname=$(kword_unique $(field 2 $line))
+   ((bopen>0)) && errstop "Input file, line $iline: tried to open\
+    block while block $bname was still open."
+   bopen=1 ; dupl=0
+   [ -z "$bname" ] && errstop "Input file, line $iline: block opened\
+    with no name."
+   eval "[ ! -z \"\$block_$bname\" ] || [ ! -z \"\$keyword_$bname\" ] && dupl=1"
+   ((dupl==1)) && errstop "Input file, line $iline: keyword $bname duplicated."
+   lblock=0 ; eval "block_$bname=1" ; blocklist="$blocklist $bname" ;;
+  %endblock) # Block closing
+   ((bopen==0)) && errstop "Input file, line $iline: tried to close\
+    block, but no block was open."
+   char=$(kword_unique $(field 2 $line))
+   [ -z "$char" ] && errstop "Input file, line $iline: must specify name\
+    ($bname) of block to close."
+   [ "$bname" != "$char" ] && errstop "Input file, line $iline: block\
+    $bname closed with name $char."
+   ((lblock==0)) && errstop "Input file, line $iline: block $bname is\
+    empty."
+   bopen=0 ; eval "blocklength_$bname=$lblock" ; bname="" ;;
+  *)
+   if ((bopen==1)) ; then # Block line
+    lblock=$((lblock+1)) ; eval "blockline_$bname[$lblock]=\"$line\""
+    continue
+   fi
+   # Keyword
+   dupl=0
+   case "$(field 2 $line)" in
+   :|=) kw_val="$(fields_from 3 $line)" ;; *) kw_val="$(fields_from 2 $line)" ;;
+   esac
+   [ -z "$kw_val" ] && errstop "Input file, line $iline: keyword $kw does\
+    not have a value."
+   eval "[ ! -z \"\$block_$kw\" ] || [ ! -z \"\$keyword_$kw\" ] && dupl=1"
+   ((dupl==1)) && errstop "Input file, line $iline: keyword $kw duplicated."
+   eval "keyword_$kw=1 ; keywordval_$kw=\"$kw_val\""
+   keywordlist="$keywordlist $kw" ;;
+  esac
+ done ; } < $input_file
+ ((bopen==1)) && errstop "Input file, line $iline: block $bname\
+  not closed."
+}
+
+check_params() {
+ # Consistency check of input file $1/input - things relevant for twistav only.
+ local pwd="$1"
+ local runtype hasvmc=0 hasdmc=0 hasrmc=0 hasopt=0 hasplot=0 req_config=0
+ local xwfn="" btype
+ local atom_basis_type periodic
+ local newrun
+ local nmove_dmc_equil nmove_dmc_stats nblock_dmc_equil nblock_dmc_stats
+ local dmc_equil_nstep dmc_stats_nstep dmc_target_weight
+ local dmc_equil_nblock dmc_stats_nblock
+ local old_input=0 mandatory_old optional_old mandatory_new optional_new
+
+ [ -z "$pwd" ] && pwd=.
+
+ # Declare internal functions
+
+ get_var() {
+  # Get variable[=default] $1 of [attrib/][type|block[#n|:s]] $2, check for
+  # error codes and write value to variable $3 (or to $1 if $3 not provided).
+  local var="$1" vartype="$2" outvar="$3" value attrib="" default=""
+  case "$var" in
+  *=*) default="${var#*=}" ; var="${var%%=*}" ;;
+  esac
+  case "$vartype" in
+  mandatory/*|redundant/*|forbid/*)
+   attrib="${vartype%%/*}"
+   vartype="${vartype#*/}" ;;
+  esac
+  value=$(get_param "$var" "$vartype")
+  case "$value" in
+  "!error")
+   case "$vartype" in
+   text) errstopd "$pwd" "Value of $var could not be parsed." ;;
+   logical) errstopd "$pwd" "Value of $var should be Boolean." ;;
+   integer) errstopd "$pwd" "Value of $var should be an integer." ;;
+   natural) errstopd "$pwd" "Value of $var should be a positive integer." ;;
+   znatural) errstopd "$pwd" "Value of $var should be zero or a positive\
+    integer." ;;
+   real) errstopd "$pwd" "Value of $var should be a real number." ;;
+   physical) errstopd "$pwd" "Value of $var should be a real number with\
+    physical units." ;;
+   block*) errstopd "$pwd" "Block $var could not be parsed." ;;
+   *) errstopd "$pwd" "Type '$vartype' of $var not known." ;;
+   esac ;;
+  "!ierror") errstopd "$pwd" "Bug in twistav_pwscf parsing $var of type $vartype." ;;
+  "!notpresent")
+   [ "$attrib" = mandatory ] && errstopd "$pwd" "$var must be provided on\
+    input."
+   [ ! -z "$default" ] && [ "$attrib" != forbid ] && value="$default" ;;
+  *)
+   [ "$attrib" = forbid ] && { errstopd "$pwd" "$var cannot be used in\
+    conjunction with other keywords present in the input file." ; return ; }
+   if [ "$vartype" = logical ] ; then
+    case "$value" in
+    0|1) : ;; *) errstopd "$pwd" "Bug in twistav_pwscf's boolean parser ($var)." ;;
+    esac
+   fi
+   [ "$attrib" = redundant ] && { errwarnd "$pwd" "$var is redundant and its\
+    value is ignored." ; return ; } ;;
+  esac
+  if [ -z "$outvar" ] ; then
+   eval "$var=\"\$value\""
+  else
+   eval "$outvar=\"\$value\""
+  fi
+ }
+
+ err_unk() { errstopd "$pwd" "Unrecognized value of $1." ; }
+
+ # Read input
+ read_input "$pwd/$casino_input"
+ # Read keywords
+ # PERIODIC
+ get_var periodic=1 logical
+ # RUNTYPE
+ get_var runtype mandatory/text
+ case $runtype in
+  vmc) hasvmc=1 ; hasdmc=0 ; req_config_gen=0 ;;
+  vmc_dmc) hasvmc=1 ; hasdmc=1 ; req_config_gen=1 ;;
+  dmc) hasdmc=1 ; req_config=1 ;;
+  dmc_dmc) hasdmc=1 ; req_config=1 ;;
+  *) cerrstop "Value of runtype must be vmc, vmc_dmc or dmc_dmc (or the obsolete dmc)" ;;
+ esac
+
+ # ATOM_BASIS_TYPE
+ get_var atom_basis_type text
+ case $atom_basis_type in
+ 'plane-wave') xwfn="pwfn" ;;
+ 'blip')       xwfn="bwfn" ;;
+ "!notpresent") : ;;
+ *) cerrstop "Value of atom_basis_type must be plane-wave or blip for calculations run with twistav_pwscf." ;;
+ esac
+ # BTYPE - OBSOLETE
+ get_var btype integer
+ case $btype in
+ 1) xwfn="pwfn" ; atom_basis_type='plane-wave' ;;
+ 4) xwfn="bwfn" ; atom_basis_type='blip' ;;
+ "!notpresent") : ;;
+ *) cerrstop "Value of (obsolete) btype keyword must be plane-wave or blip for calculations run with twistav_pwscf." ;;
+ esac
+
+ # NEWRUN
+ get_var newrun=1 logical
+
+ # DMC-specific
+ if ((hasdmc==1)) ; then
+  # Gather old- and new-style keywords to check for errors
+  get_var nmove_dmc_equil ${mandatory_old}znatural
+  get_var nmove_dmc_stats ${mandatory_old}natural
+  get_var nblock_dmc_equil ${mandatory_old}natural
+  get_var nblock_dmc_stats ${mandatory_old}natural
+  get_var nconfig ${mandatory_old}real
+  get_var trip_popn ${optional_old}real
+  get_var dmc_equil_nstep ${mandatory_new}natural
+  get_var dmc_equil_nblock ${optional_new}natural
+  get_var dmc_stats_nstep ${mandatory_new}natural
+  get_var dmc_stats_nblock ${optional_new}natural
+  get_var dmc_target_weight ${mandatory_new}real
+  get_var dmc_trip_weight ${optional_new}real
+ fi
+
+# COMPLEX_WF
+ get_var complex_wf logical
+ case $complex_wf in
+ "!notpresent") cerrstop "Must set complex_wf = T in CASINO input for twist-averaged calculations";;
+ 0) cerrstop "Value of complex_wf in CASINO input must be T for twist-averaging runs." ;;
+ 1) : ;;
+ esac
+
+}
+
+dump_input_file() {
+ # Generate a file '$1' containing the (possibly modified) input parameters
+ local filename=$1 kwvar kw first i n line
+ # Create file, write header
+ touch $filename
+ cat >> $filename <<_EOF
+#-------------------#
+# CASINO input file #
+#-------------------#
+
+# TWISTAV_PWSCF-generated input file
+
+# KEYWORDS - ALPHABETICAL
+
+_EOF
+ # Dump keywords
+ for kw in $keywordlist ; do
+  eval "val=\"\$keywordval_$kw\""
+  printf '%-23s: %-20s\n' "$kw" "$val" >> "$filename"
+ done
+ # Dump blocks
+ first=1
+ for kw in $blocklist ; do
+  if ((first==1)) ; then
+   echo >> "$filename"
+   echo "# BLOCKS - ALPHABETICAL" >> "$filename"
+   first=0
+  fi
+  echo >> "$filename"
+  echo "%block $kw" >> "$filename"
+  eval "n=blocklength_$kw" ; i=0
+  while ((i<n)) ; do i=$((i+1))
+   eval "line=\"\${blockline_$kw[$i]}\""
+   echo "$line" >> $filename
+  done
+  echo "%endblock $kw" >> $filename
+ done
+}
+
+input_files_dos2unix() {
+ # Run dos2unix on input files, if necessary (and possible).
+ local pwd="$1" i cr_char is_dos have_dos2unix=0
+ [ -z "$pwd" ] && pwd=.
+ cr_char=$(echo -e "\015")
+ type dos2unix >& /dev/null && [[ "$CASINO_ARCH" != *sun* ]] && have_dos2unix=1
+ { while read i ; do
+  [ -f "$pwd/$i" ] && [ -r "$pwd/$i" ] && [ -w "$pwd/$i" ] || continue
+  case "$i" in
+  $casino_input|$pwscf_input)
+   is_dos=$(head -n 50 "$pwd/$i" | grep -c "$cr_char$")
+   if ((is_dos>0)) ; then
+    if ((have_dos2unix==1)) ; then
+     echo -n "File '$pwd/$i' appears to be in DOS format. Converting..."
+     dos2unix -k "$pwd/$i" >& /dev/null
+     echo " Done."
+    else
+     errstop "File '$pwd/$i' appears to be in DOS format. DOS2UNIX cannot be\
+      found.  Please convert this file by hand, or use the -f option to runqmc\
+      to bypass error checking."
+    fi
+   fi ;;
+  esac
+ done ; } < <(/bin/ls -1 "$pwd/")
+ (exit 0) # bypass bash fd leak (v3.2 - v4.1)
+}
+
+count_pwscf_param() {
+#
+# Count the number of occurences of the keyword where it isn't commented out
+# in a PWSCF input file.
+#
+local keyword=$1 inpfile=$2 noccur
+noccur=$(grep -v '^[ 	]*!' $inpfile | grep -cw $keyword)
+echo $noccur
+}
+
+get_pwscf_param() {
+#
+# Get values of keywords out of a PWSCF input file
+#
+local keyword=$1 inpfile=$2 line=""
+# Get line containing outdir from input file, excluding commented-out ones
+line=$(grep -v '^[ 	]*!' $inpfile | grep -w $keyword)
+# Remove everything preceding and including "outdir"
+line="${line#*$keyword}"
+# Remove everything following and including the *first* comma, or do nothing
+# if there is no comma
+line="${line%%,*}"
+# Remove everything preceding and including equal sign
+line="${line#*=}"
+# Remove any additional spaces
+while [ "${line:0:1}" = " " ] ; do line="${line# }" ; done
+while [ "${line:$((${#line}-1)):1}" = " " ] ; do line="${line% }" ; done
+# Remove quotes
+line="${line#\'}" ; line="${line%\'}"
+line="${line#\"}" ; line="${line%\"}"
+echo "$line"
+}
+
+extr_k_cart_pwscf () {
+#
+# Extract the k points in Cartesian coords from a PWSCF input file and put
+# them in a nicely formatted pwscf_kpoints.in file. (NOT USED)
+#
+local nk kline j line weight outfile=$1 twist_number=$2
+rm -f pwscf_kpoints.in
+nk=$(awk '/number of k points=/{print $5}' $outfile)
+kline=$(awk '/number of k points=/{print NR}' $outfile)
+kline=$((kline+2))
+echo $twist_number > pwscf_kpoints.in
+echo $nk >> pwscf_kpoints.in
+for ((j=0; j < nk ; j++)) ; do
+ weight=$(awk 'NR=='$((kline+j))' {print $NF}' $outfile)
+ line=$(awk 'NR=='$((kline+j))' {print}' $outfile)
+ line="${line#*= (}"
+ line="${line%%)*}"
+ echo $line $weight >> pwscf_kpoints.in
+done
+}
+
+extr_k_crystal_pwscf () {
+#
+# Extract the k points (in crystal coords) from a PWSCF input file and put
+# them in a nicely formatted pwscf_kpoints.in file. Note these are only
+# printed in out.pwscf if 'verbosity = high' in in.pwscf.
+#
+local nk kline j line weight outfile=$1 twist_number=$2
+rm -f pwscf_kpoints.in
+nk=$(awk '/number of k points=/{print $5}' $outfile)
+kline=$(awk '/number of k points=/{print NR}' $outfile)
+kline=$((kline+nk+4))
+echo $twist_number > pwscf_kpoints.in
+echo $nk >> pwscf_kpoints.in
+for ((j=0; j < nk ; j++)) ; do
+ weight=$(awk 'NR=='$((kline+j))' {print $NF}' $outfile)
+ line=$(awk 'NR=='$((kline+j))' {print}' $outfile)
+ line="${line#*= (}"
+ line="${line%%)*}"
+ echo $line $weight >> pwscf_kpoints.in
+done
+}
+
+sub_new_k_pwscf () {
+#
+# Insert the modified k points in the pwscf_kpoints.out file back into the
+# PWSCF input file.
+#
+local inpfile=$1
+kline=$(awk '/K_POINTS/{print NR}' $inpfile)
+nk=$(awk 'NR==2 {print}' pwscf_kpoints.out)
+awk 'NR < '$kline'' $inpfile > $inpfile"_new"
+echo 'K_POINTS crystal' >> $inpfile"_new"
+echo $nk >> $inpfile"_new"
+for ((j=1; j <= nk ; j++)) ; do
+ line=$(awk 'NR=='$((j+2))' {print}' pwscf_kpoints.out)
+ echo $line >> $inpfile"_new"
+done
+awk 'NR > '$((kline+nk+1))'' $inpfile >> $inpfile"_new"
+}
+
+run_ntwists() {
+
+if (( dft==1 )) ; then
+
+ runpwscf "$@" --qmc --twistav --xwfnstart=1 --xwfnstop=$ntwist
+ wait_pwscf
+
+# The looping needs to be done inside runpwscf for batch queue purposes
+# but on a non-batch machine one could write the following here:
+
+# cp $pwscf_input $pwscf_input.orig
+# for ((i=1; i <= ntwist ; i++)) ; do
+#  runpwscf "$@" --qmc --twistav >& /dev/null
+#  wait_pwscf
+#  [ ! -s $pwscf_output ] && exit 1
+#  cp $pwscf_input $pwscf_input.$i
+#  mv $pwscf_output $pwscf_output.$i
+#  [ ! -s $prefix$wfn_file ] && exit 1
+#  mv $prefix$wfn_file $prefix$wfn_file.$i
+#  if ((i!=ntwist)) ; then
+#   extr_k_crystal_pwscf $pwscf_output.$i $i
+#   twistoffset_pwscf < pwscf_kpoints.in
+#   [ ! -e pwscf_kpoints.out ] || [ ! -s pwscf_kpoints.out ] && errstop "The\
+#  twistoffset_pwscf auxiliary program does not appear to be producing the\
+#  expected output file."
+#   sub_new_k_pwscf $pwscf_input
+#   mv $pwscf_input"_new" $pwscf_input
+#   rm -f pwscf_kpoints.*
+#  fi
+# done
+# mv -f $pwscf_input.orig $pwscf_input
+
+fi
+
+# Stop now if we're only  doing the DFT calc.
+
+((qmc==0)) && { rm -f input_tmp.in ; exit 0 ; }
+
+# Now do the QMC calculations in numerical order.
+
+# Which type of run?
+if ((splitqmc==1)) ; then
+ calctype=1 # default
+elif ((splitqmc>1)) ; then
+ calctype=2
+ totjobs=$((ntwist-startqmc+1))
+ njobs_per_qsub=$((totjobs/splitqmc))
+ njobs_extra=$((totjobs%splitqmc))
+ if ((totjobs<splitqmc)) ; then
+  errstop "Number of jobs to do (=$totjobs) is less than the value of splitqmc (=$splitqmc). Not allowed."
+ fi
+fi
+
+rm -f .casino_finished
+rm -f $wfn_file
+ln -s $prefix$wfn_file.$startqmc $wfn_file
+
+case $calctype in
+ 1) # one job on both batch and regular machines, beginning with twist number
+    # 'startqmc'.
+  runqmc --xwfnstart=$startqmc --xwfnstop="$ntwist" --twistav "$@"
+  wait_casino ;;
+ 2) # Chain of jobs split into splitqmc separate batch submissions, beginning
+    # with twist number 'startqmc'.
+  j=$startqmc ; k=$((j+njobs_per_qsub-1))
+  for ((i=1; i < $((splitqmc+1)) ; i++)) ; do
+   rm -f $wfn_file ; ln -s $prefix$wfn_file.$j $wfn_file
+   runqmc --xwfnstart="$j" --xwfnstop="$k" --twistav "$@"
+   wait_casino
+   j=$((j+njobs_per_qsub)) ; k=$((k+njobs_per_qsub))
+   ((i==splitqmc-1)) && k=$((k+njobs_extra))
+  done ;;
+esac
+
+rm -f $wfn_file
+rm -f bwfn.data.bin # change this when PWSCF is modified to create .bin files
+
+# Final config.out automatically converted to config.in by runqmc - reverse
+# that here.
+[[ -e config.in ]] && mv config.in config.out
+
+return
+
+}
+################### END FUNCTIONS ###################################
+
+
+# Main program
+
+
+pwscf_input="in.pwscf"
+pwscf_output="out.pwscf"
+casino_input="input"
+default_ntwist=12
+
+parse_cmdline "$@"
+[ "$help_mode" = 1 ] && print_usage
+
+[[ ! -e $casino_input ]] && errstop "The CASINO input file $casino_input does not exist."
+[[ ! -e $pwscf_input ]] && errstop "This script expects the PWSCF input file to be called $pwscf_input - but this does not exist."
+
+input_files_dos2unix "$pwd"
+
+(( dft==0 && qmc==0 )) && errstop "Cannot set both qmc_only and dft_only flags."
+if ((dft==1)) ; then
+ type -p runpwscf >& /dev/null || errstop "The runpwscf script required for running the PWSCF code is not in your path."
+ type -p twistoffset_pwscf >& /dev/null || errstop "The twistoffset_pwscf Fortran binary required for changing PWSCF twist angles is not in your path."
+fi
+
+if ((qmc==1)) ; then
+ type -p runqmc >& /dev/null || errstop "The runqmc script required for running the CASINO code is not in your path."
+fi
+
+# Check the PWSCF input
+if (( dft==1 )) ; then
+
+ runpwscf --check_only --twistav --xwfnstart=1 --xwfnstop=$ntwist "$@"
+
+ [ $? != 0 ] && exit 1
+
+# Check 'nosym' = .true.
+ n=$(count_pwscf_param "nosym" "$pwscf_input") || exit
+ ((n==0)) && errstop "PWSCF does not offer a general method of adding an offset to a k point grid, thus we are required to list the k points explicitly in the input file. This necessitates the use of 'nosym = .true.' but your input file does not contain the nosym keyword. Please add it (to the 'system' section)."
+nosym=$(get_pwscf_param "nosym" "$pwscf_input") || exit
+check_logical "$nosym" || errstop "The nosym keyword in $pwscf_input is set to an invalid value."
+nosym=$(get_logical "$nosym")
+((nosym!=1)) && errstop "The nosym keyword must be set to .true. in the $pwscf_input file."
+
+# Check 'noinv' = .true.
+ n=$(count_pwscf_param "noinv" "$pwscf_input") || exit
+((n==0)) && errstop "PWSCF does not offer a general method of adding an offset to a k point grid, thus we are required to list the k points explicitly in the input file. This necessitates the use of 'noinv = .true.' but your input file does not contain the noinv keyword. Please add it (to the 'system' section)."
+noinv=$(get_pwscf_param "noinv" "$pwscf_input") || exit
+check_logical "$noinv" || errstop "The noinv keyword in $pwscf_input is set to an invalid value."
+noinv=$(get_logical "$noinv")
+((noinv!=1)) && errstop "The noinv keyword must be set to .true. in the $pwscf_input file."
+
+# Check 'verbosity' = high
+ n=$(count_pwscf_param "verbosity" "$pwscf_input") || exit
+((n==0)) && errstop "PWSCF does not offer a general method of adding an offset to a k point grid, and so the twist-averaging script is required to extract lists of k points explicitly from the output file in order to manipulate them. The required information is not printed by default unless 'verbosity = high' in the PWSCF input. However, your input file does not contain the verbosity keyword. Please add it (to the 'control' section)."
+verbosity=$(get_pwscf_param "verbosity" "$pwscf_input") || exit
+ if [[ "$verbosity" != "high" ]] && [[ "$verbosity" != "debug" ]] && [[ "$verbosity" != "medium" ]] ; then
+  errstop "PWSCF does not offer a general method of adding an offset to a k point grid, and so the twist-averaging script is required to extract lists of k points explicitly from the output file in order to manipulate them. The required information is not printed by default unless 'verbosity = high' in the PWSCF input. Please change the value of 'verbosity' (in the 'control' section)."
+ fi
+
+# Force wf_collect = .true. (just for tidiness in already cluttered directory)
+ n=$(count_pwscf_param "wf_collect" "$pwscf_input") || exit
+ ((n==0)) && errstop "Please set wf_collect=.true. in the control section of the $pwscf_input file."
+wf_collect=$(get_pwscf_param "wf_collect" "$pwscf_input") || exit
+check_logical "$wf_collect" || errstop "The wf_collect keyword in $pwscf_input is set to an invalid value."
+wf_collect=$(get_logical "$wf_collect")
+((wf_collect!=1)) && errstop "The wf_collect keyword must be set to .true. in the $pwscf_input file."
+
+# Check 'calculation' = scf
+ n=$(count_pwscf_param "calculation" "$pwscf_input") || exit
+ ((n>1)) && errstop "Multiple uncommented occurences of keyword 'calculation' in $pwscf_input."
+ calculation=$(get_pwscf_param "calculation" "$pwscf_input") || exit
+ if [[ "$calculation" != "scf" ]] ; then
+  perrstop "PWSCF input file does not specify an SCF calculation. The 'calculation' keyword should have the value 'scf'."
+ fi
+fi
+
+# Check K_POINTS block is present and uses the 'crystal' input format.
+n=$(grep -c 'K_POINTS ' $pwscf_input)
+((n=0)) && errstop "No K_POINTS block in PWSCF input?"
+((n>1)) && errstop "Multiple K_POINTS blocks in PWSCF input?"
+kline=$(grep -v '^[      ]*!' $pwscf_input | grep -w K_POINTS)
+kline=$(awk '/K_POINTS/{print}' $pwscf_input)
+kline="${kline#*K_POINTS}"
+while [ "${kline:0:1}" = " " ] ; do kline="${kline# }" ; done
+while [ "${kline:$((${#kline}-1)):1}" = " " ] ; do kline="${kline% }" ; done
+[[ $kline == "crystal" ]] || errstop "Must use 'K_POINTS crystal' form of the PWSCF k-point input."
+
+# Which xwfn.data file to use?
+wfn_file=bwfn.data.b1
+if [ -s pw2casino.dat ] ; then
+blip_convert=$(get_pwscf_param "blip_convert" "pw2casino.dat") || exit
+check_logical "$blip_convert" || errstop "The blip_convert keyword in pw2casino.dat is set to an invalid value."
+blip_convert=$(get_logical "$blip_convert")
+ if ((blip_convert==0)) ; then
+  wfn_file=pwfn.data
+ else
+  blip_binary=$(get_pwscf_param "blip_binary" "pw2casino.dat") || exit
+  check_logical "$blip_binary" || errstop "The blip_binary keyword in pw2casino.dat is set to an invalid value."
+  blip_binary=$(get_logical "$blip_binary")
+  ((blip_binary==0)) && wfn_file=bwfn.data
+ fi
+fi
+
+# Check the CASINO input
+
+if (( qmc==1 )) ; then
+ arse=0
+ [ ! -e $wfn_file ] && { touch $wfn_file ; echo "Fake file automatically generated by twistav_pwscf to avoid error trap." > $wfn_file ; arse=1 ; }
+ runqmc --check_only --twistav "$@"
+ [ $? != 0 ] && { rm -f $wfn_file ; exit 1 ; }
+ ((arse==1)) && rm -f $wfn_file
+ check_params
+fi
+
+[[ $startqmc -gt $ntwist ]] && errstop "Value of startqmc flag may not be greater than ntwist (default $default_ntwist - may be changed with the --ntwist=x flag)."
+[[ $splitqmc -gt $ntwist ]] && errstop "Value of splitqmc flag may not be greater than ntwist (default $default_ntwist - may be changed with the --ntwist=x flag.)"
+
+n=$(count_pwscf_param "prefix" "$pwscf_input") || exit
+((n>1)) && errstop "Multiple uncommented occurences of keyword 'prefix' in $pwscf_input."
+prefix=$(get_pwscf_param "prefix" "$pwscf_input") || exit
+[[ ! -z $prefix ]] && prefix=$prefix.
+
+if (( dft==1 )) ; then
+
+# Whine if any xwfn.data.$ files already exist.
+
+ for ((i=1; i <= ntwist ; i++)) ; do
+  [ -e $prefix$wfn_file.$i ] && errstop "Some $prefix$wfn_file.x files that will be produced by the PWSCF run already exist. Please move or delete them before running this calculation (or use the --qmc_only flag if this is really what you want)."
+ done
+
+ rm -f .pwscf_finished
+
+else
+
+# Check existence of xwfn files from previous DFT run if we're using the
+# qmc_only flag.
+ for ((i=1; i <= ntwist ; i++)) ; do
+  [ ! -e $prefix$wfn_file.$i ] && errstop "PWSCF run bypassed with --qmc_only flag, but one or more of the ntwist=$ntwist required $prefix$wfn_file files are missing."
+ done
+
+fi
+
+((check_only==1)) && exit 0
+
+# Do the twist-averaging run
+if ((background==1)) ; then
+ ( run_ntwists "$@" ; ) &
+else
+ run_ntwists "$@"
+fi

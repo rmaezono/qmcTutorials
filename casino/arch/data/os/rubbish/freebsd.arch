@@ -1,0 +1,7 @@
+#-! DESCRIPTION: FreeBSD and derivatives
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 10.2011
+#-! KERNEL: FreeBSD
+#-! OS: FreeBSD
+#-! *CORES_PER_NODE:
+#-!  sysctl -n hw.ncpu 2>&1

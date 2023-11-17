@@ -1,0 +1,9 @@
+# atom,Zval,Zgrid,xmin,dx,nrgrid 
+Fe     8.00000000    26.00000000    -7.00000000     0.01250000 1000
+2                                                                  ! local channel
+   0    2.00000000                                                 ! GS occupation of s-channel
+   1    0.00000000                                                 ! GS occupation of p-channel
+   2    6.00000000                                                 ! GS occupation of d-channel
+"./fe/2/pp_gaussian"                                               ! path to psedupotential file
+"./fe/1/awfn.data_d6s2_5D"                                         ! path to projectors
+"./fe/1/awfn.data_d7p1_5G"                                         ! path to projectors

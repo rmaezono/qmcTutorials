@@ -1,0 +1,90 @@
+#!/bin/bash
+#---------------------------------------------------------------#
+# Script to plot the backflow displacement field using GNUplot  #
+#                                                               #
+# PLR 04.2005 Initial version v0.10                             #
+#---------------------------------------------------------------#
+# Check that GNUplot is present and that we are have an available DISPLAY
+if [ ! which gnuplot &> /dev/null ] ; then {
+ echo "GNUplot not found. You need this program to run plot_bffield."
+ exit ; }
+fi
+if [ -z "$DISPLAY" ] ; then {
+ echo "The DISPLAY environment variable is not defined."
+ echo "plot_bffield runs under X only."
+ exit ; }
+fi
+
+# Parse command line
+echo "plot_bffield: Generate a plot of the backflow displacement field."
+echo "Usage:        plot_bffield [-ps|-eps|-png|-jpeg] [bffield_file]"
+echo
+while (( $# > 0 )) ; do {
+ case $1 in
+ -ps) gnuout='set terminal postscript landscape colour'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.ps' ;;
+ -eps) gnuout='set terminal postscript eps colour'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.eps' ;;
+ -png) gnuout='set terminal png'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.png' ;;
+ -jpeg|-jpg) gnuout='set terminal jpeg'
+  if [ ! -z "$fmt" ] ; then echo "Only one output format allowed."; exit ; fi
+  fmt='.jpg' ;;
+ *) if [ ! -z "$bffield" ] ; then echo "Unrecognized option $1" ; exit ; fi
+  bffield=$1 ;;
+ esac
+ shift ; }
+done
+if [ -z $bffield ] ; then bffield="bffield.dat" ; fi
+outfile=$bffield$fmt
+# Check for bffield file
+if [ ! -s $bffield ] ; then {
+ echo "File $bffield not present or is empty."
+ exit 0 ; }
+fi
+# Check for bfconfig file
+use_bfconfig=0
+if [ -s bfconfig.dat ] ; then use_bfconfig=1 ; fi
+# Check for bfions file
+use_bfions=0
+if [ -s bfions.dat ] ; then use_bfions=1 ; fi
+# Generate temp files
+plotcmd=""
+if [ ! -z "$fmt" ] ; then rm -f $outfile >& /dev/null ; fi
+rm -f .gnubatch.plotbf >& /dev/null ; touch .gnubatch.plotbf
+if (( $use_bfions == 1 )) ; then {
+ rm -rf .bfions.plotbf >& /dev/null ; touch .bfions.plotbf
+ ( while [ 1 ] ; do {
+  if ! read i posx posy posz ; then break ; fi
+  echo "$posx $posy" >> .bfions.plotbf ; }
+ done ) <bfions.dat
+ plotcmd=" , '.bfions.plotbf' title 'Ions'$plotcmd" ; }
+fi
+if (( $use_bfconfig == 1 )) ; then {
+ rm -rf .bfconfig.plotbf >& /dev/null ; touch .bfconfig.plotbf
+ ( while [ 1 ] ; do {
+  if ! read i posx posy posz ; then break ; fi
+  if (( $i != 0 )) ; then echo "$posx $posy" >> .bfconfig.plotbf ; fi ; }
+ done ) <bfconfig.dat
+ plotcmd=" , '.bfconfig.plotbf' title 'Electrons'$plotcmd" ; }
+fi
+plotcmd="plot '$bffield' using 1:2:3:4 with vectors title 'Backflow field'\
+$plotcmd"
+echo "$plotcmd" >> .gnubatch.plotbf
+echo "pause -1" >> .gnubatch.plotbf
+echo "Use <right-mouse-button> for zoom-in, and the key-bindings:"
+echo "[A]utoscale  [G]ridlines  [R]uler  [M]ouse-position  [B]orders"
+echo "When finished, give focus to this terminal and press Enter."
+if [ ! -z "$fmt" ] ; then {
+ echo "$gnuout" >> .gnubatch.plotbf
+ echo "set output '$outfile'" >> .gnubatch.plotbf
+ echo "replot" >> .gnubatch.plotbf
+ echo "The image will then be saved to $outfile." ; }
+fi
+gnuplot .gnubatch.plotbf >& /dev/null
+# When finished, clear files
+rm -f .gnubatch.plotbf .bfconfig.plotbf .bfions.plotbf >& /dev/null
+echo "Done."

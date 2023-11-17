@@ -1,0 +1,506 @@
+#!/usr/bin/python
+#--------------------PLOT_LOUIS--------------------#
+# use to plot output from Louis using settings in  #
+# the 'PLOT' section of the LOUIS input file       #
+#--------------------------------------------------#
+
+import sys, getopt, os.path, subprocess, shutil
+import plot_single, plot_utils, gpif
+import axes
+PIPE = subprocess.PIPE 
+
+print '\n---------------------------------------------------------------------\
+-----------\n'
+# Get path to Louis directory
+louispath = ''
+for level in sys.argv[0].split('/')[1:-2]:
+  louispath += '/'+level
+
+# Get version of gnuplot
+# Some features not supported by old versions
+try:
+  gnuplot = subprocess.Popen(['gnuplot','-V'],stdin=PIPE,stdout=PIPE)
+except OSError, err:
+  print err
+  print 'Gnuplot not found. Please install Gnuplot to use this utility.\n'
+  sys.exit()
+vinfo = gnuplot.stdout.readline().split()
+version = float(vinfo[1])
+patchlevel = int(vinfo[3])
+print 'Gnuplot version '+str(version)+'.'+str(patchlevel)+' detected'
+
+gnuplot = subprocess.Popen(['gnuplot','-persist','-e','set terminal'],
+  stdin=PIPE,stdout=PIPE,stderr=PIPE)
+out,err = gnuplot.communicate()
+terminals = [x.split() for x in err.split('\n')]
+requested = ['wxt','x11','gif','postscript','png','jpeg','svg','pdfcairo']
+supported = []
+available = []
+for term in terminals:
+  if not term:
+    continue
+  if term[0] == 'Available':
+    continue
+  if term[0] == 'Press':
+    term = term[4:]
+  for item in requested:
+    if term[0] == item:
+      supported.append(item)
+  available.append(term[0])
+if 'postscript' in supported:
+  supported += ['eps','ps']
+if 'gif' in supported:
+  supported.append('agif')
+if 'jpeg' in supported:
+  supported.append('jpg')
+if 'pdfcairo' in supported:
+  supported.append('pdf')
+plot_utils.supported = supported
+plot_utils.available = available
+
+# Recover options from command line
+try:
+  opts, args = getopt.getopt(sys.argv[1:], "hri:o:l:s:",\
+["help", "interactive"])
+except getopt.GetoptError, err:
+  print str(err)
+  plot_utils.usage()
+  sys.exit(2)
+
+outputpath = ''
+inputpath = 'input'
+interactive = False
+listinput = False
+output = False
+datafiles = []
+save = False
+replot = False
+batchfile = '.gpout.gp'
+for opt, arg in opts:
+  if opt in ('-h', '--help'):
+    plot_utils.usage()
+    sys.exit()
+  elif opt == '--interactive':
+    interactive = True   # Trigger interactive mode
+    plot_utils.interactive = True
+  if opt == '-l':
+# Deal with list input, if supplied
+    try:
+      datalist = open(arg, 'r')
+    except IOError:
+      print 'invalid list'
+      sys.exit()
+    for line in datalist:
+      path = line.rstrip('\n')
+# Existence check on datafile before adding to list
+      if os.path.exists(path):
+        datafiles.append(path)
+      else:
+        print "\nSkipping file '"+path+"': does not exist.\n\
+Check filename before attempting to plot again."
+    datalist.close()
+    n_inputs = len(datafiles)
+    listinput = True
+    if datafiles == []:
+      print "No valid datafiles in list"
+      plot_utils.usage()
+      sys.exit()
+# Get path to input file, if supplied
+  elif opt == '-i':
+    inputpath = arg
+# Check if output file has been specified
+  elif opt == '-o':
+    outputpath = arg
+    output = True
+  elif opt == '-s':
+    save = True
+    batchfile = arg
+  elif opt == '-r':
+    replot = True
+    if args:
+      loadfile = args[0]
+    else:
+      loadfile = '.gpout.gp'
+
+# Replot if requested
+if replot:
+  print 'Replotting from \''+loadfile+'\''
+  if os.path.exists(loadfile):
+    gnuplot = subprocess.Popen(['gnuplot','-persist',loadfile],
+  stdin=PIPE,stdout=PIPE,stderr=PIPE)
+    out,err = gnuplot.communicate()
+    if err:
+      gperr = open('.gperr','w')
+      gperr.write(out)
+      gperr.close()
+  else:
+    print 'Gnuplot batch file \''+loadfile+'\' does not exist.\nCheck file\
+ name then try again.'
+  print '\n-----------------------------------------------------------------\
+---------------\n'
+  sys.exit()
+
+# Existence checks on input file
+if os.path.exists(inputpath) and os.path.isfile(inputpath):
+  gpif = gpif.inputFile(inputpath) # Open as gpif object
+else:
+  examplepath = louispath + '/utils/plot/'
+  print "File \'"+inputpath+"\' not found or error with file\n\
+Copying example input file from "+examplepath
+  try:
+    shutil.copyfile(examplepath+'/input','./'+inputpath)
+  except IOError:
+    print '\nUnable to copy file. Check that destination directory is writable'
+    sys.exit(1)
+  print '\nExample input file copied successfully to '+inputpath+'\n\
+Edit the file then run plot_louis again\n'
+  sys.exit()
+
+if not listinput:
+# Recover paths to datafiles from command line
+  if len(args) == 0:
+    print "No datafile specified"
+    plot_utils.usage()
+    sys.exit(2)
+  else:
+    for path in args:
+# Existence check on datafiles
+      if os.path.exists(path):
+        datafiles.append(path)
+      else:
+        print "Skipping file '"+path+"': does not exist.\n\
+Check filename before attempting to plot again."
+if not datafiles:
+  print 'No valid datafiles supplied'
+  sys.exit()
+
+n_inputs = len(datafiles)
+datatypes = []
+for datafile in datafiles:
+  datatype = plot_utils.datatype(datafile)
+  if datatype not in datatypes:
+    datatypes.append(datatype)
+    print datatype+' data detected'
+if len(datatypes) > 1:
+  print 'File names suggest multiple types of data. Proceed with plot? (y\\n)'
+  if not plot_utils.cont():
+    sys.exit()
+if 'raw' in datatypes:
+  print 'File names suggest raw data: this could take a long time (and a lot of\
+ memory)\nto plot. Continue? (y\\n)'
+  if not plot_utils.cont():
+    sys.exit()
+  print
+
+if n_inputs > 1:
+  multiple = True
+else:
+  multiple = False
+
+##### GET PARAMETERS FROM THE INPUT FILE
+dim = gpif.get('dimensionality','integer')
+plot_type = gpif.get('plot_type')
+term = gpif.get('plot_output')
+framerate = gpif.get('framerate','float')
+if term not in supported:
+  if term not in available:
+    print 'Plot output '+term+' not available in this build of gnuplot.\n\
+Show list of available outputs? (y\\n)'
+    if plot_utils.cont():
+      show = subprocess.Popen(['gnuplot','-e','set terminal'])
+      show.wait()
+      print '\nOptions supported by plot_louis:'
+      for item in supported:
+        print item.rjust(17)
+      sys.exit()
+    else:
+      print 'Now exiting'
+      sys.exit()
+  else:
+    print 'Plot output '+term+' not supported by plot_louis.\n\
+Continue with plot? (y\\n)'
+    if not plot_utils.cont():
+      print 'Now exiting'
+      sys.exit()
+try:
+  colour = gpif.get('colour','boolean')
+except plot_utils.gpifParamError as err1:
+  try:
+    colour = gpif.get('color','boolean')
+  except plot_utils.gpifParamError as err2:
+    print 'Neither \'colour\' nor \'color\' found in input file'
+    sys.exit()
+title = gpif.get('plot_title')
+#####
+
+if dim == 1:
+  if plot_type == 'trajectory':
+    print '1D trajectory plot requested'
+    if datatypes != ['trajectory']:
+      print 'Not all file names suggest trajectory data. Attempt to plot these\
+ files as\ntrajectories anyway? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_1d_trajectory
+    args = ()
+    setaxes = axes.setaxes_1d_trajectory
+
+  elif plot_type == 'density':
+    print '1D density plot requested'
+    if datatypes != ['smoothed']:
+      print 'Recommend using smoothed data for density plot. Not all file names\
+ suggest\nsmoothed data. Continue? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_1d_density
+    args = ()
+    setaxes = axes.setaxes_1d_density
+
+  elif plot_type == 'bar':
+    print '1D bar plot requested'
+    if datatypes != ['coarse-grained']:
+      print 'Recommend using coarse-grained data for bar plot. Not all file\
+ names suggest\ncoarse-grained data. Continue? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_1d_bar
+    args = ()
+    setaxes = axes.setaxes_1d_density
+
+  else:
+    print 'Invalid type \''+plot_type+'\' for 1D plot'
+    sys.exit()
+
+
+elif dim == 2:
+  if plot_type == 'trajectory':
+    print '2D trajectory plot requested'
+    if datatypes != ['trajectory']:
+      print 'Not all file names suggest trajectory data. Attempt to plot these\
+ files as\ntrajectories anyway? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    spacetime = gpif.get('spacetime','boolean')
+    plot = plot_single.plot_2d_trajectory
+    args = (spacetime,)
+    setaxes = axes.setaxes_2d_trajectory
+    if spacetime:
+      setaxes = axes.setaxes_2d_spacetime
+      print 'Spacetime not currently supported'
+      sys.exit()
+#####---------------------------------------------------------------------#####
+##### Spacetime needs sorting                                             #####
+#####---------------------------------------------------------------------#####
+
+  elif plot_type == 'map':
+    print '2D density map plot requested'
+    if datatypes != ['smoothed']:
+      print 'Recommend using smoothed data for map plot. Not all file names\
+ suggest\nsmoothed data. Continue? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_2d_map
+    shading = gpif.get('shading','boolean')
+    contours = gpif.get('contours','boolean')
+    if not (shading or contours):
+      print '\nShading and contours both off: nothing to plot. Now exiting\n'
+      sys.exit()
+    contour_no = gpif.get('contour_no','integer')
+    linegradient = gpif.get('linegradient','boolean')
+    args = (colour,shading,contours,contour_no,linegradient)
+    setaxes = axes.setaxes_2d_map
+
+  elif plot_type == 'density':
+    print '2D density surface plot requested'
+    if datatypes != ['smoothed']:
+      print 'Recommend using smoothed data for surface plot. Not all file names\
+ suggest\nsmoothed data. Continue? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_2d_density
+    shading = gpif.get('shading','boolean')
+    mesh = gpif.get('mesh','boolean')
+    if not (shading or mesh):
+      print '\nShading and mesh both off: nothing to plot. Now exiting\n'
+      sys.exit()
+    linegradient = gpif.get('linegradient','boolean')
+    args = (colour,shading,mesh,linegradient)
+    setaxes = axes.setaxes_2d_density
+
+  elif plot_type == 'bar':
+    print '2D density bar plot requested'
+    if datatypes != ['coarse-grained']:
+      print 'Recommend using coarse-grained data for bar plot. Not all file\
+ names suggest\ncoarse-grained data. Continue? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_2d_bar
+    shading = gpif.get('shading','boolean')
+    mesh = gpif.get('mesh','boolean')
+    if not (shading or mesh):
+      print '\nShading and mesh both off: nothing to plot. Now exiting\n'
+      sys.exit()
+    linegradient = gpif.get('linegradient','boolean')
+    args = (colour,shading,mesh,linegradient)
+    setaxes = axes.setaxes_2d_density
+
+  else:
+    print 'Invalid type \''+plot_type+'\' for 2D plot'
+    sys.exit()
+
+
+elif dim == 3:
+  if plot_type == 'trajectory':
+    print '3D trajectory plot requested'
+    if datatypes != ['trajectory']:
+      print 'Not all file names suggest trajectory data. Attempt to plot these\
+ files as\ntrajectories anyway? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_3d_trajectory
+    args = ()
+    setaxes = axes.setaxes_3d_trajectory
+
+  elif plot_type == 'sweep':
+    print '3D density plot (on a plane) requested'
+    if datatypes not in (['smoothed'],['coarse-grained']):
+      print 'Not all file names suggest appropriate (smoothed or coarse-\
+grained) data.\nAttempt to plot anyway? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    no3d = True
+    plane = gpif.get('plane')
+    plot = plot_single.plot_3d_sweep
+    if plane not in ('x','y','z'):
+      print 'Invalid plane: \''+plane+'\' for 3D sweep plot'
+      sys.exit()
+    args = (plane,no3d,gpif)
+    setaxes = axes.setaxes_3d_sweep
+
+  elif plot_type == 'sweep3d':
+    no3d = False
+    print '3D density plot (in a cube) requested'
+    if datatypes not in (['smoothed'],['coarse-grained']):
+      print 'Not all file names suggest appropriate (smoothed or coarse-\
+grained) data.\nAttempt to plot anyway? (y\\n)'
+      if not plot_utils.cont():
+        sys.exit()
+    plot = plot_single.plot_3d_sweep
+    plane = gpif.get('plane')
+    if plane not in ('x','y','z'):
+      print 'Invalid plane: \''+plane+'\' for 3D sweep plot'
+      sys.exit()
+    args = (plane,no3d,gpif)
+    setaxes = axes.setaxes_3d_sweep3d
+
+  else:
+    print 'Invalid type \''+plot_type+'\' for 3D plot'
+    sys.exit()
+
+else:
+  print 'Dimension out of range'
+  sys.exit()
+
+
+multipage = (term == 'agif' or (term in ('postscript','pdf','ps','pdfcairo')
+  and multiple and output))
+
+if plot_type in ('sweep','sweep3d'):
+  if term == 'gif':
+    term = 'agif'
+  if term not in ('agif','postscript','ps','pdf','pdfcairo'):
+    print '\nWarning: 3d density (sweep) plot requested with output \''+\
+    term+'\'.\nPlot type only available for animated gif, postscript or pdf\
+ outputs.'
+    sys.exit()
+  if multiple and output:
+    print 'Warning: output file provided for multiple sweep plots.\n\
+Reverting to default behaviour: ouptput files will have the same name as the\n\
+datafiles that generated them.'
+  elif multiple:
+    pass
+  else:
+    multiple = True
+  if multipage:
+    multipage = False
+
+if term == 'agif' and not output:
+  if plot_type in ('sweep','sweep3d'):
+    pass
+  else:
+    print '\nWarning: animated gif requested but no output file provided.'
+    print 'Defaulting to \'output.gif\''
+    outputpath = 'output'
+    raw_input('\nPress enter to continue ')
+    output = True
+
+if term == 'agif' and not multiple:
+  print '\nWarning: animated gif requested with just one datafile.\nPlot will\
+ still be saved as a gif but will not be animated.'
+  raw_input('\nPress enter to continue ')
+
+if output and term in ('wxt','x11'):
+  print '\nWarning: output provided for interactive terminal \''+term+'\'.\n\
+Nothing will be written to the output file.'
+  raw_input('\nPress enter to continue ')
+  output = False
+
+if output and multiple and term in ('jpg','jpeg','gif','png','eps'):
+  print '\nWarning: single output file provided for multiple '+term+' plots.\n\
+Reverting to default behaviour: plots will have the same name as the\
+ datafiles\nthat generated them.'
+  raw_input('\nPress enter to continue ')
+  output = False
+
+gpout = open(batchfile,'w')
+gpout.write('reset\n')
+gpout.write('set style line 1 linetype 1 linecolor rgbcolor "#000000"\n')
+
+print '\n---------------------------------------------------------------------\
+-----------\n'
+
+i = 0
+gpout.write(plot_utils.setview(gpif)) 
+sync,axisstr = setaxes(gpif,datafiles)
+gpout.write(axisstr)
+if multipage:
+  gpout.write(plot_utils.setterm(term,outputpath,colour,fps=framerate))
+for datafile in datafiles:
+  if not output:
+    outputpath = datafile[:-4]
+  if not multipage:
+    gpout.write(plot_utils.setterm(term,outputpath,colour,n_plot=i,
+  fps=framerate))
+  gpout.write(plot_utils.settitle(title,datafile))
+  gpout.write(setaxes(gpif,[datafile],rec=True,sync=sync))
+  gpout.write(plot(datafile,*args,n_plot=i))
+  i += 1
+
+gpout.close()
+
+print '\n---------------------------------------------------------------------\
+-----------\n'
+print 'Gnuplot batch file generated successfully',
+if save:
+  shutil.copy(batchfile,'.gpout.gp')
+  print 'and saved to \''+batchfile+'\''
+  print 'Use \'plot_louis -r '+batchfile+'\' to replot'
+else:
+  print '\nUse \'plot_louis -r\' to replot'
+
+print 'Now plotting\n'
+
+PIPE = subprocess.PIPE
+gp = subprocess.Popen(['gnuplot', '-persist', batchfile],
+  stdin=PIPE,stdout=PIPE,stderr=PIPE)
+out,err = gp.communicate()
+
+if err:
+  gnuploterr = open('.gperr.out','w')
+  gnuploterr.write(err)
+  gnuploterr.close()
+
+
+
+
+

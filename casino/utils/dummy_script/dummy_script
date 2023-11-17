@@ -1,0 +1,12 @@
+#!/bin/bash
+# This script appears when a given util is not available for a
+# given CASINO_ARCH. It just prevents 'make' from trying to compile
+# the target. PLR 11.2005
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+echo "Utility not available for CASINO_ARCH = $CASINO_ARCH"

@@ -1,0 +1,305 @@
+#!/bin/bash
+#-----------------------------------------------------------------------------#
+# modify_louis_inputs (derived from CASINO's modify_inputs)                   #
+# -------------------                                                         #
+#                                                                             #
+# This script allows the LOUIS administrator to modify all the many input     #
+# files in the examples directory in various ways, reflecting                 #
+# changes in the list of keywords understood by LOUIS. The current list of    #
+# things it can do is :                                                       #
+#                                                                             #
+# (1) Change the default value of a keyword from x to y.                      #
+# (2) Delete a keyword completely.                                            #
+# (3) Add a new keyword together with its default and closing blurb.          #
+# (4) Substitute every occurence of a phrase with another phrase.             #
+#                                                                             #
+# Usage : type 'change_inputs' and follow the prompts.                        #
+#                                                                             #
+# This script is written in bash as various people keep whingeing at me to    #
+# do this, as csh shell scripts are apparently nasty and old-fashioned.       #
+#                                                                             #
+# This is the only CASINO utility that was written on an aeroplane (from      #
+# Torino to Stansted). Bet you really wanted to know that.                    #
+#                                                                             #
+# MDT 11.2003                                                                 #
+# Rewritten (on land) PLR 07.2008                                             #
+#-----------------------------------------------------------------------------#
+line_format="%-17s : %-21s #*! %s\n"
+
+### START FUNCTIONS ###
+function whinge { ((verbosity==1)) && echo "$*" ; }
+
+function check_dotold {
+ local file=$1
+ if ((dotold==1)) ; then
+  if [ ! -e "$file.old" ] ; then
+   whinge "Updating $file, keeping old copy."
+   cp $file $file.old
+  else
+   whinge "Updating $file, old copy already exists."
+  fi
+ else
+  whinge "Updating $file."
+ fi
+}
+
+function delete {
+ local kw="$1" flist="$2" i j file n IFS_save
+ i=0 ; j=0
+ for file in $flist ; do
+  i=$((i+1)) ; n=$(grep -cwE "^$kw" $file)
+  ((n==0)) && { whinge "No matches in file $file - skept" ; continue ; }
+  ((n>1)) && { whinge "$n matches in file $file [!!] - skept" ; continue ; }
+  check_dotold $file
+  j=$((j+1))
+  [ -f "$tmpfile" ] && rm -f "$tmpfile" >& /dev/null
+  touch $tmpfile
+  IFS_save="$IFS"
+  { while : ; do
+   export IFS=""
+   read -r line || break
+   export IFS="$IFS_save"
+   set -- $line
+   [ "$1" = "$kw" ] && continue
+   echo "$line" >> $tmpfile
+  done ; } < $file
+  export IFS="$IFS_save"
+  mv -f $tmpfile $file
+ done
+ echo "Keyword $kw removed from all inputs."
+ echo
+}
+
+function substitute {
+ local phrase1="$1" phrase2="$2" flist="$3" file n
+ for file in $flist ; do
+  n=$(grep -c "$phrase1" $file)
+  ((n==0)) && { whinge "No matches in file $file - skept" ; continue ; }
+  check_dotold $file
+  sed -e "s/$phrase1/$phrase2/" $file > $tmpfile
+  mv -f $tmpfile $file
+ done
+ echo "Phrase $phrase1 replaced with $phrase2 in all inputs."
+ echo
+}
+
+function change {
+ local kw="$1" kw_new="$2" val_new="$3" blurb_new="$4" flist="$5" file line n
+ local kw_print val blurb IFS_save
+ kw_print="$kw_new" ; [ -z "$kw_new" ] && kw_print="$kw"
+ for file in $flist ; do 
+  n=$(grep -cwE "^$kw" $file)
+  ((n==0)) && { whinge "No matches in file $file - skept" ; continue ; }
+  ((n>1)) && { whinge "$n matches in file $file [!!] - skept" ; continue ; }
+  check_dotold $file
+  [ -f "$tmpfile" ] && rm -f "$tmpfile" >& /dev/null
+  touch $tmpfile
+  IFS_save="$IFS"
+  { while : ; do
+   export IFS=""
+   read -r line || break
+   export IFS="$IFS_save"
+   set -- $line
+   if [ "$1" = "$kw" ] ; then
+    if [ -z "$val_new" ] || [ -z "$blurb_new" ] ; then
+     shift 2 ; val="$1" ; shift
+     while : ; do
+      (($#<1)) && { blurb="(no description)" ; break ; }
+      if [ "$1" = "#*!" ] ; then
+       shift ; blurb="$*" ; break
+      else
+       val="$val $1"
+      fi
+      shift
+     done
+     [ ! -z "$val_new" ] && val="$val_new"
+     [ ! -z "$blurb_new" ] && blurb="$blurb_new"
+    else
+     val="$val_new" ; blurb="$blurb_new"
+    fi
+    printf "$line_format" "$kw_print" "$val" "$blurb" >> $tmpfile
+   else
+    echo "$line" >> $tmpfile
+   fi
+  done ; } < $file
+  export IFS="$IFS_save"
+  mv -f $tmpfile $file
+ done
+ echo "Attributes of $kw changed in all inputs."
+ echo
+}
+
+function add {
+ local kw="$1" val="$2" blurb="$3" rtype="$4" ref="$5" pos="$6" flist="$7"
+ local IFS_save file n refline there_yet
+ [ "$reftype" = section ] && refline="# $ref"
+ for file in $flist ; do
+  n=$(grep -cwE "^$kw" $file)
+  ((n>0)) && { whinge "$kw already in file $file - skept" ; continue ; }
+  case "$reftype" in
+  section) n=$(grep -cwE "^$refline" $file) ;;
+  keyword) n=$(grep -cwE "^$ref" $file) ;;
+  esac
+  ((n==0)) && { whinge "No matches for $ref in file $file - skept" ; continue; }
+  ((n>1)) && { whinge "$n matches for $ref in file $file - skept" ; continue ; }
+  check_dotold $file
+  [ -f "$tmpfile" ] && rm -f "$tmpfile" >& /dev/null
+  touch $tmpfile
+  IFS_save="$IFS" ; there_yet=0
+  { while : ; do
+   export IFS=""
+   read -r line || break
+   export IFS="$IFS_save"
+   case "$reftype" in
+   section)
+    case $there_yet in
+    0) # looking for reference
+     if [ "$line" = "$refline" ] ; then
+      case "$pos" in
+      top)
+       echo "$line" >> $tmpfile
+       printf "$line_format" "$kw" "$val" "$blurb" >> $tmpfile
+       there_yet=2 ;;
+      bottom)
+       echo "$line" >> $tmpfile
+       there_yet=1 ;;
+      esac
+     else
+      echo "$line" >> $tmpfile
+     fi ;;
+    1) # in section, looking for gap
+     if [ -z "$line" ] || [ "${line:0:1}" = " " ] ; then
+      printf "$line_format" "$kw" "$val" "$blurb" >> $tmpfile
+      echo >> $tmpfile
+      there_yet=2
+     else
+      echo "$line" >> $tmpfile
+     fi ;;
+    *) echo "$line" >> $tmpfile ;; # keyword already written
+    esac ;;
+   keyword)
+    set -- $line
+    case $there_yet in
+    0) # looking for reference keyword
+     if [ "$1" = "$ref" ] ; then
+      case "$pos" in
+      above)
+       printf "$line_format" "$kw" "$val" "$blurb" >> $tmpfile
+       echo "$line" >> $tmpfile ;;
+      below)
+       echo "$line" >> $tmpfile
+       printf "$line_format" "$kw" "$val" "$blurb" >> $tmpfile ;;
+      esac
+      there_yet=2
+     else
+      echo "$line" >> $tmpfile
+     fi ;;
+    *) echo "$line" >> $tmpfile ;; # keyword already written
+    esac ;;
+   esac
+  done ; } < $file
+  export IFS="$IFS_save"
+  mv -f $tmpfile $file
+ done
+ echo "Keyword $kw with default $val added to all inputs."
+ echo
+}
+### END FUNCTIONS ###
+
+# Read command line
+verbosity=0 ; dotold=0 ; file_list=""
+while (($#>0)); do
+ case "$1" in
+ -v) verbosity=1 ;;
+ -m) dotold=1 ;;
+ -*) echo "Usage: modify_inputs [-v] [-m] [<list-of-input-files>]" ; exit ;;
+ *) file_list="$file_list $1" ;;
+ esac
+ shift
+done
+[ -z "$file_list" ] && file_list="$(find . -name input)"
+# Try to put temp file in local filesystem
+if [ ! -z "$QMC_TMPDIR" ] ; then
+ [ -d "$QMC_TMPDIR" ] && tmpfile="$QMC_TMPDIR/.tmp_$$"
+elif [ ! -z "$TMPDIR" ] ; then
+ [ -d "$TMPDIR" ] && tmpfile="$TMPDIR/.tmp_$$"
+else
+ tmpfile=".tmp_$$"
+fi
+
+opt1="Change a keyword's name, default value and/or descriptive blurb,"
+opt2="Delete a keyword,"
+opt3="Add a keyword,"
+opt4="Substitute a string,"
+opt5="Exit."
+
+# Present menu
+select option in "$opt1" "$opt2" "$opt3" "$opt4" "$opt5" ; do
+ case "$option" in
+ "$opt1")
+  echo "Enter the keyword whose attributes you want to change."
+  read keyword ; [ -z "$keyword" ] && continue
+  echo "Enter the new name for $keyword (blank = unchanged)."
+  read new_name
+  echo "Enter the new default value for $keyword (blank = unchanged)."
+  read keyword_default
+  echo "Enter the new descriptive blurb for $keyword (blank = unchanged)."
+  read keyword_blurb
+  ((${#keyword_blurb}>40)) && keyword_blurb="${keyword_blurb:0:37}..."
+  change "$keyword" "$new_name" "$keyword_default" "$keyword_blurb"\
+   "$file_list" ;;
+ "$opt2")
+  echo "Enter the keyword to delete."
+  read keyword ; [ -z "$keyword" ] && continue
+  delete "$keyword" "$file_list" ;;
+ "$opt3")
+  echo "Enter the name of the new keyword."
+  read keyword ; [ -z "$keyword" ] && continue
+  echo "Enter the default value for $keyword."
+  read keyword_default ; [ -z "$keyword_default" ] && continue
+  echo "Enter the descriptive blurb for $keyword."
+  read keyword_blurb ; [ -z "$keyword_blurb" ] && continue
+  ((${#keyword_blurb}>40)) && keyword_blurb="${keyword_blurb:0:37}..."
+  echo "Insert the new keyword..."
+  loc1="...at the top of a section,"
+  loc2="...at the bottom of a section,"
+  loc3="...above another keyword,"
+  loc4="...below another keyword."
+  select location in "$loc1" "$loc2" "$loc3" "$loc4" ; do
+   case "$location" in
+   "$loc1") reftype=section ; position=top ; break ;;
+   "$loc2") reftype=section ; position=bottom ; break ;;
+   "$loc3") reftype=keyword ; position=above ; break ;;
+   "$loc4") reftype=keyword ; position=below ; break ;;
+   *) continue 2 ;;
+   esac
+  done
+  case "$reftype" in
+  section)
+   echo "Which section?"
+   select reference in BASIC "ACCURACY CONTROL" "TRAJECTORY OPTIONS" \
+    "DENSITY OPTIONS" "WAVE FUNCTION" "DEVELOPMENT KEYWORDS" PLOT \
+    "PLOT AXES" "PLOT APPEARANCE" ; do
+    case "$reference" in
+    BASIC|"ACCURACY CONTROL"|"TRAJECTORY OPTIONS"|"DENSITY OPTIONS"|\
+    "WAVE FUNCTION"|"DEVELOPMENT KEYWORDS"|PLOT|"PLOT AXES"|\
+    "PLOT APPEARANCE") break ;;
+    *) continue 2 ;;
+    esac
+   done ;;
+  keyword)
+   echo "Which keyword?"
+   read reference ; [ -z "$reference" ] && continue ;;
+  esac
+  add "$keyword" "$keyword_default" "$keyword_blurb" "$reftype" "$reference"\
+   "$position" "$file_list" ;;
+ "$opt4")
+  echo "Enter the phrase to be replaced."
+  read old_phrase ; [ -z "$old_phrase" ] && continue
+  echo "Enter the phrase to replace it with."
+  read new_phrase ; [ -z "$new_phrase" ] && continue
+  substitute "$old_phrase" "$new_phrase" "$file_list" ;;
+ "") : ;;
+ *) exit ;;
+ esac
+done 

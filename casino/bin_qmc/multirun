@@ -1,0 +1,392 @@
+#!/bin/bash
+#############################################################################
+# MultiRun:                                                                 #
+# Script to do multiple CASINO runs in sequence changing any input variable #
+# after each run.                                                           #
+#                                                                           #
+# 05.2004 v0.1  Initial version                                             #
+# 07.2004 v0.15 Ability to pack sets of parameter values together, e.g.     #
+#               do varmin runs with nmove & nwrcon = 1000, 2000, 4000...    #
+# 07.2004 v0.16 Improved error checking, specially in -fit and -fin modes.  #
+#               Added -check option.                                        #
+# 10.2005 v0.20 Minor update for CASINO v2.0                                #
+# 11.2005 v0.30 Style update. Added ability to read from row/column of a    #
+#               file.                                                       #
+#                                                                           #
+# PLR 05.2004                                                               #
+#############################################################################
+# User definable options
+show_colours=1
+checkmode=0
+logfile="multirun.log"
+basedir="../../"
+infile=".input.file"
+infiletemp=".input.temp"
+maxruns=500
+# Internal vars.
+progname="MultiRun v0.30"
+progcomm="multirun"
+# Colour definition
+default="\033[0m" ; black="\033[30m" ; red="\033[31m"
+green="\033[32m"  ; brown="\033[33m" ; blue="\033[34m"
+purple="\033[35m" ; cyan="\033[36m"  ; grey="\033[37m"
+# Colour assignment
+if ((show_colours==1)) ; then
+ plain=$default ; comment=$brown ; correct=$green
+ failure=$red   ; result=$purple ; e="-e"
+else
+ plain=""       ; comment=""     ; correct=""
+ failure=""     ; result=""      ; e=""
+fi
+
+# Title
+echo
+echo $e "$comment$progname$plain: script do several CASINO runs\
+ changing any input params."
+echo $e "${comment}Usage$plain: $progcomm [--check] [options] -- <param> <list>"
+echo "       [<separator> <param> <list> [...]]"
+echo
+echo $e "${comment}Notes$plain: <list> can be given in any of these forms:"
+echo "         -l <list-of-values>"
+echo "         -f <filename> <column> [<skip-lines> [<length-lines>]]"
+echo "         -fit <from> <+|-><increment> <to>"
+echo "         -fin <from> <+|-><increment> <num-values>"
+echo
+echo "       <separator> can be: + (link values) or - (do not link values)"
+echo
+echo "       --check : build list of runs and print, but do not run"
+echo
+
+############################# FUNCTIONS #############################
+function field {
+ # Output field $1 of $2-$n
+ local i=0 n=$1
+ while ((i<n)) ; do i=$(($i+1)) ; shift ; done ; echo $1
+}
+
+function check_number_N {
+ # Check whether $1 is a positive integer
+ local num="$1" size i=0 c
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in 1|2|3|4|5|6|7|8|9|0) continue ;; esac ; return 1
+ done
+ return 0
+}
+
+function check_number_Z {
+ # Check whether $1 is an integer
+ local num="$1" size i=0 c isfirst=1 anyfigure=0
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in
+  1|2|3|4|5|6|7|8|9|0) isfirst=0 ; anyfigure=1 ;;
+  +|-) ((isfirst==0)) && return 1 ; isfirst=0 ;;
+  *) return 1 ;;
+  esac
+ done
+ ((anyfigure==0)) && return 1 || return 0
+}
+
+function check_number_R {
+ # Check whether $1 is a real number (in Fortran format)
+ local num="$1" size i=0 c isfirst=1 dotfound=0 inexp=0 anyfigure=0
+ size=${#num}
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in
+  +|-) ((isfirst==0)) && return 1 ; isfirst=0 ;;
+  d|D|e|E) ((inexp==1)) || ((anyfigure==0)) && return 1
+   inexp=1 ; isfirst=1 ; anyfigure=0 ;;
+  .) ((dotfound==1)) || ((inexp==1)) && return 1 ; isfirst=0 ; dotfound=1 ;;
+  1|2|3|4|5|6|7|8|9|0) isfirst=0 ; anyfigure=1 ;;
+  *) return 1 ;;
+  esac
+ done
+ ((anyfigure==0)) && return 1 || return 0
+}
+
+function find_string {
+ # Find $1 in $2-$n
+ local string="$1"
+ shift
+ while (($#>0)) ; do [ "$string" = "$1" ] && return 0 ; shift ; done
+ return 1
+}
+
+function errstop {
+ # Print error message and exit
+ local err_msg="$*"
+ echo ; echo $e "${failure}ERROR$plain: $err_msg" ; echo ; exit 1
+}
+########################### END FUNCTIONS ###########################
+
+# For people running the script to see the usage, etc, stop here
+# without reporting an error.
+(($#==0)) && { echo "Empty command line. Quitting." ; echo ; exit ; }
+# Possible options to runqmc are contained in allowed_options.
+# A "%" after an option name means that it requires a numerical argument.
+allowed_options="-d --debug --opt --dev --prof -p% --nproc% -f -P -B"
+scriptopts="" ; sep_found=0
+while (($#>0)) ; do
+ case "$1" in
+ --check) checkmode=1 ; logfile="/dev/null" ; basedir="" ; shift ;;
+ --) sep_found=1 ; shift ; break ;;
+ *)
+  curropt=$1
+  if ! find_string $curropt $allowed_options ; then
+   if ! find_string "$curropt%" $allowed_options ; then
+    errstop "script option '$curropt' not recognized."
+   else
+    shift
+    (($#==0)) && errstop\
+     "script option '$curropt' requires a numerical argument."
+    currnum=$1
+    check_number_N $currnum || errstop\
+     "script option '$curropt' requires a numerical argument."
+    curropt="$curropt $currnum"
+   fi
+  fi
+  scriptopts="$scriptopts $curropt" ; shift ;;
+ esac
+done
+# Found '--'?
+((sep_found==0)) && errstop "separator '--' not present."
+# Command to run:
+cmdline="runqmc $scriptopts"
+
+# Check for existance of input file and presence of params
+[ ! -e input ] && errstop "file 'input' not found in current directory."
+(($#==0)) && errstop "no parameters specified after '--'."
+
+# Continue parse of command line
+echo $e -n "${comment}Building list$plain..."
+n=0 ; indx[1]=0 ; islinked=0 ; base_index=0
+while : ; do
+ n=$((n+1)) ; p=$1 ; shift ; param[$n]=$p
+ # Check that we don't have the same parameter twice
+ j=0 ; while ((j<n-1)) ; do j=$((j+1))
+  [ ${param[$j]} = $p ] && errstop "'$p' appears twice in command line."
+ done
+ # Check param exists in input file and is at beggining of line
+ grep -we "^$p" input >& /dev/null\
+  || errstop "'$p' is not a parameter in file 'input'."
+ # Read list type; read/build list
+ (($#==0)) && errstop "list of values not supplied for '$p'."
+ ltype=$1 ; shift
+
+ # Process list
+ ival=0 ; index=$base_index
+ case $ltype in
+
+ -l) # Command-line list
+  (($#<1)) && errstop "bad specification for -l list type."
+  while (($#>0)) ; do
+   case "$1" in
+   +|-) break ;;
+   *) ival=$((ival+1)) ; index=$((index+1)) ; val[$index]=$1 ; shift ;;
+   esac
+  done ;;
+
+ -f) # List in column of a file
+  (($#<2)) && errstop "bad specification for -f list type."
+  filename=$1 ; column=$2 ; shift 2
+  [ ! -e "$filename" ] && errstop "file '$filename' does not exist."
+  check_number_N $column || errstop "bad specification for -f list type."
+  skip=0 ; length=0
+  if (($#>0)) ; then
+   case $1 in
+   +|-) : ;;
+   *) skip=$1 ; shift ;;
+   esac
+   check_number_N $skip || errstop "bad 'skip' value for -f"
+   if (($#>0)) ; then
+    case $1 in
+    +|-) : ;;
+    *) length=$1 ; shift ;;
+    esac
+    check_number_N $length || errstop "bad 'length' value for -f"
+   fi
+  fi
+  iline=0
+  { while : ; do
+   read line || break
+   iline=$((iline+1)) ; ((iline<=skip)) && continue
+   ival=$((ival+1)) ; index=$((index+1)) ; val[$index]=$(field $column $line)
+   ((length>0)) && ((ival>=length)) && break
+  done ; } < $filename ;;
+
+ -fit) # From/increment/to
+  (($#<3)) && errstop "bad specification for -fit list type."
+  currval=$1 ; incr=$2 ; aimval=$3 ; shift 3
+  ival=$((ival+1)) ; index=$((index+1)) ; val[$index]=$currval
+  # Errorchecks
+  check_number_R "$currval" || errstop "'from' value incorrect for '$p'."
+  case "${incr:0:1}" in
+  +) comp="< $aimval" ;;
+  -) comp="> $aimval" ;;
+  *) errstop "'increment' value incorrect for '$p'. Must begin with + or -." ;;
+  esac
+  check_number_R "${incr:1}" || errstop "'increment' value incorrect for '$p'."
+  bcscale="scale=scale(${incr:1})"
+  check_number_R "$aimval" || errstop "'to' value incorrect for '$p'."
+  test1=$(echo "$bcscale ; $currval $incr == $currval" | bc)
+  ((test1==1)) && errstop "increment is zero for '$p'."
+  test2=$(echo "$bcscale ; ($aimval - $currval)/(0 $incr) > $maxruns" | bc)
+  ((test2==1))\
+   && errstop "increment is too small for '$p'. No. of runs > $maxruns."
+  # Errorchecked. Generate values
+  while (($(echo "$currval $comp" | bc)==1)) ; do
+   ival=$((ival+1)) ; index=$((index+1))
+   currval=$(echo "$bcscale ; $currval $incr" | bc)
+   val[$index]=$currval
+  done ;;
+
+ -fin) # From/increment/no-values
+  currval=$1 ; incr=$2 ; totval=$3 ; shift 3
+  ival=$((ival+1)) ; index=$((index+1)) ; val[$index]=$currval
+  # Errorchecks
+  check_number_R "$currval" || errstop "'from' value incorrect for '$p'."
+  case "${incr:0:1}" in
+  +|-) : ;;
+  *) errstop "'increment' value incorrect for '$p'. Must begin with + or -." ;;
+  esac
+  check_number_R "${incr:1}" || errstop "'increment' value incorrect for '$p'."
+  bcscale="scale=scale(${incr:1})"
+  check_number_N "$totval" || ((totval==0))\
+   || errstop "nuber of values incorrect for '$p'."
+  test1=$(echo "$bcscale ; $currval $incr == $currval" | bc)
+  ((test1==1)) && errstop "increment is zero for '$p'."
+  # Errorchecked. Generate values.
+  while ((ival<totval)) ; do ival=$((ival+1)) ; index=$((index+1))
+   currval=$(echo "$bcscale ; $currval $incr" | bc)
+   val[$index]=$currval
+  done ;;
+
+ *) errstop "unknown list type identifier '$ltype'." ;;
+
+ esac
+
+ ((ival==0)) && errstop "parameter '$p' has been assigned no values."
+ nval[$n]=$ival ; linkp[$n]=$islinked ; indx[$((n+1))]=$index
+ base_index=$index
+ ((islinked==1)) && ((ival!=${nval[$((n-1))]})) && errstop\
+  "'${param[$((n-1))]}' linked to '$p' but number of values is different."
+ (($#==0)) && break
+ case "$1" in
+ -) islinked=0 ; shift ;;
+ +) islinked=1 ; shift ;;
+ *) errstop "unknown separator '$1'. Should be + or -."
+ esac
+done
+echo $e "$correct [Ok]$plain"
+
+# Print number of runs to be executed, meanwhile set-up first calculation id's
+# NB, by id's I mean that param #np takes value #id.
+nruns=1 ; np=1
+while ((np<=n)) ; do
+ # No. of runs = product of number of values for all independent params
+ ((${linkp[$np]}==0)) && nruns=$((nruns*${nval[$np]}))
+ parid[$np]=1 ; np=$((np+1))
+done
+parid[1]=0
+echo $e "${comment}Total number of runs$plain: $nruns"
+((nruns>maxruns)) && errstop "too many runs."
+
+# If everything alright at this point, begin
+echo $e "${comment}Run command$plain: $cmdline"
+echo
+if ((checkmode==0)) ; then
+ [ -e io ] && errstop "Directory 'io' already exists."
+ [ -e $logfile ] && errstop "File '$logfile' already exists."
+ touch $logfile
+ echo " ============================" >> $logfile
+ echo " Stdout/stderr log for runqmc" >> $logfile
+ echo " ============================" >> $logfile
+ echo                                 >> $logfile
+ echo " Batch job started: $(date)"   >> $logfile
+ echo                                 >> $logfile
+ echo " Run command: $cmdline"        >> $logfile
+ echo                                 >> $logfile
+ mkdir io ; cd io
+fi
+
+nr=0
+while ((nr<nruns)) ; do nr=$((nr+1))
+ if ((checkmode==0)) ; then
+  [ -d "$nr" ] && rm -rf $nr >& /dev/null
+  mkdir "$nr" ; cd "$nr"
+  for file in "$basedir"* ; do
+   case "$file" in
+   *.data|*.in|*.casl) : ;;
+   *) continue ;;
+   esac
+   ln -s "$file" .
+  done
+  cp "$basedir"input "$infile"
+ fi
+ echo $e -n "${result}Set of parameters #$nr/$nruns$plain:"
+ echo " Running in io/$nr" >> $basedir$logfile
+ echo " -----------------" >> $basedir$logfile
+
+ # Set up parameters for run
+ np=1 ; iddone=0
+ while ((iddone==0)) ; do
+  # We have to be able to generate successive sets of parameters,
+  # involving things like ...,15,16,21,22,... or ...,1222,1233,2111,
+  # ..., each digit representing a parameter id.
+  if ((${linkp[$((np))]}==0)) ; then
+   # Increase parameter value id
+   parid[$np]=$((${parid[$np]}+1))
+   if ((${parid[$np]}>${nval[$np]})) ; then
+    # If id>idmax, set id=1 and change the next one
+    parid[$np]=1 ; np=$((np+1))
+   else
+    # Otherwise, we are done
+    iddone=1 ; np=$((np+1))
+   fi
+  fi
+  # Check whether params are linked to the one just changed
+  if ((np<=n)) ; then
+   while ((np<=n)) && ((${linkp[$((np))]}==1)) ; do
+    # Param is linked, so use the id of the previous and jump to the next
+    parid[$np]=$((${parid[$(($np-1))]})) ; np=$((np+1))
+   done
+  fi
+ done
+
+ np=0
+ while ((np<n)) ; do
+  np=$((np+1)) ; index=$((${indx[$np]}+${parid[$np]}))
+  p=${param[$np]} ; v=${val[$index]}
+  # Print to stdout
+  ((np%3==1)) && echo
+  echo $e -n "${comment}$p$plain : $v   "
+  # Print to logfile
+  echo " $p = $v" >> $basedir$logfile
+  # Modify input file
+  if ((checkmode==0)) ; then
+   sedarg="s/^$p .*/$p \: $v/"
+   sed "$sedarg" "$infile" > "$infiletemp" ; mv -f "$infiletemp" "$infile"
+  fi
+ done
+ ((checkmode==0)) && mv -f "$infile" input
+ echo ; echo >> "$basedir$logfile"
+
+ # Run with stderr & stdout redirected to logfile
+ echo $e -n "${comment}Running$plain..."
+ echo "Stderr/stdout log begin" >> "$basedir$logfile"
+ echo "-----------------------" >> "$basedir$logfile"
+ ((checkmode==1)) && echo $e -n "$comment Testing only. Skipping run$plain..."\
+  || $cmdline >> "$basedir$logfile" 2>&1
+ echo $e "$green [Ok]$plain"
+ echo
+ echo "-----------------------" >> "$basedir$logfile"
+ echo "Stderr/stdout log end"   >> "$basedir$logfile"
+ echo >> "$basedir$logfile"
+ ((checkmode==0)) && cd ..
+done
+
+((checkmode==0)) && cd ..
+echo $e "${result}Batch job ended$plain" ; echo
+
+echo " Batch job ended: $(date)" >> "$logfile"

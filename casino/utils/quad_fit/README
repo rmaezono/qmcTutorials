@@ -1,0 +1,13 @@
+!-------------------------------------------------------------------------!
+! QUAD_FIT by Neil Drummond, Nov 2002.                                    !
+!                                                                         !
+! Program for carrying out a quadratic fit to a set of data, in order     !
+! to find a local extremum.                                               !
+!                                                                         !
+! Data file should consist of two or three columns of data, which         !
+! are the (x,y) or (x,y +/- sigma_y) points to which the fit is           !
+! made. If two columns are given then the program will perform a least-   !
+! squares fit to the (x,y) data; if three columns are given then a        !
+! chi^2 fit to the (x,y +/- sigma_y) will be performed.                   !
+!-------------------------------------------------------------------------!
+

@@ -1,0 +1,2198 @@
+#!/bin/bash
+###################################################################
+# rna: multi-purpose tool for people running jobs on a network of #
+# GNU/Linux workstations.  Its main use is to scan the computers  #
+# in a pre-configured list and give an estimation of how much of  #
+# the CPU can be used if a job is submitted on that computer      #
+# running on all of its cores.                                    #
+#                                                                 #
+# 12.2009 v1.00 Renamed as rna. Overhaul.                         #
+# 09.2009 v0.97 Fix speed for machines with cpufreq on, and fix   #
+#               calculation of CPU usage for SMP machines.        #
+# 02.2009 v0.96 Filter spurious output when logging in to dying   #
+#               machines.                                         #
+# 11.2007 v0.95 Use GNU netcat instead of ping when available.    #
+# 08.2007 v0.92 Use .casinorc to store computer list.             #
+# 02.2007 v0.91 Support for SMP machines. Detect which of rsh/ssh #
+#               can be used for each machine.                     #
+# 11.2006 v0.90 Use hostname patterns instead of fixed names, so  #
+#               this script can be easily used outside TCM. Added #
+#               a NETWORK section to the .casinorc file.          #
+# 11.2006 v0.60 Parallelized search and list-update. This makes   #
+#               wherejob run in less than 3 seconds (!).          #
+# 06.2006 v0.50 Included alphas in search. Added -mem, -speed,    #
+#               -alphas|-pcs|-all and -v options. Sped up the     #
+#               execution (largely) at some points.               #
+# 08.2005 v0.30 Incorporated scripts update_pclist and pcinfo as  #
+#               options '-update' and '-info' respectively.       #
+# 04.2005 v0.20 Removed use of tmpfile. Inlined all external apps #
+#               for speed and independence. Global overhaul.      #
+# 11.2004 v0.14 Take into account if computer is used by oneself. #
+# 11.2004 v0.13 Fixed error in guessing best available pc.        #
+# 05.2004 v0.12 Using rsh instead of ssh, fast and passwordless.  #
+# 04.2004 v0.11 Bugfix for alphas.                                #
+# 04.2004 v0.10 Initial version (PLR)                             #
+#                                                                 #
+# PLR 04.2004                                                     #
+###################################################################
+
+############################## MISC FUNCTIONS ##############################
+unset_colours() {
+ inusecol="" ; freecol="" ; listcol=""
+ infocol=""  ; failcol="" ; cpucol=""
+ speedcol="" ; memcol=""  ; titlecol=""
+ corecol=""
+}
+
+check_number_N() {
+ # Check whether $1 is a positive integer
+ local num=$1 size i=0 c
+ size=${#num}
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in 1|2|3|4|5|6|7|8|9|0) ;; *) return 1 ;; esac
+ done
+}
+
+# Output field $1 of $2-$n
+field() { local i=$1 ; shift ; echo ${@:$i:1} ; }
+
+# Output number of fields in $*
+nfield() { echo $# ; }
+
+in_string() {
+ # Determine whether $1 has any of the substrings $2,$3,...,$n
+ local string=$1 sstr
+ while (($#>1)) ; do shift ; [[ "$string" == *$1* ]] && return 0 ; done
+ return 1
+}
+
+in_list() {
+ # Determine whether $1 is one of $2...$n
+ local string=$1
+ while (($#>1)) ; do shift ; [ "$string" = "$1" ] && return 0 ; done ; return 1
+}
+
+which_field() {
+ # Output the field number of the first instance of string $1 in $2-$n, or 0
+ # if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+which_nth_field() {
+ # Output the field number of the $1-th instance of string $2 in $3-$n, or 0
+ # if there is no n-th instance.
+ local i=0 n=$1 str="$2" j=0
+ shift
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && j=$((j+1))
+  ((j==n)) && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+rm_field() {
+ # Remove field $1 from $2-$n
+ local output="" match="$1" f
+ shift
+ for f in "$@" ; do [ "$f" = "$match" ] || output="$output $f" ; done
+ echo "$output"
+}
+
+next_field() {
+ # Output field after $1 in $2-$n, or nothing.
+ local str="$1"
+ while (($#>2)); do shift; [ "$1" = "$str" ] && { echo "$2" ; return ; } ; done
+}
+
+next_letter() {
+ # Give letter following $1 (e.g. a->b, p->q, z->a...)
+ local c="$1"
+ case "$c" in
+ a) c=b ;; b) c=c ;; c) c=d ;; d) c=e ;; e) c=f ;; f) c=g ;; g) c=h ;;
+ h) c=i ;; i) c=j ;; j) c=k ;; k) c=l ;; l) c=m ;; m) c=n ;; n) c=o ;;
+ o) c=p ;; p) c=q ;; q) c=r ;; r) c=s ;; s) c=t ;; t) c=u ;; u) c=v ;;
+ v) c=w ;; w) c=x ;; x) c=y ;; y) c=z ;; z) c=a ;;
+ A) c=B ;; B) c=C ;; C) c=D ;; D) c=E ;; E) c=F ;; F) c=G ;; G) c=H ;;
+ H) c=I ;; I) c=J ;; J) c=K ;; K) c=L ;; L) c=M ;; M) c=N ;; N) c=O ;;
+ O) c=P ;; P) c=Q ;; Q) c=R ;; R) c=S ;; S) c=T ;; T) c=U ;; U) c=V ;;
+ V) c=W ;; W) c=X ;; X) c=Y ;; Y) c=Z ;; Z) c=A ;;
+ *) c=a ;;
+ esac
+ echo "$c"
+}
+
+uncap() {
+ # Turn upper case into lower case in $1.
+ local i string out="" n c
+ i=0 ; string="$1" ; n=${#string}
+ while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+  case "$c" in
+  A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+  H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+  O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+  V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;;
+  esac
+  out="$out$c"
+ done
+ echo "$out"
+}
+
+cap() {
+ # Turn lower case into upper case in $1.
+ local i string out="" n c
+ i=0 ; string="$1" ; n=${#string}
+ while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+  case "$c" in
+  a) c=A ;; b) c=B ;; c) c=C ;; d) c=D ;; e) c=E ;; f) c=F ;; g) c=G ;;
+  h) c=H ;; i) c=I ;; j) c=J ;; k) c=K ;; l) c=L ;; m) c=M ;; n) c=N ;;
+  o) c=O ;; p) c=P ;; q) c=Q ;; r) c=R ;; s) c=S ;; t) c=T ;; u) c=U ;;
+  v) c=V ;; w) c=W ;; x) c=X ;; y) c=Y ;; z) c=Z ;;
+  esac
+  out="$out$c"
+ done
+ echo "$out"
+}
+
+repeat() {
+ # Print $2 $1 times, or the length of string $1 if NaN.
+ local i=0 n
+ (($#!=2)) && return ; n="$1" ; check_number_N "$n" || n=${#n}
+ while ((i<n)) ; do i=$((i+1)) ; echo -n "$2" ; done
+}
+
+errstop() {
+ local message=$1
+ # Print error message and stop.
+ case "$quiet" in
+ 1) exit 1 ;; *) echo "Error: $message$el" ; exit 1 ;;
+ esac
+}
+############################ END MISC FUNCTIONS ############################
+
+########################## Functions ##########################
+initialize() {
+ # Setup the utility's internal workings
+ local maxfile IFS_save
+ # Set script name and version.
+ script_name=${0##*/}
+ SCRIPT_NAME=$(cap $script_name)
+ script_version=1.00
+ # Define ping command. Use netcat if possible since it is really a port
+ # scanner and may be more accurate in certain NAT/firewall configurations.
+ pingtimeout=3
+ if ! type -p netcat >& /dev/null ; then
+  pingcomm="ping -c 1 -w $pingtimeout &&HOST&&"
+ else
+  pingcomm="netcat -w $pingtimeout -z &&HOST&& &&PORT&&"
+ fi
+ # Define ssh command.
+ ssh_nobatch="ssh -qqx -o StrictHostKeyChecking=no\
+ -o UserKnownHostsFile=/dev/null"
+ ssh="$ssh_nobatch -o BatchMode=yes"
+ scp="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+ # Select temporary directory.  This is just for placing a named pipe used
+ # during network scans; no data is really written there.
+ tmpdir="$TMPDIR" ; [ -z "$tmpdir" ] && tmpdir="$HOME"
+ # Decide how much to fork.
+ maxfork=$(($(ulimit -u)-$(ps -u $USER 2> /dev/null | grep -c "")))
+ check_number_N "$maxfork" || maxfork=1024
+ ((maxfork<1)) && maxfork=1
+ maxfile=$(($(ulimit -n)/2))
+ check_number_N "$maxfile" || maxfile=1024
+ ((maxfile<1)) && maxfile=1
+ ((maxfile<maxfork)) && maxfork=$maxfile
+ # Terminal control. Read all in a single call to tput.
+ [[ "$TERM" == xterm-* ]] && export TERM=xterm
+ if tput -S < /dev/null >& /dev/null ; then
+  {
+   IFS_save="$IFS"
+   IFS=$(echo -e "\t")
+   read el cr default black blue green cyan red purple brown grey term_columns
+   IFS="$IFS_save"
+  } < <(echo -e "el \nht\n cr \nht\n sgr0 \nht\n setf 0 \nht\n setf 1 \nht\n\
+   setf 2 \nht\n setf 3 \nht\n setf 4 \nht\n setf 5 \nht\n setf 6 \nht\n\
+   setf 7 \nht\n cols \n" | tput -S 2>/dev/null)
+ else
+  el=$(tput el 2>/dev/null)
+  cr=$(tput cr 2>/dev/null)
+  term_columns=$(tput cols 2>/dev/null)
+ fi
+ [ -z "$term_columns" ] && term_columns=80
+ [ -z "$el" ] && el=$(tput ce 2>/dev/null)
+ # Colour assignment
+ inusecol=$red   ; freecol=$green ; listcol=$cyan
+ infocol=$purple ; failcol=$red   ; cpucol=$green
+ speedcol=$green ; memcol=$green  ; titlecol=$brown
+ corecol=$red
+ # List line format. NB, last field must be %s regardless of length
+ list_format='%-16s %-4s %-8s %-8s %-8s %-16s %s'
+ # Option file.
+ option_file_name=.${script_name}rc
+ option_file=$HOME/$option_file_name
+ option_file_section="NETWORK"
+ option_file_list="NETWORK LIST"
+ # Load options from file, or set to defaults.
+ if ! load_options ; then
+  # By default, we are in TCM
+  network_name=TCM ; nclasses=2
+  name_pattern[1]="pc&&n,0,99&&"
+  nick_prepend[1]=""
+  class_fs[1]=tcm
+  login_name[1]="$USER"
+  ssh_port[1]=22
+  name_pattern[2]="s&&n,0,10&&"
+  nick_prepend[2]="s"
+  class_fs[2]=tcm
+  login_name[2]="$USER"
+  ssh_port[2]=22
+  nice_value=15
+ fi
+}
+
+load_options() {
+ local line i empty_nick
+ [ -e $option_file ] || return 1
+ { while : ; do
+  read line || return 1
+  [ "$line" = "SECTION $option_file_section" ] && break
+ done
+ while : ; do
+  read line || return 1
+  [ "$line" = "END SECTION $option_file_section" ] && break
+  set -- $line
+  case "$1" in
+  network_name) network_name="${@:3}" ;;
+  nclasses) nclasses="$3" ;;
+  name_pattern) name_pattern[$2]="$4" ;;
+  nick_prepend) nick_prepend[$2]="$4" ;;
+  class_fs) class_fs[$2]="$4" ;;
+  login_name) login_name[$2]="$4" ;;
+  ssh_port) ssh_port[$2]="$4" ;;
+  nice_value) nice_value="$3" ;;
+  esac
+ done ; } <$option_file
+ check_number_N "$nclasses" && ((nclasses>0)) || return 1
+ i=0 ; empty_nick=0
+ while ((i<nclasses)) ; do i=$((i+1))
+  [ -z "${name_pattern[$i]}" ] && return 1
+  [ -z "${nick_prepend[$i]}" ] && empty_nick=$((empty_nick+1))
+  ((empty_nick>1)) && return 1
+  [ -z "${login_name[$i]}" ] && login_name[$i]=$USER
+  [ -z "${ssh_port[$i]}" ] && ssh_port[$i]=22
+ done
+ [ -z "$network_name" ] && network_name="unknown"
+ check_number_N "$nice_value" && ((nice_value>=-20)) && ((nice_value<=19))\
+  || nice_value=15
+ return 0
+}
+
+save_options() {
+ local tempsave="${option_file}_temp_$$" line options_exist=0 iclass
+ [ -e "$option_file" ] && options_exist=1
+ [ -e "$tempsave" ] && rm -f "$tempsave" ; touch "$tempsave"
+ # Copy stuff before section
+ ((options_exist==1)) && cat_partial "" "SECTION $option_file_section"\
+  "$option_file" >> "$tempsave"
+ # Dump options
+ echo "SECTION $option_file_section" >> "$tempsave"
+ echo "network_name = $network_name" >> "$tempsave"
+ echo "nclasses = $nclasses" >> "$tempsave"
+ iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+  echo "name_pattern $iclass = ${name_pattern[$iclass]}" >> "$tempsave"
+  echo "nick_prepend $iclass = ${nick_prepend[$iclass]}" >> "$tempsave"
+  echo "class_fs $iclass = ${class_fs[$iclass]}" >> "$tempsave"
+  echo "login_name $iclass = ${login_name[$iclass]}" >> "$tempsave"
+  echo "ssh_port $iclass = ${ssh_port[$iclass]}" >> "$tempsave"
+ done
+ echo "nice_value = $nice_value" >> "$tempsave"
+ echo "END SECTION $option_file_section" >> "$tempsave"
+ # Copy stuff after section
+ ((options_exist==1)) && cat_partial "END SECTION $option_file_section" ""\
+  "$option_file" >> "$tempsave"
+ # Replace options file
+ mv -f "$tempsave" "$option_file"
+}
+
+load_list() {
+ # Read computer list and store fields.
+ local i=0 line
+ [ -e "$option_file" ] || return 1
+ # Initialize list
+ set -- $list_of_nicknames
+ while ((i<nlistitems)) ; do i=$((i+1))
+  cid[$i]=$1 ; speed[$i]=-  ; eff_speed[$i]=-    ; mem[$i]=-
+  cpu[$i]=-  ; ncores[$i]=- ; openclosed[$i]=-
+  shift
+ done
+ { while : ; do
+  read line || return 1
+  [ "$line" = "SECTION $option_file_list" ] && break
+ done
+ while : ; do
+  read line || return 1
+  [ "$line" = "END SECTION $option_file_list" ] && break
+  set -- $line ; i=$(which_field $1 $list_of_nicknames) ; ((i==0)) && return 1
+  cid[$i]="$1" ; ncores[$i]="$2" ; speed[$i]="$3" ; eff_speed[$i]="$4"
+  mem[$i]="$5" ; cpu[$i]="$6"    ; openclosed[$i]="$7"
+  [ "$2" != - ] && ! check_number_N "$2" && return 1
+  [ "$3" != - ] && ! check_number_N "$3" && return 1
+  [ "$4" != - ] && ! check_number_N "$4" && return 1
+  [ "$5" != - ] && ! check_number_N "$5" && return 1
+  case "$7" in OPEN|CLOSED|NOLOGIN) : ;; *) return 1 ;; esac
+ done ; } <"$option_file"
+}
+
+save_list() {
+ local tempsave="${option_file}_temp_$$" line options_exist=0
+ [ -e "$option_file" ] && options_exist=1
+ [ -e "$tempsave" ] && rm -f "$tempsave" ; touch "$tempsave"
+ # Copy stuff before section
+ ((options_exist==1)) && cat_partial "" "SECTION $option_file_list"\
+  "$option_file" >> "$tempsave"
+ # Dump options
+ echo "SECTION $option_file_list" >> "$tempsave"
+ i=0
+ while ((i<nlistitems)) ; do i=$((i+1))
+  line="${newline[$i]}" ; [ "$(field 7 $line)" = - ] && continue
+  echo "$line" >> "$tempsave"
+ done
+ echo "END SECTION $option_file_list" >> "$tempsave"
+ # Copy stuff after section
+ ((options_exist==1)) && cat_partial "END SECTION $option_file_list" ""\
+  "$option_file" >> "$tempsave"
+ # Replace options file
+ mv -f "$tempsave" "$option_file"
+}
+
+cat_partial() {
+ local string0="$1" string1="$2" file=$3 saved_IFS="$IFS" line mode=0
+ export IFS=""
+ [ -z "$string0" ] && mode=1
+ { while : ; do
+  read -r line || break
+  case $mode in
+  0) [ "$line" = "$string0" ] && mode=1 ;;
+  1) [ ! -z "$string1" ] && [ "$line" = "$string1" ] && break
+   echo "$line" ;;
+  esac
+ done ; } <$file
+ export IFS="$saved_IFS"
+}
+
+expand_list_names() {
+ # Generate full list of computer names and nicknames from name patterns and
+ # nickname prefixes.
+ local iclass is_ok nitem namelist nicklist ifs i
+ local -a fs nitem
+ list_of_names="" ; list_of_nicknames="" ; nlistitems=0
+ iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+  {
+   read is_ok
+   [ "$is_ok" != OK ] && { echo "$is_ok" ; return 1 ; }
+   read nitem[$iclass]
+   nlistitems=$((nlistitems+${nitem[$iclass]}))
+   read namelist
+   list_of_names="$list_of_names $namelist"
+   read nicklist
+   list_of_nicknames="$list_of_nicknames $nicklist"
+  } < <(expand_pattern "${name_pattern[$iclass]}" "${nick_prepend[$iclass]}")
+ done
+ # Generate list of HOME filesystems
+ list_of_filesystems=""
+ iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+  fs[$iclass]=-1
+ done
+ ifs=0
+ iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+  if ((${fs[$iclass]}==-1)) ; then
+   if [ -z "${class_fs[$iclass]}" ] ; then
+    fs[$iclass]=0
+   else
+    ifs=$((ifs+1))
+    jclass=0 ; while ((jclass<nclasses)) ; do jclass=$((jclass+1))
+     [ "${class_fs[$iclass]}" = "${class_fs[$jclass]}" ] && fs[$jclass]=$ifs
+    done
+   fi
+  fi
+  if ((${fs[$iclass]}==0)) ; then
+   i=0 ; while ((i<${nitem[$iclass]})) ; do i=$((i+1))
+    ifs=$((ifs+1))
+    list_of_filesystems="$list_of_filesystems $ifs"
+   done
+  else
+   i=0 ; while ((i<${nitem[$iclass]})) ; do i=$((i+1))
+    list_of_filesystems="$list_of_filesystems ${fs[$iclass]}"
+   done
+  fi
+ done
+ number_of_filesystems=$ifs
+ # Generate list of login names and ssh ports.
+ lost_of_login_names=""
+ iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+  i=0 ; while ((i<${nitem[$iclass]})) ; do i=$((i+1))
+   list_of_login_names="$list_of_login_names ${login_name[$iclass]}"
+   list_of_ssh_ports="$list_of_ssh_ports ${ssh_port[$iclass]}"
+  done
+ done
+}
+
+expand_pattern() {
+ # Using pattern $1 and nickname prefix $2, generate four lines of output:
+ # 1. 'OK' string or error message
+ # 2. number of items in expanded lists
+ # 3. list of names
+ # 4. list of nicknames
+ local iclass tname nsubs n var ll ul subs_expr opt namelist nicklist prepend
+ local -a namepart spvar spval splo sphi spop pattern nickpre nclass use_global
+ pattern="$1" ; nickpre="$2"
+ namelist="" ; nicklist="" ; nitem=0
+ # Parse pattern.
+ nsubs=0 ; tname=$pattern
+ while : ; do
+  [ "${tname/&&/}" = "$tname" ] && break
+  nsubs=$((nsubs+1)) ; namepart[$nsubs]=${tname%%&&*} ; tname=${tname#*&&}
+  if [ "${tname/&&/}" = "$tname" ] ; then
+   echo "Bad pattern: no closing '&&'." ; return
+  fi
+  subs_expr=${tname%%&&*} ; tname=${tname#*&&}
+  # Analyze subs_expr
+  if [ "${subs_expr/,/}" = "$subs_expr" ] ; then
+   echo "Bad pattern: no commas." ; return
+  fi
+  var=${subs_expr%%,*} ; spvar[$nsubs]=$var ; subs_expr=${subs_expr#*,}
+  case "$var" in
+  n|a|A) : ;;
+  *) echo "Bad pattern: unknown variable type $var." ; return ;;
+  esac
+  # Lower limit
+  if [ "${subs_expr/,/}" = "$subs_expr" ] ; then
+   echo "Bad pattern: no comma #2." ; return
+  fi
+  ll=${subs_expr%%,*} ; splo[$nsubs]=$ll ; subs_expr=${subs_expr#*,}
+  case "$var" in
+  n)
+   if ! check_number_N "$ll" ; then
+    echo "Bad pattern: lower limit $ll is NaN." ; return
+   fi ;;
+  a)
+   case "$ll" in
+   [[:lower:]]) : ;;
+   *) echo "Bad pattern: lowerlim $ll not a lowercase letter." ; return ;;
+   esac ;;
+  A)
+   case "$ll" in
+   [[:upper:]]) : ;;
+   *) echo "Bad pattern: lowerlim $ll not an uppercase letter." ; return ;;
+   esac ;;
+  esac
+  # Upper limit (read up to comma if present, or rest otherwise)
+  if [ "${subs_expr/,/}" = "$subs_expr" ] ; then
+   ul="$subs_expr" ; sphi[$nsubs]=$ul ; subs_expr=""
+  else
+   ul=${subs_expr%%,*} ; sphi[$nsubs]=$ul ; subs_expr=${subs_expr#*,}
+  fi
+  case "$var" in
+  n)
+   if ! check_number_N "$ul" ; then
+    echo "Bad pattern: upperlim $ul NaN." ; return
+   fi
+   if ((ul<ll)) ; then
+    echo "Bad pattern: upperlim $ul < lowerlim $ll." ; return
+   fi ;;
+  a)
+   case "$ul" in
+   [[:lower:]]) : ;;
+   *) echo "Bad pattern: upperlim $ul not a lowercase letter." ; return ;;
+   esac
+   if [ $ul < $ll ] ; then
+    echo "Bad pattern: upperlim $ul < lowerlim $ll." ; return
+   fi ;;
+  A)
+   case "$ul" in
+   [[:upper:]]) : ;;
+   *) echo "Bad pattern: upperlim $ul not an uppercase letter." ; return ;;
+   esac
+   if [ $ul < $ll ] ; then
+    echo "Bad pattern: upperlim $ul < lowerlim $ll." ; return
+   fi ;;
+  esac
+  # Options
+  spop[$nsubs]=""
+  if [ ! -z "$subs_expr" ] ; then
+   for opt in $subs_expr ; do
+    case "$opt" in
+    leadzero)
+     case "$var" in
+     n) : ;;
+     *) echo "Bad pattern: option $opt with variable $var." ; return ;;
+     esac ;;
+    offset=*)
+     case "$var" in
+     n) offset=${opt#offset=}
+      if ! check_number_N $offset ; then
+       echo "Bad pattern: offset $offset is not a number." ; return
+      fi ;;
+     *) echo "Bad pattern: option $opt with variable $var." ; return ;;
+     esac ;;
+    *) echo "Bad pattern: unknown option $opt." ; return ;;
+    esac
+    spop[$nsubs]="${spop[$nsubs]} $opt"
+   done
+  fi
+ done
+ namepart[$((nsubs+1))]="$tname"
+ # Initialize patterns
+ n=0 ; while ((n<nsubs)) ; do n=$((n+1))
+  spval[$n]=${splo[$n]}
+ done
+ # Start loop over values
+ while : ; do
+  # Contruct name
+  cname="" ; nick="$nickpre"
+  n=0 ; while ((n<nsubs)) ; do n=$((n+1))
+   prepend=""
+   if [ "${spvar[$n]}" = n ] ; then
+    offset=0
+    # Apply options (leading zeroes)
+    for opt in ${spop[$n]} ; do
+     case "$opt" in
+     leadzero)
+      nfig=${#sphi[$n]} ; dif=$((nfig-${#spval[$n]}))
+      prepend=$(repeat $dif 0) ;;
+     offset=*)
+      offset=${opt#offset=} ;;
+     esac
+    done
+   fi
+   cname="$cname${namepart[$n]}$prepend${spval[$n]}"
+   nick="$nick$prepend$((${spval[$n]}-$offset))"
+  done
+  n=$((nsubs+1)) ; cname="$cname${namepart[$n]}"
+  [ -z "$nick" ] && nick=$cname # cannot have empty nicks
+  namelist="$namelist $cname"
+  nicklist="$nicklist $nick"
+  ((nsubs==0)) && break
+  # Increase last index, and carry to next if over limit;
+  n=$((nsubs+1)) ; while ((n>1)) ; do n=$((n-1))
+   # Current index at maximum?
+   if [ "${spval[$n]}" = "${sphi[$n]}" ] ; then
+    # If first index, exit loop
+    ((n==1)) && break 2
+    # Set to minimum and go to previous index
+    spval[$n]=${splo[$n]} ; continue
+   fi
+   # Increment current index and exit
+   case "${spvar[$n]}" in
+   n) spval[$n]=$((${spval[$n]}+1)) ;;
+   a|A) spval[$n]=$(next_letter ${spval[$n]}) ;;
+   esac
+   break
+  done
+ done
+ echo OK
+ echo $(nfield $namelist)
+ echo $namelist
+ echo $nicklist
+ return 0
+}
+
+name_to_nick() {
+ local i
+ # Given a name, return the nickname.
+ (($#==0)) && return 1
+ in_list $1 $list_of_nicknames && { echo $1 ; return ; }
+ i=$(which_field $1 $list_of_names)
+ ((i==0)) && { echo unknown ; return ; }
+ field $i $list_of_nicknames
+}
+
+display_help() {
+ cat <<_EOH
+
+ $SCRIPT_NAME v$script_version
+
+ $SCRIPT_NAME is a multi-purpose tool for people running jobs on a network of
+ GNU/Linux workstations.  Its main use is to scan the computers in a
+ pre-configured list and give an estimation of how much of the CPU can be used
+ if a job is submitted on that computer running on all of its cores.
+
+ $SCRIPT_NAME requires passwordless ssh login between all the machines in the
+ network.  $SCRIPT_NAME can help setting this up, see 'Passwordlessness
+ helper mode' below.
+
+ Modes and their syntax
+ ======================
+ $SCRIPT_NAME has eight modes of operation.
+
+ 1. Scan mode: perform scan and report computer usage.  The command line is:
+
+    $script_name [--no-colours] [--quiet] [--nice=<nice-value>] [--verbose]
+      [<computer-selector-options>]
+
+    The options are:
+
+    --no-colours  or  -k
+      Do not use terminal control codes to display colours.  This is
+      particularly useful if you want to redirect the ouput to a file; see
+      also '--quiet'.
+
+    --quiet  or  -q
+      Do not print progress reports or messages about unreachable hosts, only
+      the final table.  In turn, this disables terminal control codes to erase
+      lines and move the cursor, which is particularly useful if you want to
+      redirect the ouput to a file; see also '--no-colours'.
+
+    --nice=<nice-value>  or  -n <nice-value>
+      Assume that the hypothetical job to be run on the machines would have a
+      nice value of <nice-value>.  This affects the reported achievable CPU
+      usage.  The default value is 15.
+
+    --verbose  or  -v
+      Display the list of running processes for each computer.  This does not
+      include all processes, only the ones that are in the 'R' or 'D' state.
+
+    <computer-selector-options>
+      This includes the following self-explanatory options:
+        --min-speed=<min-speed>
+        --max-speed=<max-speed>
+        --min-clock=<min-clock>
+        --max-clock=<max-clock>
+        --min-cores=<min-cores>
+        --max-cores=<max-cores>
+        --min-mem=<min-mem>
+        --max-mem=<max-mem>
+        <list-of-computers>
+      Note that logical 'and' is assumed when multiple options are provided.
+      <list-of-computers> is a space-separated list of configured computer
+      hostnames or nicknames, which can in fact appear scatter anywhere around
+      the command line. '.' expands to the computer on which $SCRIPT_NAME is
+      run.  Memories are in MiB, clock rates in MHz and speeds in eMHz (see
+      below).
+
+    Examples:
+    * $script_name -qv --min-cores=2 --max-cores=2 --min-mem=1024
+      Scan all dual-core computers with more than 1 GiB of RAM, printing
+      process information and suppressing progress output.
+
+ 2. Update mode: update the stored list of computers.  The command line is:
+
+    $script_name --update [--quiet]
+
+    This operation is also run automatically if another operation is requested
+    and there is no list of computers in ~/$option_file_name.  This command
+    should be run by hand whenever a computer in the network is added, removed
+    or changed.
+
+    The options are:
+
+    --update  or  -u
+      Select update mode.
+
+    --quiet  or  -q
+      See entries above in 'scan mode'.
+
+ 3. Info mode: display information from the stored computer list.  The command
+    line is:
+
+    $script_name --info[=<item-list>] [--no-colours]
+      [<computer-selector-options>]
+
+    If <item-list> is not given, a pretty-format style is used and all relevant
+    data printed.  Otherwise, a machine-readable list is printed, with one
+    computer per line, and each line containing the required fields separated
+    by spaces in the order they were provided.
+
+    <item-list> is a comma-separated list of any of the following:
+      clock : clock rate, in MHz
+      speed : performance rating, in eMHz (see below)
+      mem   : total amount of memory, in MiB
+      cores : number of cores
+      nick  : short name (as in pre-configured list)
+      name  : host name or IP address (as in pre-configured list)
+      access: 'OPEN' if can log into machine, 'CLOSED' if can't login by
+              policy, 'NOLOGIN' if can't login without a password at all
+      fs    : different integer values for different HOME filesystems
+      login : login name to be use for the computer
+      port  : ssh port number
+
+    In info mode, $SCRIPT_NAME returns 0 if all the specified computers exist
+    and can be logged into, and 1 otherwise.
+
+    The options are:
+
+    --info[=<item-list>]  or  -i
+      Select info mode.  The short-style option '-i' does not take <item-list>
+      as an argument.
+
+    --no-colours  or  -k
+    <computer-selector-options>
+      See entries above in 'scan mode'.  Only applies when <item-list> is not
+      provided.
+
+    Examples:
+    * $script_name --info=name,nick,speed,access 54 55 58 60
+      Get the name, nick, speed and access from computers with nicknames
+      54, 55, 58 and 60.  In TCM this gives:
+        pc54 54 5600 OPEN
+        pc55 55 9552 OPEN
+        pc58 58 - -
+        pc60 60 19104 OPEN
+    * $script_name --info=name
+      Get a list of the hostnames or IP addresses of all computers in the list.
+
+ 4. Cruft mode: scan the computers in search for stray processes, temporary
+    files and stale IPC semaphores, and delete the latter if possible.  The
+    command line is:
+
+    $script_name --cruft [--no-colours] [--quiet] [<computer-selector-options>]
+
+    The options are:
+
+    --cruft  or  -c
+      Select cruft mode.
+
+    --no-colours  or  -k
+    --quiet  or  -q
+    <computer-selector-options>
+      See entries above in 'scan mode'.
+
+    Examples:
+    * $script_name -qr 'a=\$(ls -1 /tmp | grep -c "") ; echo \$a' --min-cores 2
+      Prints the number of files in the /tmp directory on all multi-core
+      computers.  Progress output is suppressed.
+
+ 5. Run mode: run a command on the specified computers and display the output.
+    The command line is:
+
+    $script_name --run=<command> [--no-colours] [--quiet]
+      [<computer-selector-options>]
+
+    $SCRIPT_NAME will set informational environment variables in each of the
+    remote hosts:
+      ${SCRIPT_NAME}_INFO_CLOCK
+      ${SCRIPT_NAME}_INFO_SPEED
+      ${SCRIPT_NAME}_INFO_MEM
+      ${SCRIPT_NAME}_INFO_CORES
+      ${SCRIPT_NAME}_INFO_NICK
+      ${SCRIPT_NAME}_INFO_NAME
+      ${SCRIPT_NAME}_INFO_ACCESS
+      ${SCRIPT_NAME}_INFO_FS
+      ${SCRIPT_NAME}_INFO_LOGIN
+      ${SCRIPT_NAME}_INFO_PORT
+    These correspond to the items available to the --info option, see above.
+
+    The options are:
+
+    --run=<command>  or  -r <command>
+      Select run mode.  Make sure you quote and/or escape the command string
+      appropriately so that it is passed correctly to $SCRIPT_NAME and that no
+      undesired expansion occurs in the process -- the best thing to do is to
+      use single quotes.
+
+    --no-colours  or  -k
+    --quiet  or  -q
+    <computer-selector-options>
+      See entries above in 'scan mode'.
+
+    Examples:
+    * $script_name -r '[ \$${SCRIPT_NAME}_INFO_NAME = pc1 ] && echo 1 || echo 0'
+      Prints 1 if the host name is 'pc1', 0 otherwise.
+    * $script_name -qr 'a=\$(ls -1 /tmp | grep -c "") ; echo \$a' --min-cores=2
+      Prints the number of files in the /tmp directory on all multi-core
+      computers.  Progress output is suppressed.
+
+ 6. Setup mode: modify the configuration interactively using menus.  This
+    includes setting up and modifying the network list.  The command line is:
+
+    $script_name --setup
+
+    The options are:
+
+    --setup  or  -s
+      Select setup mode.
+
+ 7. Passwordlessness helper mode: guide the user through the process of setting
+    up passwordless ssh logins across the configured network.  The command line
+    is:
+
+    $script_name --passwordless
+
+    The options are:
+
+    --passwordless  or  -P
+      Select passwordlessness helper mode.
+
+ 8. Help mode: displays this help.  The command line is:
+
+    $script_name --help [--no-pager]
+
+    The options are:
+
+    --help  or  -h
+      Select help mode.
+
+    --no-pager  or  -p
+      Do not use a pager to display the help.  The default is to attempt to use
+      \$PAGER, 'less', 'more' or no pager (in that order).
+
+ Effective MHz
+ =============
+ $SCRIPT_NAME uses "effective MHz" (eMHz) as a measure of speed.  The unit is
+ based on the performance of a 32-bit Intel Pentium 4 processor.  A Pentium 4
+ running at 2800 MHz corresponds to 2800 eMHz, while a Core 2 Duo processor
+ running at 2400 MHz corresponds to about 9600 eMHz, because it has two cores
+ and each of them performs about twice as many operations per cycle as a
+ Pentium 4, effectively running as a Pentium 4 clocked at 9600 MHz (luckily
+ for fire brigades, such thing does not exist).
+
+ $SCRIPT_NAME has a built-in table to convert clock rates to eMHz for different
+ processor models, obtained from running benchmarks on different machines.
+ Processors not known to $SCRIPT_NAME get a default rating of 1 eMHz/MHz.
+
+_EOH
+}
+
+read_cmdline() {
+ local hostline host1 item option option1 var val newlist i nick
+ # Read command-line options
+ opmode=default
+ quiet=0 ; ignore_perm=0
+ partial_info="" ; machlist=""
+ min_speed=0 ; min_clock=0 ; min_mem=0 ; min_cores=0
+ max_speed=0 ; max_clock=0 ; max_mem=0 ; max_cores=0
+ pager_list="$PAGER less more cat"
+ run_command=""
+ verbose=0
+ # Read options
+ while (($#>0)) ; do
+  case "$1" in
+  --*) # GNU-style "long" options
+   option="${1#--}"
+   case "$option" in
+   update) opmode=update ;;
+   info) opmode=info ; partial_info="" ;;
+   info=*)
+    opmode=info ; partial_info=""
+    quiet=1 ; unset el cr ; unset_colours
+    partial_info="${option#*=}"
+    partial_info="${partial_info//,/ }"
+    for item in $partial_info ; do
+     case "$item" in
+     clock|speed|mem|cores|nick|name|access|fs|login|port) : ;;
+     *) errstop "Wrong info item \"$item\"" ;;
+     esac
+    done ;;
+   cruft) opmode=cruft ;;
+   setup) opmode=setup ;;
+   passwordless) opmode=passwordless ;;
+   help) opmode=help ;;
+   run) errstop "Option format is --$option=<command>" ;;
+   run=*) opmode=run ; run_command="${option#*=}" ;;
+   verbose) verbose=1 ;;
+   quiet) quiet=1 ; unset el cr ;;
+   no-colours) unset_colours ;;
+   no-pager) pager_list=cat ;;
+   nice)
+    (($#==1)) && errstop "--$option requires an integer parameter."
+    shift ; val=$1
+    check_number_N $val || errstop "--$option must be followed by an integer."
+    ((val<-20)) || ((val>19))\
+     && errstop "Nice value $val out of range (-20 to 19)."
+    nice_value=$val ;;
+   min-speed|max-speed|min-clock|max-clock|min-mem|max-mem|min-cores|max-cores)
+    errstop "Option format is --$option=<$option>" ;;
+   min-speed=*|max-speed=*|min-clock=*|max-clock=*|min-mem=*|max-mem=*|\
+    min-cores=*|max-cores=*)
+    var=${option%%=*}
+    val=${option#*=}
+    check_number_N "$val" || errstop "Value for --$var needs to be an integer."
+    var=${var//-/_}
+    eval $var=$val ;;
+   ignore-permissions) ignore_perm=1 ;;
+   *) errstop "Unrecognized option --$option."
+   esac ;;
+  -*) # Unix-style "short" options
+   option=${1#-}
+   while ((${#option}>0)) ; do
+    option1=${option:0:1}
+    option=${option:1}
+    case "$option1" in
+    u) opmode=update ;;
+    i) opmode=info ; partial_info="" ;;
+    c) opmode=cruft ;;
+    s) opmode=setup ;;
+    P) opmode=passwordless ;;
+    r) opmode=run
+     if [ ! -z "$option" ] ; then
+      val="$option" ; option=""
+     else
+      (($#==1)) && errstop "-$option1 must be followed by the command to run."
+      shift ; val="$1"
+     fi
+     run_command="$val" ;;
+    h) opmode=help ;;
+    v) verbose=1 ;;
+    q) quiet=1 ; unset el cr ;;
+    k) unset_colours ;;
+    p) pager_list=cat ;;
+    n)
+     if [ ! -z "$option" ] ; then
+      val=$option ; option=""
+     else
+      (($#==1)) && errstop "-$option1 must be followed by an integer."
+      shift ; val=$1
+     fi
+     check_number_N $val || errstop "-$option1 must be followed by an integer."
+     ((val<-20)) || ((val>19))\
+      && errstop "Nice value $val out of range (-20 to 19)."
+     nice_value=$val ;;
+    *) errstop "Unrecognized option -$option1." ;;
+    esac
+   done ;;
+  *) machlist="$machlist $1" ;;
+  esac
+  shift
+ done
+ # Select default operation mode if not specified.
+ [ "$opmode" = default ] && opmode=scan
+ # Expand computer list if necessary.
+ case "$opmode" in
+ setup|help) : ;;
+ *)
+  # Expand patterns to generate full list.
+  expand_list_names || errstop "Failed to expand computer list from pattern."
+  # Get computer on which the script is running.
+  host="$(name_to_nick $(hostname))"
+  if [ "$host" = unknown ] ; then
+   hostname -i >& /dev/null && host="$(name_to_nick $(hostname -i))"
+   if [ "$host" = unknown ] ; then
+    hostline=$(grep $(hostname) /etc/hosts 2> /dev/null)
+    if [ ! -z "$hostline" ] ; then
+     for host1 in $hostline ; do
+      host="$(name_to_nick $host1)" ; [ "$host" != unknown ] && break
+     done
+    fi
+    if [ "$host" = unknown ] ; then
+     if type -P ifconfig >& /dev/null ; then
+      {
+       while read host1 ; do
+        host1=${host1#inet addr:}
+        host1=$(field 1 $host1)
+        host="$(name_to_nick $host1)" ; [ "$host" != unknown ] && break
+       done
+      } < <(ifconfig | grep "inet addr")
+     elif [ -x /sbin/ifconfig ] ; then
+      {
+       while read host1 ; do
+        host1=${host1#inet addr:}
+        host1=$(field 1 $host1)
+        host="$(name_to_nick $host1)" ; [ "$host" != unknown ] && break
+       done
+      } < <(/sbin/ifconfig | grep "inet addr")
+     fi
+    fi
+   fi
+  fi
+  # Check we are in the configured network if necessary.
+  case "$opmode" in
+  info) : ;;
+  *) [ "$host" = unknown ] && errstop "You do not seem to be in the configured\
+ network ($network_name)." ;;
+  esac
+  # Check machlist if provided, translating names to nicknames and '.' to
+  # the host's name.
+  if [ ! -z "$machlist" ] ; then
+   newlist=""
+   for nick in $machlist ; do
+    if [ "$nick" = . ] ; then
+     i=$(which_field $host $list_of_nicknames)
+     ((i==0)) && errstop "Bug: host not in list."
+    else
+     i=$(which_field $nick $list_of_nicknames)
+     ((i==0)) && i=$(which_field $nick $list_of_names)
+     ((i==0)) && errstop "Machine $nick not in list."
+    fi
+    nick=$(field $i $list_of_nicknames)
+    in_list $nick $newlist || newlist="$newlist $nick"
+   done
+   machlist="$newlist"
+  fi ;;
+ esac
+}
+
+gather_data() {
+ # Use ping & ssh to determine existance/specs of computer $1.
+ local machname=$1 user=$2 port=$3 ping isopen line
+ # Check if machine can be pinged
+ ping="${pingcomm//&&HOST&&/$machname}"
+ ping="${ping//&&PORT&&/$port}"
+ $ping >& /dev/null || { echo "NOTEXIST" ; return ; }
+ # Check if machine accepts ssh connections
+ $ssh -l $user -p $port $machname bash -c : >& /dev/null\
+  || { echo "NOLOGIN" ; return ; }
+ echo "OK"
+ # Check if current user can log into the machine
+ isopen=0
+ {
+  while read line ; do
+   [ "$line" = YES_$$ ] && { isopen=1 ; break ; }
+  done
+ } < <($ssh -l $user -p $port $machname bash --login 2>/dev/null\
+  <<<"echo YES_$$ ; exit")
+ ((isopen==1)) && echo OPEN || echo CLOSED
+ # Try to gather data, whether user can log in or not.  This is because in
+ # some set-ups (e.g. TCM), users are logged out by policy, but they can still
+ # run commands remotely.
+ $ssh -l $user -p $port $machname bash 2>/dev/null <<'_EOF'
+mem() {
+ local f1 f2 f3
+ while read f1 f2 f3 ; do
+  [ "$f1" = "MemTotal:" ] && { echo $f2 ; return ; }
+ done
+ echo NOTEXIST
+}
+cpu() {
+ local f1 f2 f3 f4 name=NOTEXIST speed=NOTEXIST ncores=0 f m s l
+ while read f1 f2 f3 f4 ; do
+  case "$f1 $f2" in
+  "model name") name="$f4" ;;
+  "cpu MHz") speed="$f4" ;;
+  "processor :") ncores=$((ncores+1)) ;;
+  "cpu family") f=$f4 ;;
+  "model :") m=$f3 ;;
+  "stepping :") s=$f3 ;;
+  esac
+ done
+ if [ -e /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq ] ; then
+  speed=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq)
+  speed=${speed:0:$((${#speed}-3))}
+ fi
+ echo $ncores
+ echo $name
+ echo $speed
+ echo $f.$m.$s
+}
+echo BEGIN
+mem </proc/meminfo
+cpu </proc/cpuinfo
+echo $(uname -m)
+_EOF
+}
+
+round_speed() {
+ # Round value of speed (real) to closest half or third of a hundred MHz.
+ local sp=$1 x closest diff mindiff roundto="0 33 50 67 100"
+ sp=${sp%%.*}
+ check_number_N $sp || { echo 1 ; return ; }
+ hundreds=$(((sp/100)*100)) ; units=$((sp-hundreds))
+ mindiff=100 ; closest=0
+ for x in $roundto ; do
+  diff=$((units-x)) ; ((diff<0)) && diff=$((-diff))
+  ((diff<mindiff)) && { mindiff=$diff ; closest=$x ; }
+ done
+ sp=$((closest+hundreds))
+ echo $sp
+}
+
+round_mem() {
+ # Convert kiB to MiB
+ check_number_N $1 || { echo 1 ; return ; }
+ echo $(($1/1024))
+}
+
+produce_line() {
+ # Output line in the format used in computer list
+ local compnick=$1 seqorder=$2 is_ok is_open memline memo cpuline cput
+ local speedline spd eqspd open_closed temp uname_m line ncores archfactor
+ local cpu_detail begin
+ while : ; do
+  read is_ok || is_ok=NOLOGIN
+  case "$is_ok" in
+  NOTEXIST) line=$(printf "$list_format" "$compnick" - - - - - -) ; break ;;
+  NOLOGIN) line=$(printf "$list_format" "$compnick" - - - - - NOLOGIN); break ;;
+  OK)
+   read is_open
+   while : ; do
+    read begin || continue 2 # loop and let above "read is_ok" catch the error
+    [ "$begin" = BEGIN ] && break
+   done
+   read memline ; read ncores ; read cpuline ; read speedline
+   read cpu_detail ; read uname_m
+   open_closed="$is_open"
+   check_number_N "$ncores" || ncores=1
+   case "$cpuline" in
+   "Pentium III"*)           cput=Pent3   ;;
+   "Pentium II"*)            cput=Pent2   ;;
+   Celeron*)                 cput=Celer   ;;
+   "Intel(R) Pentium(R) D"*) cput=PentD   ;;
+   "Intel(R) Pentium(R) M"*) cput=PentM   ;;
+   "Intel(R) Pentium(R) 4"*)
+    case $uname_m in
+    i?86)                    cput=Pent4   ;;
+    x86_64)                  cput=Pent464 ;;
+    esac ;;
+   "Intel(R) Celeron(R) M"*) cput=CelM    ;;
+   "Intel(R) Xeon"*)
+    case $uname_m in
+    i?86)                    cput=Xeon32  ;;
+    x86_64)                  cput=Xeon64  ;;
+    esac ;;
+   "Intel(R) Core(TM)2"*)    cput=Core2   ;;
+   *"AMD Opteron(tm)"*)      cput=Opt32   ;;
+   "AMD Turion(tm)"*)        cput=Tur64   ;;
+   "AMD Athlon(tm) 64"*)     cput=Ath64   ;;
+   "AMD Athlon(tm)"*)        cput=Ath32   ;;
+   EV6.7*)                   cput=ev67    ;;
+   EV6*)                     cput=ev6     ;;
+   EV5.6*)                   cput=ev56    ;;
+   UltraSPARC-III+*)         cput=usparc3 ;;
+   *)                        cput=CPU     ;;
+   esac
+   memo=$(round_mem $memline) ; spd=$(round_speed $speedline)
+   cput=$cput:$cpu_detail
+   set -- $(arch_data $cput) ; archfactor=$1
+   eqspd=$((ncores*spd*archfactor/100))
+   line=$(printf "$list_format" "$compnick" "$ncores" "$spd" "$eqspd" "$memo"\
+    "$cput" "$open_closed")
+   break ;;
+  esac
+ done
+ echo "$seqorder $line"
+}
+
+arch_data() {
+ # Return architecture data:
+ # Field 1 : performance factor (eMHz/MHz)
+ # Feild 2+: human readable name
+ case "$1" in
+ # Intel
+ Pent2:*)       echo  96 ; echo "Pentium 2"           ;;
+ Pent3:*)       echo  95 ; echo "Pentium 3"           ;;
+ Celer:*)       echo  78 ; echo "Celeron"             ;;
+ PentM:*)       echo 109 ; echo "Pentium M"           ;; # OLD ASSESSMENT
+ CelM:*)        echo 109 ; echo "Celeron M"           ;; # OLD ASSESSMENT
+ Pent4:15.0.*)  echo  94 ; echo "Pentium 4"           ;;
+ Pent4:15.1.*)  echo  90 ; echo "Pentium 4"           ;;
+ Pent4:15.2.4)  echo  95 ; echo "Pentium 4"           ;;
+ Pent4:15.2.7)  echo  84 ; echo "Pentium 4"           ;;
+ Pent4:15.2.9)  echo 100 ; echo "Pentium 4"           ;;
+ Pent4:*)       echo 100 ; echo "Pentium 4"           ;;
+ PentD:*)       echo 109 ; echo "Pentium D"           ;;
+ Xeon32:*)      echo  92 ; echo "Xeon 32 (?)"         ;; # [MICROARCH?]
+ Pent464:*)     echo  90 ; echo "Pentium 4 EM64T"     ;;
+ Xeon64:15.*)   echo  99 ; echo "Xeon 64 (Pentium 4)" ;;
+ Core2:*)       echo 199 ; echo "Core 2"              ;;
+ Xeon64:6.15.*) echo 192 ; echo "Xeon 64 (Core 2)"    ;;
+ Xeon64:6.23.*) echo 192 ; echo "Xeon 64 (Core 2)"    ;;
+ Xeon64:6.26.*) echo 199 ; echo "Xeon 64 (i7)"        ;; # UNASSESSED (Core2)
+ Xeon64:*)      echo 192 ; echo "Xeon 64 (?)"         ;; # unknown...
+ # AMD
+ Ath32:*)       echo 100 ; echo "Athlon 32"           ;; # UNASSESSED (Pent4)
+ Opt32:*)       echo 100 ; echo "Opteron 32"          ;; # UNASSESSED (Pent4)
+ Tur64:*)       echo 126 ; echo "Turion 64"           ;; # OLD ASSESSMENT
+ Ath64:*)       echo 141 ; echo "Athlon 64"           ;;
+ # Alpha
+ ev56:*)        echo  73 ; echo "Alpha EV5.6"         ;;
+ ev6:*)         echo 160 ; echo "Alpha EV6"           ;;
+ ev67:*)        echo 160 ; echo "Alpha EV6.7"         ;;
+ # Sun
+ usparc3:*)     echo 110 ; echo "UltraSparc 3+"       ;; # OLD ASSESSMENT
+ # Default
+ *)             echo 100 ; echo "Unknown CPU"         ;; # ...
+ esac
+}
+
+update_list() {
+ local i j ii changes oldline pipe icont nfork machname prev_list=0 id k
+ local machnick user port ifs local_ifs string string2 curr_list
+ # Update the computer list
+ ((quiet==0)) && echo -n "Checking previous list...$el$cr"
+ if load_list ; then
+  prev_list=1
+  ((quiet==0)) && echo "Previous list correctly loaded.$el"
+ elif ((quiet==0)) ; then
+  echo "Could not load any previous list.$el"
+ fi
+ # Build list.
+ ((quiet==0)) && echo -n "Building new list... sending requests$el$cr"\
+  2> /dev/null
+ pipe="$tmpdir/.tmp_${script_name}"
+ [ -e $pipe ] && rm -f $pipe
+ mkfifo $pipe
+ i=0 ; j=0 ; list="$list_of_names"
+ while : ; do
+  nfork=5 ; icont=0 ; ii=0 ; curr_list=""
+  while : ; do
+   for machname in $list ; do
+    ((nfork>=maxfork)) && { icont=1 ; set -- $list ; list=${@:$((ii+1))} ;\
+     break 2 ; }
+    curr_list="$curr_list $machname"
+    i=$((i+1)) ; ii=$((ii+1))
+    k=$(which_field $machname $list_of_names)
+    machnick=$(field $k $list_of_nicknames)
+    user=$(field $k $list_of_login_names)
+    port=$(field $k $list_of_ssh_ports)
+    sleep 1 >> $pipe &
+    gather_data $machname $user $port | produce_line $machnick $i >>$pipe &
+    nfork=$((nfork+3))
+   done
+   break
+  done
+  ((quiet==0)) && echo -n "Building new list... awaiting data$el$cr"\
+   2> /dev/null
+  { id=0 ; while read j line ; do id=$((id+1))
+   newline[$j]="$line"
+   if ((quiet==0)) ; then
+    string="Building new list... receiving data... $(((100*id)/ii))%"
+    curr_list="$(rm_field $(field $j $list_of_names) $curr_list)"
+    string2=" (waiting for:$curr_list)"
+    ((${#string}+${#string2}<$term_columns)) && string="$string$string2"
+    echo -n "$string$el$cr" 2> /dev/null
+   fi
+  done ; } <$pipe
+  ((quiet==0)) && echo -n "Building new list...$el$cr" 2> /dev/null
+  ((icont==0)) && break
+ done
+ rm -f $pipe
+ ((quiet==0)) && echo "New list built.$el" 2> /dev/null
+ if ((prev_list==1)) ; then
+  i=0 ; changes=0
+  while ((i<nlistitems)) ; do i=$((i+1))
+   oldline=$(printf "$list_format" "${cid[$i]}" "${ncores[$i]}" "${speed[$i]}"\
+    "${eff_speed[$i]}" "${mem[$i]}" "${cpu[$i]}" "${openclosed[$i]}")
+   if [ "$oldline" != "${newline[$i]}" ] ; then
+    ((changes==0)) && { changes=1 ; ((quiet==0)) && echo "Changes detected:"; }
+    ((quiet==0)) && { echo "< $oldline" ; echo "> ${newline[$i]}" ; }
+   fi
+  done
+  if ((changes==0)) ; then
+   ((quiet==0)) && echo "No changes."
+   return
+  fi
+ fi
+ save_list
+ ((quiet==0)) && echo "New list written."
+ # Synchronize list on all filesystems.
+ if ((number_of_filesystems>1)) ; then
+  i=$(which_field $host $list_of_nicknames)
+  local_ifs=$(field $i $list_of_filesystems)
+  ((quiet==0)) && echo "Synchronizing list across network."
+  ifs=0 ; while ((ifs<number_of_filesystems)) ; do ifs=$((ifs+1))
+   ((ifs==local_ifs)) && continue
+   # Get first available computer on this filesystem.
+   j=0 ; while : ; do j=$((j+1))
+    i=$(which_nth_field $j $ifs $list_of_filesystems)
+    if ((i==0)) ; then
+     ((quiet==0)) && echo "Skipping filesystem #$ifs, no computers available."
+     continue 2
+    fi
+    set -- ${newline[$i]}
+    case "$7" in
+    OPEN|CLOSED) : ;;
+    *) continue ;;
+    esac
+    machname=$(field $i $list_of_names)
+    user=$(field $i $list_of_login_names)
+    port=$(field $i $list_of_ssh_ports)
+    break
+   done
+   $scp -P $port "$option_file" "$user@$machname:$option_file_name" >& /dev/null
+  done
+  ((quiet==0)) && echo "List synchronized."
+ fi
+}
+
+print_info() {
+ local nspeed espeed memo cput open_closed machname i cpun numcores machnick
+ local all_exist add machname fs login line
+ # Print computer information
+ if [ -z "$machlist" ] ; then
+  i=0 ; while ((i<nlistitems)) ; do i=$((i+1))
+   ((${mask[$i]}==0)) && continue
+   machlist="$machlist $(field $i $list_of_nicknames)"
+  done
+ fi
+ all_exist=1
+ for machnick in $machlist ; do
+  i=$(which_field $machnick $list_of_nicknames)
+  machnick=$(field $i $list_of_nicknames)
+  machname=$(field $i $list_of_names)
+  fs=$(field $i $list_of_filesystems)
+  login=$(field $i $list_of_login_names)
+  port=$(field $i $list_of_ssh_ports)
+  nspeed=${speed[$i]} ; espeed=${eff_speed[$i]} ; memo=${mem[$i]}
+  cput=${cpu[$i]} ; numcores=${ncores[$i]} ; open_closed=${openclosed[$i]}
+  if [ ! -z "$partial_info" ] ; then
+   # Specific info for machine processing
+   line=""
+   for item in $partial_info ; do
+    case "$item" in
+    clock) line="$line $nspeed" ;;
+    speed) line="$line $espeed" ;;
+    mem) line="$line $memo" ;;
+    cores) line="$line $numcores" ;;
+    nick) line="$line $machnick" ;;
+    name) line="$line $machname" ;;
+    access) line="$line $open_closed" ;;
+    fs) line="$line $fs" ;;
+    login) line="$line $login" ;;
+    port) line="$line $port" ;;
+    *) line="$line bad-option" ;;
+    esac
+   done
+   echo "${line# }"
+  else
+   # Full info, formatted
+   if [ "$open_closed" = - ] ; then
+    # Computer doesn't exist
+    echo "$titlecol$machnick$default: ${failcol}UNKNOWN$default"
+    all_exist=0
+   elif [ "$open_closed" = NOLOGIN ] ; then
+    # Computer does not allow passwordless logins
+    echo "$titlecol$machnick$default: ${failcol}NO PASSWORDLESS LOGIN$default"
+    all_exist=0
+   else
+    add=""
+    if [ "$open_closed" = CLOSED ] ; then
+     add=" ${failcol}CLOSED$default"
+     ((ignore_perm==1)) || all_exist=0
+    fi
+    set -- $(arch_data $cput) ; cpun="${@:2}"
+    corestring="" ; ((numcores>1)) && corestring="$corecol${numcores}x"
+    echo "$titlecol$machnick$default: $corestring$cpucol$cpun$default @\
+ $speedcol$nspeed MHz$default ($speedcol$espeed eMHz$default), $memcol$memo\
+ MiB$default.$add"
+   fi
+  fi
+ done
+ ((all_exist==1)) && exit 0 || exit 1
+}
+
+inspect_machine() {
+ # Check whether $1 is available, get its status and report to stdout
+ local machname=$1 machid=$2 machcores=$3 user=$4 port=$5 i ping ndatalines
+ local usr nval stat rtime commd num denom dum memo hcount f1 line
+ local memtotal memfree memcache toprounds=2 topdelay=1.50
+ local -a dataline
+ ping="${pingcomm//&&HOST&&/$machname}"
+ ping="${ping//&&PORT&&/$port}"
+ $ping >& /dev/null || { echo "$machid NOTEXIST" ; return ; }
+ # Read data from 'top' and analyze it.
+ # NB, this function used to use 'ps', but 'top' is better.  The command line
+ # was 'ps -Ao user,ni,state,pmem,cputime,comm'.
+ {
+  badlogin=1
+  while : ; do
+   read f1 dum || break
+   [ "$f1" = $SCRIPT_NAME ] && { badlogin=0 ; break ; }
+  done
+  ((badlogin==1)) && { echo "$machid NOLOGIN" ; return ; }
+  # Read meminfo.  NB, meminfo units are kiB, despite it saying 'kB'.
+  memtotal=0 ; memfree=0 ; memcache=0
+  while read f1 memo dum ; do
+   case "$f1" in
+   MemTotal:) memtotal=$memo ;;
+   MemFree:) memfree=$memo ;;
+   Cached:) memcache=$memo ;;
+   ENDMEMINFO) break ;;
+   esac
+  done
+  memguess=$(((100*(memfree+memcache))/memtotal))
+  # Read up to header of $toprounds-th round of output from 'top'.
+  hcount=0
+  while read f1 line ; do
+   [ "$f1" = PID ] && hcount=$((hcount+1))
+   ((hcount==toprounds)) && break
+  done
+  # Read 'top' output.  Format is as follows, and we take those fields marked
+  # with '^^^' underneath.
+  # PID USER PRIORITY NICE MEM1 MEM2 MEM3 STATUS %CPU %MEM ACC.TIME COMMAND
+  #     ^^^^          ^^^^                ^^^^^^      ^^^^ ^^^^^^^^ ^^^^^^^
+  denom=0 ; num=$((machcores*(20-nice_value))) ; ndatalines=0
+  userpresent=0 ; cpuguess=100 ; longest=0
+  while read dum usr dum nval dum dum dum stat dum memo rtime commd ; do
+   [ "$dum" = ENDTOP ] && break
+   memo=${memo%.*}
+   case "$stat" in
+   R|D)
+    case "$rtime" in
+    00:00:00|00:00.00|0:00.00) continue ;;
+    esac
+    case "$commd" in
+    $script_name|ssh|sshd|top) continue ;;
+    esac
+    case "$usr" in
+    root|amem|ntp) continue ;;
+    $USER) userpresent=1 ;;
+    esac
+    ndatalines=$((ndatalines+1))
+    denom=$((denom+20-nval))
+    dataline[$ndatalines]="$usr $nval $memo $commd" ;;
+   esac
+  done
+ } < <($ssh -l $user -p $port $machname "bash -c \"{\
+  echo $SCRIPT_NAME ;\
+  cat /proc/meminfo ;\
+  echo ENDMEMINFO ;\
+  LINES=100000 top -bHn $toprounds -d $topdelay;\
+  echo ENDTOP ;\
+  } 2>/dev/null\"" 2>/dev/null)
+ cpuguess=100 ; ((denom!=0)) && cpuguess=$(((100*num)/(num+denom)))
+ echo "$machid OK $cpuguess $memguess $userpresent $ndatalines"
+ if ((ndatalines>0)) && ((verbose!=0)) ; then
+  i=0
+  while ((i<ndatalines)) ; do i=$((i+1))
+   echo "$machid dataline$i ${dataline[$i]}"
+  done
+ fi
+}
+
+inspect_cruft() {
+ local machname=$1 machid=$2 machnick=$3 user=$4 port=$5 ndatalines i mode line
+ local first_line ping
+ local -a dataline
+ ping="${pingcomm//&&HOST&&/$machname}"
+ ping="${ping//&&PORT&&/$port}"
+ $ping >& /dev/null || { echo "$machid NOTEXIST" ; return ; }
+ ndatalines=0 ; first_line=0 ; mode=NONE
+ {
+  while read line ; do
+   case "$mode" in
+   NONE)
+    case "$line" in
+    START*) mode=${line#START} ; first_line=1 ; continue ;;
+    esac ;;
+   *) [ "$line" = "END$mode" ] && { mode=NONE ; continue ; } ;;
+   esac
+   case "$mode" in
+   PS)
+    if ((first_line==1)) ; then
+     ndatalines=$((ndatalines+1))
+     dataline[$ndatalines]="-- User processes --"
+     first_line=0
+    fi
+    ndatalines=$((ndatalines+1))
+    dataline[$ndatalines]="$line" ;;
+   LS)
+    if ((first_line==1)) ; then
+     ndatalines=$((ndatalines+1))
+     dataline[$ndatalines]="-- Temporary files owned by $user --"
+     first_line=0
+    fi
+    ndatalines=$((ndatalines+1))
+    dataline[$ndatalines]="$line" ;;
+   IPC)
+    [ "$line" = 0 ] && continue
+    ndatalines=$((ndatalines+1))
+    dataline[$ndatalines]="-- IPC semaphores --"
+    ndatalines=$((ndatalines+1))
+    dataline[$ndatalines]="$line" ;;
+   esac
+  done
+ } < <($ssh -l $user -p $port $machname "bash -c '{\
+  skip=\"\$\$ \$(ps --no-headers --pid \$\$ -o ppid)\" ;\
+  [ \"$machnick\" = \"$host\" ]\
+   && skip=\"\$skip \$(ps --no-headers -C $script_name -o pid)\" ;\
+  echo STARTPS ;\
+  anyps=0 ;\
+  { while read line ; do\
+   set -- \$line ;\
+   for pid in \$skip ; do\
+    case \"\$pid\" in\
+    \"\$1\"|\"\$2\") continue 2 ;;\
+    esac ;\
+   done ;\
+   [ \"\${@:3}\" = ps ] && continue ;\
+   echo \"\${@:3}\" ; anyps=1 ;\
+  done ; } < <(ps --no-headers -u$user -o ppid,pid,comm) ;\
+  echo ENDPS ;\
+  echo STARTLS ;\
+  for dir in /tmp /temp ; do\
+   find \$dir -mindepth 1 -maxdepth 1 -user $user -not -name .tmp_$script_name\
+    | grep -vE \"^\$dir/$user\\\$\" ;\
+   find \$dir/$user -mindepth 1 -maxdepth 1 -user $user\
+    -not -name .tmp_$script_name ;\
+  done ;\
+  echo ENDLS ;\
+  echo STARTIPC ;\
+  if [ -e /proc/sysvipc/sem ] && type -p ipcrm >& /dev/null ; then \
+   numsem=\$(grep -wc \$(id -u $user) /proc/sysvipc/sem) ;\
+   if ((numsem>0)) && ((anyps==0)) && type -p ipcrm >& /dev/null ; then \
+    arglist=\"\" ;\
+    { while read a b ; do\
+     arglist=\"\$arglist -S \$a\" ;\
+    done ; } < <(grep -w \$(id -u $user) /proc/sysvipc/sem) ;\
+    ipcrm \$arglist ;\
+    echo \"\$numsem (autoremoved)\" ;\
+   elif ((numsem>0)) ; then \
+    if ((anyps==1)) ; then \
+     echo \"\$numsem (cannot autoremove, processes are running)\" ;\
+    else \
+     echo \"\$numsem (cannot autoremove, ipcrm not found)\" ;\
+    fi ; \
+   else \
+    echo \$numsem ;\
+   fi ;\
+  fi ;\
+  echo ENDIPC ;\
+  } 2>/dev/null'" | tee -a /dev/stderr 2>/dev/null)
+ echo "$machid OK $ndatalines"
+ if ((ndatalines>0)) ; then
+  i=0
+  while ((i<ndatalines)) ; do i=$((i+1))
+   echo "$machid dataline$i ${dataline[$i]}"
+  done
+ fi
+}
+
+inspect_run() {
+ local machclock=$1 machespeed=$2 machmem=$3 machcores=$4 machnick=$5
+ local machname=$6 machaccess=$7 machfs=$8 machuser=$9 machport=${10}
+ local machid=${11} command="${12}"
+ local ndatalines i mode line ping
+ local -a dataline
+ ping="${pingcomm//&&HOST&&/$machname}"
+ ping="${ping//&&PORT&&/$machport}"
+ $ping >& /dev/null || { echo "$machid NOTEXIST" ; return ; }
+ ndatalines=0 ; mode=NONE
+ {
+  while read line ; do
+   case "$mode" in
+   NONE)
+    case "$line" in
+    START*) mode=${line#START} ; first_line=1 ; continue ;;
+    esac ;;
+   *) [ "$line" = "END$mode" ] && { mode=NONE ; continue ; } ;;
+   esac
+   case "$mode" in
+   $$)
+    ndatalines=$((ndatalines+1))
+    dataline[$ndatalines]="$line" ;;
+   esac
+  done
+ } < <($ssh -l $machuser -p $machport $machname "bash -c '{\
+  export ${SCRIPT_NAME}_INFO_CLOCK=$machclock ;\
+  export ${SCRIPT_NAME}_INFO_SPEED=$machespeed ;\
+  export ${SCRIPT_NAME}_INFO_MEM=$machmem ;\
+  export ${SCRIPT_NAME}_INFO_CORES=$machcores ;\
+  export ${SCRIPT_NAME}_INFO_NICK=$machnick ;\
+  export ${SCRIPT_NAME}_INFO_NAME=$machname ;\
+  export ${SCRIPT_NAME}_INFO_ACCESS=$machaccess ;\
+  export ${SCRIPT_NAME}_INFO_FS=$machfs ;\
+  export ${SCRIPT_NAME}_INFO_LOGIN=$machuser ;\
+  export ${SCRIPT_NAME}_INFO_PORT=$machport ;\
+  echo START$$ ;\
+  { $command ; } ;\
+  } 2>/dev/null'" | tee -a /dev/stderr 2>/dev/null)
+ echo "$machid OK $ndatalines"
+ if ((ndatalines>0)) ; then
+  i=0
+  while ((i<ndatalines)) ; do i=$((i+1))
+   echo "$machid dataline$i ${dataline[$i]}"
+  done
+ fi
+}
+
+print_from_pipe() {
+ # Read from pipe and print info as soon as it becomes available.
+ # Return if stdin ends and icont ($1) is 1, otherwise also print
+ # summary at end.
+ local line i j stat icont=$1 espeed memo cput open_closed machnick cpuguess
+ local n cpuchunk memchunk usechunk
+ if [ -z "$first_print_from_pipe" ] ; then
+  i=0 ; inext=0
+  while ((i<nlistitems)) ; do i=$((i+1))
+   mach_done[$i]=0 ; mach_c[$i]=0 ; mach_m[$i]=0 ; mach_nl[$i]=0
+   mach_il[$i]=0
+   espeed=${eff_speed[$i]} ; memo=${mem[$i]} ; cput=${cpu[$i]}
+   open_closed=${openclosed[$i]}
+   if ((${mask[$i]}==0)) ; then
+    mach_done[$i]=-1
+   elif ((inext==0)) ; then
+    inext=$i
+   fi
+  done
+  first_print_from_pipe=0
+ fi
+ ((quiet==0)) && echo -n "Receiving...$el$cr"
+ while read i stat line ; do
+  case "$stat" in
+  OK)
+   set -- $line
+   case "$opmode" in
+   scan)
+    mach_c[$i]=$1 ; mach_m[$i]=$2 ; mach_up[$i]=$3 ; mach_nl[$i]=$4
+    (($4==0)) || ((verbose==0)) && mach_done[$i]=1 ;;
+   cruft|run)
+    mach_nl[$i]=$1 ; (($1==0)) && mach_done[$i]=1 ;;
+   esac ;;
+  dataline*)
+   j=$((${mach_il[$i]}+1)) ; mach_il[$i]=$j
+   eval "mach_ps_$j[$i]=\"\$line\""
+   (($j==${mach_nl[$i]})) && mach_done[$i]=1 ;;
+  NOTEXIST) mach_done[$i]=1 ; mach_c[$i]=-1 ;;
+  NOLOGIN) mach_done[$i]=1 ; mach_c[$i]=-2 ;;
+  *) mach_done[$i]=1 ; mach_c[$i]=-3 ;;
+  esac
+  # Print data so far
+  while ((inext<=nlistitems)) && ((${mach_done[$inext]}!=0)) ; do
+   ((${mach_done[$inext]}==-1)) && { inext=$((inext+1)) ; continue ; }
+   machnick=${cid[$inext]}
+   cpuguess=${mach_c[$inext]}
+   if ((cpuguess<0)) ; then
+    if ((quiet==0)) ; then
+     case "$cpuguess" in
+     -1) echo "$failcol$machnick: failed (host unreachable)$default$el" ;;
+     -2) echo "$failcol$machnick: failed (no passwordless login)$default$el" ;;
+     *) echo "$failcol$machnick: failed (unknown reason)$default$el" ;;
+     esac
+     echo -n "Receiving...$el$cr"
+    fi
+    inext=$((inext+1)) ; continue
+   fi
+   case "$opmode" in
+   scan)
+    espeed=${eff_speed[$inext]} ; memo=${mem[$inext]}
+    memguess=${mach_m[$inext]} ; userpresent=${mach_up[$inext]}
+    effghz=$espeed ; effghz=$espeed ; effmemo=$((memo*memguess/100))
+    ((cpuguess!=100)) && effghz=$((espeed*cpuguess/100))
+    # Printout
+    n=${mach_nl[$inext]}
+    if ((cpuguess==100)) ; then
+     cpuchunk="$espeed eMHz"
+     namechunk="$freecol$machnick$default"
+     usechunk="${freecol}idle$default"
+    else
+     cpuchunk="$effghz/$espeed eMHz ($cpuguess%)"
+     namechunk="$inusecol$machnick$default"
+     taskword=tasks ; ((n==1)) && taskword=task
+     if ((userpresent==1)) ; then
+      usechunk="${inusecol}in use ($n $taskword$listcol*$inusecol)$default"
+     else
+      usechunk="${inusecol}in use ($n $taskword)$default"
+     fi
+    fi
+    ((memguess==100)) && memchunk="$memo MiB"\
+     || memchunk="$effmemo/$memo MiB ($memguess%)"
+    echo "$namechunk: $usechunk, $infocol$cpuchunk, $memchunk$default$el"
+    if ((verbose==1)) && ((n>0)) ; then
+     echo -n $listcol
+     j=0
+     while ((j<n)) ; do j=$((j+1))
+      eval "line=\"\${mach_ps_$j[$inext]}\""
+      set -- $line
+      printf ' %-7s %5s %6s %s\n' $1 ${2}ni $3%mem $4
+     done
+     echo -n $default
+    fi ;;
+   cruft|run)
+    n=${mach_nl[$inext]}
+    if ((n>0)) ; then
+     echo "$inusecol$machnick$default:$el"
+     echo -n $listcol
+     j=0
+     while ((j<n)) ; do j=$((j+1))
+      eval "line=\"\${mach_ps_$j[$inext]}\""
+      echo " $line"
+     done
+     echo -n $default
+    fi ;;
+   esac
+   inext=$((inext+1))
+   ((quiet==0)) && echo -n "Receiving...$el$cr"
+  done
+ done
+ ((quiet==0)) && echo -n $el
+ ((icont!=0)) && return
+}
+
+check_and_load_list() {
+ # Does the computer list exist? Read it
+ local i
+ # Load the list, or generate one if it does not exist.
+ if ! load_list ; then
+  update_list
+  load_list || errstop "Could not build list."
+ fi
+ # Create mask array
+ i=0
+ while ((i<nlistitems)) ; do i=$((i+1))
+  mask[$i]=0
+  case "${openclosed[$i]}" in
+  -|NOLOGIN) continue ;;
+  CLOSED) ((ignore_perm==0)) && continue ;;
+  esac
+  [ ! -z "$machlist" ] && ! in_list ${cid[$i]} $machlist && continue
+  ((min_speed>0)) && ((${eff_speed[$i]}<min_speed)) && continue
+  ((max_speed>0)) && ((${eff_speed[$i]}>max_speed)) && continue
+  ((min_clock>0)) && ((${speed[$i]}<min_clock)) && continue
+  ((max_clock>0)) && ((${speed[$i]}>max_clock)) && continue
+  ((min_mem>0)) && ((${mem[$i]}<min_mem)) && continue
+  ((max_mem>0)) && ((${mem[$i]}>max_mem)) && continue
+  ((min_cores>0)) && ((${ncores[$i]}<min_cores)) && continue
+  ((max_cores>0)) && ((${ncores[$i]}>max_cores)) && continue
+  mask[$i]=1
+ done
+}
+
+scan_main() {
+ local pipe i n nfork machname machnick icont k machcores machuser machport
+ local l machclock machespeed machmem machaccess machfs
+ # Begin scan mode
+ pipe="$tmpdir/.tmp_$script_name"
+ [ -e $pipe ] && rm -f $pipe
+ mkfifo $pipe
+ i=0 ; n=0
+ while : ; do
+  nfork=5 ; icont=0 ; k=0
+  ((quiet==0)) && echo -n "Sending requests...$el$cr"
+  while ((i<nlistitems)) ; do i=$((i+1))
+   ((${mask[$i]}==0)) && continue
+   machnick=${cid[$i]}
+   l=$(which_field $machnick $list_of_nicknames)
+   machname=$(field $l $list_of_names)
+   machuser=$(field $l $list_of_login_names)
+   machport=$(field $l $list_of_ssh_ports)
+   n=$((n+1)) ; k=$((k+1))
+   case "$opmode" in
+   scan)
+    machcores=${ncores[$i]}
+    inspect_machine $machname $i $machcores $machuser $machport 2> /dev/null\
+     >> "$pipe" & ;;
+   cruft)
+    inspect_cruft $machname $i $machnick $machuser $machport 2> /dev/null\
+     >> "$pipe" & ;;
+   run)
+    machclock=${speed[$i]}
+    machespeed=${eff_speed[$i]}
+    machmem=${mem[$i]}
+    machcores=${ncores[$i]}
+    machaccess=${openclosed[$i]}
+    machfs=$(field $l $list_of_filesystems)
+    inspect_run $machclock $machespeed $machmem $machcores $machnick\
+     $machname $machaccess $machfs $machuser $machport $i "$run_command"\
+     2> /dev/null >> "$pipe" & ;;
+   esac
+   nfork=$((nfork+3))
+   ((nfork>maxfork)) && { icont=1 ; break ; }
+  done
+  ((quiet==0)) && echo -n $el
+  if ((icont==0)) && ((n==0)) ; then
+   ((quiet==0)) && echo "No computer matches your criteria."
+   exit 1
+  fi
+  ((k==0)) && { sleep 1 >> "$pipe" & }
+  print_from_pipe $icont <"$pipe"
+  ((icont==0)) && break
+ done
+ rm -f "$pipe"
+}
+
+setup_menu() {
+ local i iclass ioption yn temp_name temp_prefix temp_pattern temp_fs
+ local temp_login temp_port temp_niceval is_ok nitem namelist nicklist
+ unsaved_changes=0
+ while : ; do
+  cat <<__EOH
+Setup menu
+==========
+Choose one of the following options by entering the string in brackets.
+Changes will not be saved until you choose the "save" option.
+
+[t] Change network title: $network_name
+__EOH
+  iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+   cat <<___EOH
+[$iclass] Delete class #$iclass
+      prefix        : ${nick_prepend[$iclass]}
+      pattern       : ${name_pattern[$iclass]}
+      filesystem id : ${class_fs[$iclass]}
+      login         : ${login_name[$iclass]}
+      ssh port      : ${ssh_port[$iclass]}
+___EOH
+  done
+  cat <<__EOH
+[a] Add new class
+[n] Change default nice value: $nice_value
+[h] Display help on adding classes
+[s] Save configuration and exit
+[x] Exit without saving
+
+__EOH
+  echo -n "Enter your choice: " ; read ioption
+  case "$ioption" in
+  t|T)
+   echo
+   echo -n "Enter new network title: " ; read temp_name
+   [ -z "$temp_name" ] && { echo "Not changing title." ; continue ; }
+   unsaved_changes=1
+   network_name="$temp_name" ;;
+  a|A)
+   echo
+   echo "Define your new class."
+   echo -n "Nickname prefix: " ; read temp_prefix
+   iclass=0 ; while ((iclass<nclasses)) ; do iclass=$((iclass+1))
+    if [ "$temp_prefix" = "${nick_prepend[$iclass]}" ] ; then
+     echo "Prefix already in use."
+     echo "Not adding this class."
+     echo
+     continue 2
+    fi
+   done
+   echo -n "Name pattern [\"$temp_prefix\"]: " ; read temp_pattern
+   [ -z "$temp_pattern" ] && temp_pattern="$temp_prefix"
+   echo -n "Home filesystem id [\"\"]: " ; read temp_fs
+   echo -n "Login name [\"$USER\"]: " ; read temp_login
+   [ -z "$temp_login" ] && temp_login="$USER"
+   echo -n "Ssh port number [22]: " ; read temp_port
+   [ -z "$temp_port" ] && temp_port="22"
+   echo
+   {
+    read is_ok
+    if [ "$is_ok" != OK ] ; then
+     nitem=-1
+    else
+     read nitem
+     read namelist
+     read nicklist
+    fi
+   } < <(expand_pattern "$temp_pattern" "$temp_prefix")
+   if ((nitem>0)) ; then
+    echo "This class expands to $nitem names."
+    echo "Names: $namelist"
+    echo "Nicknames: $nicklist"
+    nclasses=$((nclasses+1))
+    name_pattern[$nclasses]="$temp_pattern"
+    nick_prepend[$nclasses]="$temp_prefix"
+    class_fs[$nclasses]="$temp_fs"
+    login_name[$nclasses]="$temp_login"
+    ssh_port[$nclasses]="$temp_port"
+    echo "Class added."
+    echo
+    unsaved_changes=1
+   elif ((nitem==0)) ; then
+    echo "No names were generated."
+    echo "Not adding this class."
+    echo
+   else
+    echo "$is_ok"
+    echo "Not adding this class."
+    echo
+   fi ;;
+  n|N)
+   echo
+   echo -n "Enter new default nice value [$nice_value]: " ; read temp_niceval
+   [ -z "$temp_niceval" ] && temp_niceval=$nice_value
+   if ! check_number_N "$temp_niceval" || ((temp_niceval<-20))\
+    || ((temp_niceval>19)) ; then
+    echo "Bad value. Nice value must be an integer between -19 and 20."
+    echo
+    continue
+   fi
+   nice_value=$temp_niceval
+   unsaved_changes=1
+   echo "Nice value changed."
+   echo ;;
+  h|H)
+   cat <<___EOH
+
+ Adding a network class
+ ----------------------
+ You will need to provide a nickname prefix, a defining pattern, a
+ filesystem ID string and a login name.
+
+ The nickname is the string by which you will refer to each computer.  Each
+ nickname is the concatenation of the prefix and the result of any expansions
+ in the provided pattern.  Nickname prefixes must be unique in the configured
+ network.  Nickname prefixes can be the empty string.
+
+ The pattern is a generator for the hostnames or IP addresses for the computers
+ in a class.  The hostname must be as long as needed to uniquely resolve to the
+ computer in question from all of the computers in the configured network.
+ Patterns can contain special codes that expand to multiple names.  If no
+ such code is present, the pattern expands to itself (a single name).  A
+ pattern without such codes cannot be associated with an empty nickname
+ prefix.
+
+ The following special codes are recognized:
+
+ - &&n,<n1>,<n2>[,leadzero]&&
+   This expands to the integers from <n1> to <n2>.  If 'leadzero' is specified,
+   a leading zero is prepended to numbers with fewer digits than <n2> so as to
+   make them all of equal length.
+
+ - &&a,<a1>,<a2>&&
+   This expands to the lowercase letters from <a1> to <a2> alphabetically.
+
+ - &&A,<A1>,<A2>&&
+   This expands to the uppercase letters from <A1> to <A2> alphabetically.
+
+ The filesystem ID string determines whether the HOME directory is shared
+ between computers in a class or not.  An empty filesystem ID indicates that
+ the HOME directories are separate, and any non-empty string signifies that
+ the HOME directory is shared.  If two or more classes have the same
+ filesystem ID, the HOME directory is shared among all of them.
+
+ The login name is the user name used to log into all the computers in the
+ class.
+
+ Examples:
+
+ - Nickname prefix 'myhost', pattern 'myhost'.
+   This expands to:
+   - Nicknames: myhost
+   - Names: myhost
+
+ - Empty nickname prefix, pattern 'pc&&n,9,11,leadzero&&&&a,a,b&&.example.com'.
+   This expands to:
+   - Nicknames: 09a, 09b, 10a, 10b, 11a, 11b
+   - Names: pc09a.example.com, pc09b.example.com, pc10a.example.com,
+     pc10b.example.com, pc11a.example.com, pc1b.example.com
+
+ - Nickname prefix 'pc', pattern '192.168.&&n,1,2&&.&&n,10,11&&'.
+   This expands to:
+   - Nicknames: pc110, pc111, pc210 and pc211
+   - Names: 192.168.1.10, 192.168.1.11, 192.168.2.10, 192.168.2.11
+
+___EOH
+   : ;;
+  s|S)
+   save_options
+   cat <<___EOH
+
+Options saved.
+
+If you have changed the class definitions, you should run '$script_name -u' to
+update the list of computers.  You will need to run '$script_name -P'
+beforehand if you need to set up passwordless logins.
+
+Quitting.
+___EOH
+   exit 0 ;;
+  x|X|q|Q)
+   if ((unsaved_changes==1)) ; then
+    echo
+    echo -n "Are you sure you want to exit without saving [y/N]? "
+    read yn
+    case "$yn" in
+    y|Y|yes|Yes|YES) : ;;
+    *) echo ; continue ;;
+    esac
+   fi
+   echo "Quitting."
+   exit 0 ;;
+  *)
+   check_number_N "$ioption" && ((ioption>0)) && ((ioption<=nclasses))\
+    || { echo "No such option. Try again." ; echo ; continue ; }
+   echo
+   echo -n "Are you sure you want to delete class #$ioption [y/N]? "
+   read yn
+   case "$yn" in
+   y|Y|yes|Yes|YES) : ;;
+   *) echo "Class not deleted." ; echo ; continue ;;
+   esac
+   iclass=$((ioption-1)) ; while((iclass<nclasses-1)) ; do iclass=$((iclass+1))
+    nick_prepend[$iclass]="${nick_prepend[$((iclass+1))]}"
+    name_pattern[$iclass]="${name_pattern[$((iclass+1))]}"
+    class_fs[$iclass]="${class_fs[$((iclass+1))]}"
+    login_name[$iclass]="${login_name[$((iclass+1))]}"
+    ssh_port[$iclass]="${ssh_port[$((iclass+1))]}"
+   done
+   nclasses=$((nclasses-1))
+   echo "Class deleted."
+   echo
+   unsaved_changes=1 ;;
+  esac
+ done
+}
+
+passwordless_helper() {
+ # Guide the user through the process of setting up passwordless logins.
+ local local_xsa local_ifs i ifs jfs machname user port j port
+ local -a remote_xsa rsa_or_dsa per_fs_list
+ # Temporary: haven't been able to verify how to do this properly.
+ ((nlistitems>number_of_filesystems))\
+  && errstop "Don't know how to do this in the presence of shared filesystems."
+ cat <<_EOH
+Passwordlessness helper
+=======================
+We will now set up passwordless ssh logins using public-key authentication.
+
+_EOH
+ while : ; do
+  echo -n "Use RSA or DSA encryption [rsa]? "
+  read rsa_or_dsa
+  rsa_or_dsa=$(uncap $rsa_or_dsa)
+  [ -z "$rsa_or_dsa" ] && rsa_or_dsa=rsa
+  case "$rsa_or_dsa" in
+  rsa|dsa) break ;;
+  *) echo "Bad option. Try again." ; echo ;;
+  esac
+ done
+ cat <<_EOH
+
+Using $(cap $rsa_or_dsa) encryption.
+
+The rest of this process is entirely automatic, except that you will need to
+type the password to one machine per configured filesystem if passwordless
+login is not already enabled.
+
+_EOH
+ # Get filesystem index for host.
+ i=$(which_field $host $list_of_nicknames)
+ local_ifs=$(field $i $list_of_filesystems)
+ # Step 1. Generate local id_xsa.
+ if [ ! -e ~/.ssh/id_$rsa_or_dsa ] || [ ! -e ~/.ssh/id_$rsa_or_dsa.pub ] ; then
+  rm -f ~/.ssh/id_$rsa_or_dsa ~/.ssh/id_$rsa_or_dsa.pub
+  echo "Generating id_$rsa_or_dsa on local filesystem."
+  DISPLAY= ssh-keygen -t $rsa_or_dsa < <(echo ; echo ; echo) >& /dev/null
+  [ ! -e ~/.ssh/id_$rsa_or_dsa ] || [ ! -e ~/.ssh/id_$rsa_or_dsa.pub ]\
+   && errstop "Could not generate local id_$rsa_or_dsa."
+  DISPLAY= ssh-add >& /dev/null
+ fi
+ local_xsa=$(head -n 1 ~/.ssh/id_$rsa_or_dsa.pub)
+ # Step 2. Add local id_xsa to local authorized_keys.
+ if [ ! -e ~/.ssh/authorized_keys ]\
+  || (($(grep -c "$local_xsa" ~/.ssh/authorized_keys)==0)) ; then
+  echo "Adding local id_$rsa_or_dsa.pub to local authorized_keys."
+  touch ~/.ssh/authorized_keys
+  echo "$local_xsa" >> ~/.ssh/authorized_keys
+ fi
+ chmod go-rwx ~/.ssh/authorized_keys
+ # Step 3. Loop over filesystems.
+ per_fs_list=""
+ ifs=0 ; while ((ifs<number_of_filesystems)) ; do ifs=$((ifs+1))
+  if ((ifs==local_ifs)) ; then
+   remote_xsa[$ifs]="$local_xsa"
+   per_fs_list="$per_fs_list 0"
+   continue
+  fi
+  remote_xsa[$ifs]=""
+  # Step 3.1. Get first available computer on this filesystem.
+  j=0 ; while : ; do j=$((j+1))
+   i=$(which_nth_field $j $ifs $list_of_filesystems)
+   ((i==0)) && break
+   machname=$(field $i $list_of_names)
+   user=$(field $i $list_of_login_names)
+   port=$(field $i $list_of_ssh_ports)
+   ping="${pingcomm//&&HOST&&/$machname}"
+   ping="${ping//&&PORT&&/$port}"
+   $ping >& /dev/null && break
+  done
+  per_fs_list="$per_fs_list $i"
+  if ((i==0)) ; then
+   echo "Skipping filesystem #$ifs, no computers available."
+   continue
+  fi
+  # Step 3.2. Ssh into computer
+  # Step 3.2.1. Generate remote id_xsa.
+  # Step 3.2.2. Append local id_xsa to remote authorized_keys.
+  # Step 3.2.1. Generate remote id_xsa.
+  echo "Logging into $machname."
+  {
+   while read line ; do
+    case "$line" in
+    START_GEN) echo "Generating remote id_$rsa_or_dsa." ;;
+    START_AUTH) echo "Adding local id_$rsa_or_dsa.pub to\
+ remote authorized_keys." ;;
+    ERROR) errstop "Problem with setting up $machname." ;;
+    START_XSA) read remote_xsa[$ifs] ;;
+    esac
+   done
+  } < <($ssh_nobatch -l $user -p $port $machname < <(\
+   cat <<___EOF
+if [ ! -e ~/.ssh/id_$rsa_or_dsa ] || [ ! -e ~/.ssh/id_$rsa_or_dsa.pub ] ; then
+ echo START_GEN
+ rm -f ~/.ssh/id_$rsa_or_dsa ~/.ssh/id_$rsa_or_dsa.pub
+ DISPLAY= ssh-keygen -t $rsa_or_dsa < <(echo ; echo ; echo) >& /dev/null
+ [ ! -e ~/.ssh/id_$rsa_or_dsa ] || [ ! -e ~/.ssh/id_$rsa_or_dsa.pub ]\
+  && { echo ERROR ; exit ; }
+fi
+if [ ! -e ~/.ssh/authorized_keys ]\
+ || ((\$(grep -c "$local_xsa" ~/.ssh/authorized_keys)==0)) ; then
+ echo START_AUTH
+ touch ~/.ssh/authorized_keys
+ echo "$local_xsa" >> ~/.ssh/authorized_keys
+fi
+chmod go-rwx ~/.ssh/authorized_keys
+echo START_XSA
+head -n 1 ~/.ssh/id_$rsa_or_dsa.pub
+___EOF
+  ) )
+  # Step 3.3. Append remote id_xsa to local authorized_keys.
+  if (($(grep -c "${remote_xsa[$ifs]}" ~/.ssh/authorized_keys)==0)) ; then
+   echo "Adding remote id_$rsa_or_dsa.pub to local authorized_keys."
+   echo "${remote_xsa[$ifs]}"  >> ~/.ssh/authorized_keys
+  fi
+ done
+ # Step 4. Loop over filesystems again.
+ ifs=0 ; while ((ifs<number_of_filesystems)) ; do ifs=$((ifs+1))
+  ((ifs==local_ifs)) && continue
+  [ -z "${remote_xsa[$ifs]}" ] && continue
+  i=$(field $ifs $per_fs_list)
+  ((i==0)) && continue
+  machname=$(field $i $list_of_names)
+  user=$(field $i $list_of_login_names)
+  port=$(field $i $list_of_ssh_ports)
+  # Step 4.2. Ssh into computer
+  # Step 4.2.1. Append list of remote id_xsa to remote authorized_keys.
+  echo "Logging into $machname to add all remote id_$rsa_or_dsa.pub to\
+ authorized_keys."
+  $ssh -l $user -p $port $machname < <(
+   jfs=0 ; while ((jfs<number_of_filesystems)) ; do jfs=$((jfs+1))
+    cat <<____EOF
+((\$(grep -c "${remote_xsa[$jfs]}" ~/.ssh/authorized_keys)==0))\
+ && echo "${remote_xsa[$jfs]}" >> ~/.ssh/authorized_keys
+____EOF
+   done
+  ) >& /dev/null
+ done
+ # Done
+ echo
+ echo "Process complete."
+ echo
+ echo "You should now be able to login passwordlessly across the computers"
+ echo "in this network.  You should now run '$script_name -u' to update the"
+ echo "computer list."
+}
+
+abort() {
+ # Make sure we leave no background processes
+ echo "[ABORT] Killing all subprocesses...$el"
+ killall -9 $script_name
+ [ -e "$tmpdir/.tmp_$script_name" ] && rm -f "$tmpdir/.tmp_$script_name"
+ exit 1
+}
+######################## End functions ########################
+
+# Initialize
+initialize
+# Read command line
+read_cmdline "$@"
+# Perform the needed actions.
+case "$opmode" in
+scan|cruft|run)
+ trap abort INT QUIT TERM
+ check_and_load_list ; scan_main ;;
+update)
+ trap abort INT QUIT TERM
+ update_list ;;
+info)
+ check_and_load_list ; print_info ;;
+setup)
+ setup_menu ;;
+passwordless)
+ passwordless_helper ;;
+help)
+ for pager in $pager_list ; do
+  if type -p "$pager" >& /dev/null ; then
+   display_help | $pager ; exit 0
+  fi
+ done
+ # Last resort
+ display_help ; exit 0 ;;
+esac

@@ -1,0 +1,120 @@
+#!/bin/bash
+#####################################################
+# Like 'killall casino ; clearup', but for VP runs. #
+# PLR 11.2009                                       #
+#####################################################
+
+set +u
+
+# Define functions
+
+# Output field number $1 of $2-$n
+function field { local i=$1 ; shift ; echo "${@:$i:1}" ; }
+
+function which_field {
+ # Output the field number of string $1 in $2-$n, or 0 if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+# Set up.
+host=$(rna --info=name .)
+
+# Read command line
+keep_info=0 ; keep_files=0
+while (($#>0)) ; do
+ case "$1" in
+ -k) keep_info=1 ;;
+ -K) keep_info=1 ; keep_files=1 ;;
+ *) echo "Usage: ${0##*/} [-k|-K]" ; exit 1 ;;
+ esac
+ shift
+done
+
+# Check for required files.
+if [ ! -e vpinfo/NODES ] || [ ! -e vpinfo/PIDS ] || [ ! -e vpinfo/DIRS ] ; then
+ echo "This script must be run in the directory under which RUNVP was invoked,"
+ echo "and vpinfo/NODES, vpinfo/PIDS and vpinfo/DIRS files must be present."
+ exit 1
+fi
+if [ ! -e vpinfo/SYNC_RUN ] ; then
+ echo "The run hasn't started yet. Wait a few seconds and try again."
+ exit 1
+fi
+if [ -d vpinfo/files ] && ((keep_info==0)) ; then
+ echo "Files have already been sync'd. Keeping local files."
+ keep_info=1
+fi
+
+# Gather list of computers.
+npcs=0
+pclist=""
+{
+ while read ipc pc dum ; do npcs=$((npcs+1))
+  pc_array[$npcs]="$pc"
+  pclist="$pclist $pc"
+ done
+} < vpinfo/NODES
+
+# Sanity checks.
+if ((npcs==0)) ; then
+ echo "No nodes in VP run?"
+ exit 1
+fi
+if [ "${pc_array[1]}" != "$host" ] ; then
+ echo "This utility must be run from the master VP node, ${pc_array[1]}."
+ exit 1
+fi
+
+# Gather list of PIDs to kill.
+{
+ while read pc pidlist ; do
+  pidlist=${pidlist%%#*}
+  pidlist=${pidlist% } # remove extra space, if present, for pretty-printing
+  ipc=$(which_field $pc $pclist)
+  pidlist_array[$ipc]="${pidlist_array[$ipc]} $pidlist"
+ done
+} < vpinfo/PIDS
+
+# Gather list of directories to remove.
+if ((keep_files==0)) ; then
+ {
+  while read pc dir ; do
+   ipc=$(which_field $pc $pclist)
+   dir_array[$ipc]="$dir"
+  done
+ } < vpinfo/DIRS
+fi
+
+# Perform the required actions on the remote computers.
+if ((npcs>0)) ; then
+ command='case $RNA_INFO_NAME in '
+ ipc=0 ; while ((ipc<npcs)) ; do ipc=$((ipc+1))
+  pc=${pc_array[$ipc]}
+  pidlist=${pidlist_array[$ipc]}
+  dir=${dir_array[$ipc]}
+  pidlist=${pidlist# } # remove extra space, if present, for pretty-printing
+  command="$command $pc) pidlist=\"$pidlist\" ; dir=\"$dir\" ;;"
+  if [ -z "$pidlist" ] && [ -z "$dir" ] ; then
+   echo "On ${pc_array[$ipc]}: doing nothing"
+  else
+   echo "On ${pc_array[$ipc]}:"
+   [ -z "$pidlist" ] || echo "  - Killing: $pidlist"
+   [ -z "$dir" ] || echo "  - Deleting: $dir"
+  fi
+ done
+ command="$command esac ; [ -z \"\$pidlist\" ] || kill -9 \$pidlist ;\
+  [ -z \"\$dir\" ] || rm -rf \"\$dir\""
+ rna -kqr "$command" $pclist
+fi
+
+# Remove vpinfo directory
+if ((keep_info==0)) ; then
+ rm -rf vpinfo
+ echo "Removed ./vpinfo"
+fi
+
+echo "Finished."

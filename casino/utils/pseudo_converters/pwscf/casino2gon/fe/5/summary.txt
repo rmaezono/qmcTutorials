@@ -1,0 +1,57 @@
+* Iron
+  Z = 26  Z_val = 8
+
+* Units: Hartrees
+
+* Type : HF GAUSSIAN/CRYSTAL parameterization
+
+* Core radii
+
+  l value                 core radii (au)
+  -------                 ---------------
+     s                         2.44   
+     p                         2.83   
+     d                         0.65   
+
+* Localisation radii, (r_loc, |V_l - V_l'|<10^-5 for r>r_loc and all l,l')
+
+  Pseudopotential Type       r_loc (au)
+  --------------------      -----------
+  Localised (Grid)             3.23   
+  Parameterised (Gaussians)    4.05   
+
+
+* Eigenvalues of the 3d(6)4s(2) state
+
+                LS Coupling [rm1]    
+  l value    All-el HF    Pseudo HF    
+  -------    ---------    ---------    
+     s       -0.25818     -0.25837      
+     d       -0.64689     -0.64712      
+
+
+
+
+* Energy terms of the Pseudo HF (LS) 3d(6)4s(2) [5D] state
+
+  kinetic energy            =            43.10873
+  el-ion interaction energy =           -81.51643
+                    (s part =           -5.48906)
+                    (d part =           -76.02737)
+  Hartree energy            =            19.84412
+  exchange energy           =           -2.84001
+  -------------------------------------------------
+  total energy              =           -21.40359
+
+
+* Excitation Energies
+
+  Configuration             LS Coupling
+                        All-el HF     Pseudo HF  
+                   Term  Energy        Energy  
+                   ----  ------        ------  
+  3d(6)4s(2)        5D   0.00000       0.00000     
+  3d(7)4s(1)        5F   0.06605       0.06988     
+  3d(7)4p(1)        5G   0.26436       0.27288     
+  3d(8)             3F   0.27420       0.29077     
+

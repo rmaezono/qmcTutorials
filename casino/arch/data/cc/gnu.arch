@@ -1,0 +1,57 @@
+#-! DESCRIPTION: GNU Compiler Collection's gcc C compiler
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 2.2007
+#-! CC_VERSION: >= 4.0
+#-! COMMAND_CHECK_CC_VERSION:
+#-!  version=""
+#-!  {
+#-!   while read a b line ; do
+#-!    if [ "$a $b" = "gcc version" ] ; then
+#-!     set -- $line ; version=$1 ; break
+#-!    fi
+#-!   done
+#-!  } < <(&CC& -v --version < /dev/null 2>&1)
+#-!  if [ -z "$version" ] ; then
+#-!   {
+#-!    while read a b line ; do
+#-!     if [[ "$a $b" == "gcc ("* ]] ; then
+#-!      set -- ${line#*)} ; version=$1 ; break
+#-!     fi
+#-!    done
+#-!   } < <(&CC& --version < /dev/null 2>&1)
+#-!  fi
+#-!  [ -z "$version" ] || echo $version
+#-! COMMAND_CHECK_CC:
+#-!  match=0
+#-!  if &CC& --version < /dev/null >& /dev/null ; then
+#-!   {
+#-!    while read a b line ; do
+#-!     if [ "$a $b" = "GNU C" ] ; then
+#-!      match=1 ; break
+#-!     fi
+#-!    done
+#-!   } < <(&CC& -v --version < /dev/null 2>&1)
+#-!  fi
+#-!  if ((match==0)) ; then
+#-!   if &CC& --version < /dev/null >& /dev/null ; then
+#-!    {
+#-!     while read a b line ; do
+#-!      if [[ "$a $b" == "gcc ("* ]] ; then
+#-!       set -- ${line#*)}
+#-!       case $1 in
+#-!       4.0*|4.1*|4.2*|4.3*|4.4*|4.5*|4.6*|4.7*) match=1 ; break ;;
+#-!       esac
+#-!      fi
+#-!     done
+#-!    } < <(&CC& --version < /dev/null 2>&1)
+#-!   fi
+#-!  fi
+#-!  ((match==1)) && echo $match
+
+# Compiler name
+CC = gcc
+
+# Compiler flags
+CFLAGS_opt   = -O3
+CFLAGS_debug = -O0 -g
+CFLAGS_OPENMP_yes = -fopenmp

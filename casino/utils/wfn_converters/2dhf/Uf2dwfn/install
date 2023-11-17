@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Compile 2DHF->CASINO converter and place in ~/bin directory.
+# Note that integer-size and double-size may need modification
+# to comply with 2DHF compilation.
+
+ifort -integer-size 64 -double-size 128 -ouf2dwfn  uf2dwfn.f90
+mv ./uf2dwfn ~/bin/

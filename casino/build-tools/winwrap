@@ -1,0 +1,38 @@
+#!/bin/bash
+#########################################################################
+# Wrapper for native Windows compilers under Cygwin.                    #
+# Converts Unix filenames to Windows filenames in the command line, and #
+# substitutes symbolic links with their targets. This is needed for e.g.#
+# MinGW-based versions of Unix compilers, windows ifort, etc.           #
+#                                                                       #
+# Usage: winwrap <compiler> <args>                                      #
+#                                                                       #
+# The words making up <args> will be parsed for absolute pathnames and  #
+# these will be substituted with their Windows equivalents using        #
+# 'cygpath'.                                                            #
+#                                                                       #
+# PLR 11.2007                                                           #
+#########################################################################
+
+# Parse command line and substitute
+cmd="$1" ; shift ; flist=""
+while (($#>0)) ; do
+ word="$1" ; shift
+ if [ "${word:0:1}" = / ] && ( [ -e "$word" ] || [ -d "${word%/*}" ] ) ; then
+  while [ -L "$word" ] ; do
+   plus=$(readlink $word) ; word="${word%\/*}/$plus"
+  done
+  flist="$flist ${word##*/}" ; word="$(cygpath -aw $word)"
+ fi
+ cmd="$cmd $word"
+done
+
+# Execute corrected command line
+$cmd || exit 1
+
+# Make sure object files are suffixed .o rather than .obj
+for file in $flist ; do
+ name="${file%.f90}" ; name="${name%.f}" ; name="${name%.c}"
+ [ -e $name.obj ] && mv $name.obj $name.o
+done
+exit 0

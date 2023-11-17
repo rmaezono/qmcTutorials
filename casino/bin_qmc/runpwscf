@@ -1,0 +1,2546 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# RUNPWSCF                                                           #
+# ========                                                           #
+# Script to run PWSCF on any known machine, in the context of the    #
+# CASINO distribution (it uses the CASINO architecture recognition   #
+# system to understand how to run PWSCF).                            #
+#                                                                    #
+# Assumes input files is called 'in.pwscf', out file is 'out.pwscf'. #
+#                                                                    #
+# Assumes CASINO distribution is in $HOME/CASINO.                    #
+#                                                                    #
+# Assumes PWSCF is in $HOME/espresso (override with -ehome).         #
+#                                                                    #
+# Currently does no checking whatsoever for the existence of         #
+# pseudopotentials, the correctness of input files, or anything      #
+# other than running SCF calculations.                               #
+#                                                                    #
+# Run with '--help' option for usage instructions.                   #
+#                                                                    #
+# Run with '--qmc' option to generate CASINO wave function files     #
+# (type of output may be controlled through options in pw2casino.dat #
+#  file).                                                            #
+#                                                                    #
+# Refer to CASINO/arch/README for information on adding support for  #
+# new machines.  No modification to this script should be necessary. #
+#                                                                    #
+# MDT 02.2011 (adapted from PLR's runqmc script)                     #
+#--------------------------------------------------------------------#
+# Don't whinge about undefined variables
+set +u
+# Enable extended pattern-matching features
+shopt -s extglob
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+
+#######################################################################
+print_usage() {
+ # Display usage and die
+ local var desc allowed min max desc_ic allowed_ic min_ic max_ic
+ # Header
+ cat <<_EOH
+Usage
+=====
+${0##*/} [<options>] [[--] <directories>]
+
+This script will run the PWSCF calculations set up in <directories>.
+<directories> is '.' by default.  <options> can be given as GNU-style long
+options ('--option[=value]') or as UNIX-style short options ('-abc<c-value>
+-de <e-value> -f...', where the space between '-x' and '<x-value>' is
+optional).
+_EOH
+ # Functions for each of the TYPEs
+ print_opt_all() {
+  # Print options available on all machines
+  cat <<__EOH
+ --force | -f
+   Run the calculation without checking for presence/correctness of input
+   files.
+
+ --check-only | -c
+   Stop before running the calculation.  In clusters, this option can be used
+   to produce the batch submission script for manual checking; '--check-only
+   --force' would only produce a submission script in these systems.
+
+ --ehome=<home> | -E <home>
+   Set the location of the Espresso installation to <home>.  By default, this
+   is set to \$HOME/espresso.
+
+ --binary=<binary> | -b <binary>
+   Set the binary name to use to <binary> instead of 'pw.x'.  This only needs
+   to be used for custom compilations with the option 'EXECUTABLE=<binary>'.
+
+ --tpp=<tpp> | -t <tpp>
+   Set the number of OpenMP threads per process to <tpp>.  This requires having
+   compiled the code with OpenMP support, as in 'make Openmp'
+
+ --qmc | -w
+   Generate a CASINO wave function file (equivalent to running PWSCF with
+   the -pw2casino option). Output may be pwfn.data, bwfn.data or binary
+   bwfn.data.b1 file, depending on flags set in optional pw2casino.dat file
+   (see CASINO/PWSCF documentation).
+
+ --help | -h
+   Display this help.  If the CASINO_ARCH can be determined and exists, the
+   help will display options specific to the current manchine, else all options
+   will be displayed.
+
+ --verbosity=<verbosity> | -v | -q
+   Set the verbosity level of the machine set-up process to <verbosity>.  By
+   default <verbosity> is 0.  '-v' increases the verbosity level by 1, and
+   '-q' decreases it by 1.
+
+ --info | -i
+   Report back various machine-dependent parameters whose value one might like
+   to know when deciding how to run a job, then stop. This is useful
+   for inquiring what runpwscf believes to be e.g. the number of cores per node,
+   according to the currently activated arch file.
+
+ --nimage=<number of images> 
+   Sets the PWSCF '-nimage' flag. Processors can be divided into different
+   'images', corresponding to a point in configuration space (i.e. to a 
+   different set of atomic positions) for NEB calculations; to one (or more 
+   than one 'irrep' or wave-vector in phonon calculations). Default 1.
+
+__EOH
+ }
+ print_opt_workstation() {
+  # Print options available on workstations
+  cat <<__EOH
+ --background | -B
+   Run PWSCF in the background, returning control to the shell after starting
+   the run.  This has the same effect as '${0##*/} & disown', whereby the
+   PWSCF process is detached from the shell, so if one wants to stop the run
+   'kill' or 'killall' must be used.  It is safe to log out after running with
+   this option, the calculation will continue - no need for nohup/disown.
+   Running multiple jobs causes them to run in the background whether this
+   option is specified or not.
+
+ --print-out | -P
+   Print out the output of PWSCF as it is being run.  Implies --background.
+   [CTRL]-[C] will stop the print-out, and the PWSCF job will remain in the
+   background.  This option is ignored when running multiple jobs.
+
+__EOH
+ }
+ print_opt_all_parallel() {
+  # Print options available on parallel workstations and clusters
+  cat <<__EOH
+ --no-mpi | -1
+   Run the binary directly without invoking mpirun etc.  This option is applied
+   before any others, and makes this script behave as if the machine was a
+   single-core machine.
+
+ --nproc=<nproc> | -p <nproc>
+   Set the number of MPI processes to <nproc>.  This will have to be consistent
+   with <tpp>, <nnode>, <ppn> and the machine information in the relevant
+   .arch file.
+
+ --ppn=<ppn>
+   Set the number of MPI processes per physical, multi-core node to <ppn>.
+   This will have to be consistent with <tpp>, <nproc>, <nnode>, <ppn> and the
+   machine information in the relevant .arch file.
+
+ --shmem[=<numablk>] | -s
+   Enable shared memory.
+   If <numablk> is provided, set the number of processses among which to share
+   memory to <numablk>.  This option requires having compiled the code with
+   shared memory support.
+
+ --diagram | -D
+   Draw a diagram of the processes and threads on each node to the terminal
+   during set-up.
+
+ --npool=<number of pools>
+   Sets the PWSCF '-npool' flag. When k-point sampling is used, each image
+   group can be subpartitioned into 'pools' and k-points can be distributed
+   across pools. Within each pool, reciprocal space basis set (PWs) and
+   real-space grids are distributed across processors. This is usually 
+   referred to as 'PW parallelization'. All linear algebra operations on arrays
+   of PW/real-space grids are automatically and effectively parallelized. 
+   3D FFT is used to transform electronic wave functions from reciprocal to
+   real space and vice versa. The 3D FFT is parallelized by distributing planes 
+   of the 3D grid in real space to processors (in reciprocal space, it is
+   columns of G-vectors that are distributed to processors). Default 1.
+
+ --ntg=<number of task groups> 
+   Sets the PWSCF '-ntg' flag. In order to allow good parallelization of the
+   3D FFT when the number of processors exceeds the number of FFT planes, data 
+   can be redistributed to 'task groups' so that each group can process
+   several wave functions at the same time. Default 1.
+
+ --ndiag=<size of linear-algebra group>
+   Sets the PWSCF '-ndiag' flag. A further level of parallelization, 
+   independent on PW or k-point parallelization, is the parallelization of
+   subspace diagonalization (pw.x). Both operations required the 
+   diagonalization of arrays whose dimension is the number of Kohn-Sham states 
+   (or a small multiple). All such arrays are distributed block-like across 
+   the 'linear-algebra group', a subgroup of the pool of processors, organized 
+   in a square 2D grid. As a consequence the number of processors in the 
+   linear-algebra group is given by n^2, where n is an integer; n^2 must be 
+   smaller than the number of processors of a single pool. The diagonalization 
+   is then performed in parallel using standard linear algebra operations. 
+   (This diagonalization is used by, but should not be confused with, the 
+   iterative Davidson algorithm). One can choose to compile ScaLAPACK if 
+   available, internal built-in algorithms otherwise. Default 1 if ScaLAPACK
+   is not compiled; otherwise (?) it is set to the square integer smaller than 
+   or equal to half the number of processors of each pool.
+
+Example: 'runpwscf --nproc=4096 --nimage=8 --npool=2 --ntg=8 --ndiag==144'
+executes PWSCF on 4096 processors, to simulate a system with 8 images, each of
+which is distributed across 512 processors, k-points are distributed across
+2 pools of 256 processors each. 3D FFT is perfomed using 8 task groups (64
+processors each, so the 3D real-space grid is cut into 64 slices), and the 
+diagonalization of the subspace Hamiltonian is distributed to a square grid
+of 144 processors (12x12).
+
+NOTE: Images and pools are loosely coupled and processors communicate between 
+different images and pools only once in a while, whereas processors within 
+each pool are tightly coupled and communications are significant. This means 
+that Gigabit ethernet (typical for cheap PC clusters) is OK up to 4-8 
+processors per pool, but *fast* communication hardware is absolutely needed 
+beyond 8 processors per pool.
+
+__EOH
+ }
+ print_opt_cluster() {
+  # Print options available on clusters
+  cat <<__EOH
+ --no-cluster | -l
+   Run the calculation directly on the login node of a cluster without
+   producing a submission script.  This option is applied before any others,
+   and makes this script behave as if the machine was a multi-core workstation.
+
+ --nnode=<nnode> | -n <nnode>
+   Set the number of physical, (possibly) multi-core nodes to use to <nnode>.
+   This will have to be consistent with <tpp>, <nnode>, <ppn> and the machine
+   information in the relevant .arch file.
+
+ --walltime=<walltime> | -T <walltime>
+   Set the wall-time limit for the run to <walltime>, given in the format
+   [<days>d][<hours>h][<minutes>m][<seconds>s].
+
+ --coretime=<coretime> | -C <coretime>
+   Set the core-time (i.e., wall-time times number of reserved cores) limit for
+   the run to <coretime>, given in the format
+   [<days>d][<hours>h][<minutes>m][<seconds>s].
+
+ --name=<name> | -N <name>
+   Set the submission script name and job name to <name>.
+__EOH
+ }
+ print_opt_user() {
+  # Print --user.* options for this machine
+  [ -z "$user_varlist" ] && return
+  echo
+  echo "Additional options on this particular machine:"
+  for var in $(uniq_list $user_varlist) ; do
+   echo " --user.$(uncap $var)=<$(uncap $var)>"
+   eval "desc=\"\$user_description_$var\" ;\
+    default=\"\$user_default_$var\" ;\
+    allowed=\"\$user_allowed_$var\" ;\
+    min=\"\$user_min_$var\" ;\
+    max=\"\$user_max_$var\" ;\
+    default_ic=\"\$user_default_${var}_is_command\" ;\
+    allowed_ic=\"\$user_allowed_${var}_is_command\" ;\
+    min_ic=\"\$user_min_${var}_is_command\" ;\
+    max_ic=\"\$user_max_${var}_is_command\""
+   ((default_ic==1)) && default="<determined at run time>"
+   ((allowed_ic==1)) && allowed="<determined at run time>"
+   ((min_ic==1)) && min="<determined at run time>"
+   ((max_ic==1)) && max="<determined at run time>"
+   [ -z "$desc" ] && echo "   <No description>" || pretty_print 3 3 "$desc"
+   [ -z "$default" ] || pretty_print 3 3 "Default value: $default"
+   [ -z "$allowed" ] || pretty_print 3 3 "Allowed values: $allowed"
+   [ -z "$min" ] || pretty_print 3 3 "Minimum value: $min"
+   [ -z "$max" ] || pretty_print 3 3 "Maximum value: $max"
+   echo
+  done
+ }
+ # Print options relevant to this machine, or all of them if machine type
+ # unknown.
+ case "$TYPE" in
+ single)
+  echo ; echo "Allowed options on this machine type:"
+  print_opt_all
+  echo
+  print_opt_workstation
+  print_opt_user ;;
+ parallel)
+  echo ; echo "Allowed options on this machine type:"
+  print_opt_all
+  echo
+  print_opt_workstation
+  echo
+  print_opt_all_parallel
+  print_opt_user ;;
+ cluster)
+  echo ; echo "Allowed options on this machine type:"
+  print_opt_all
+  echo
+  print_opt_all_parallel
+  echo
+  print_opt_cluster
+  print_opt_user ;;
+ *)
+  echo ; echo "Allowed options on all machines:"
+  print_opt_all
+  echo ; echo "Allowed options on single- and multi-processor workstations:"
+  print_opt_workstation
+  echo ; echo "Allowed options on multi-processor workstations and clusters:"
+  print_opt_all_parallel
+  echo ; echo "Allowed options on clusters:"
+  print_opt_cluster ;;
+ esac
+ exit
+}
+
+######################## START BASIC FUNCTIONS ########################
+# Output field number $1 of $2-$n
+field() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i:1}" ; }
+
+# Output all fields of $2-$n from number $1 onwards
+fields_from() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i}" ; }
+
+# Ouput last field in $*
+last_field() { (($#>0)) && echo ${@:$#} ; }
+
+which_field() {
+ # Output the field number of string $1 in $2-$n, or 0 if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+in_line() {
+ # Like which_field, but only set return value, no other output
+ local str="$1"
+ while (($#>1)) ; do shift ; [ "$str" = "$1" ] && return 0 ; done
+ return 1
+}
+
+next_field() {
+ # Output field after $1 in $2-$n, or nothing.
+ local str="$1"
+ while (($#>2)); do shift; [ "$1" = "$str" ] && { echo "$2" ; return ; } ; done
+}
+
+repeat() {
+ # Print $2 $1 times
+ local i=0 string=""
+ while ((i<$1)) ; do i=$((i+1)) ; string="$string$2" ; done
+ echo "$string"
+}
+
+# Print $1 spaces
+space() { (($1>0)) && printf "%${1}s\n" "" ; }
+# Add spaces to the left of $2 until it has $1 characters.
+pad() { echo "$(space $(($1-${#2})))$2" ; }
+# Add zeroes to the left of $2 until it has $1 characters.
+zero_pad() { echo "$(repeat $(($1-${#2})) 0)$2" ; }
+
+readlink_custom() {
+ # Replacement for readlink
+ if type -P readlink >& /dev/null ; then
+  readlink "$1"
+ else
+  next_field "->" $(/bin/ls -l "$1" 2>/dev/null)
+ fi
+}
+
+chase_link() {
+ # Find the physical file corresponding to $1, possibly
+ # by following a chain of soft links
+ local file="$1" dir linkto linkdir
+ while [[ "$file" == */ ]] ; do file=${file%/} ; done
+ dir=${file%/*}/ ; dir=$(cd "$dir" ; pwd) ; [[ "$dir" != */ ]] && dir="$dir/"
+ file=$dir${file##*/}
+ while : ; do
+  [ ! -L "$file" ] && { echo "$file" ; return ; }
+  linkto=$(readlink_custom "$file") ; linkdir=${linkto%/*}/
+  dir=$(cd "$dir" ; cd "$linkdir" ; pwd) ; [[ "$dir" != */ ]] && dir="$dir/"
+  file="$dir${linkto##*/}"
+ done
+}
+
+# Check whether $1 is a positive integer
+check_number_N() { [[ "$1" == +([[:digit:]]) ]] ; }
+# Check whether $1 is an integer
+check_number_Z() { [[ "$1" == ?([+-])+([[:digit:]]) ]] ; }
+
+check_number_R() {
+ # Check whether $1 is a real number (in Fortran format)
+ [[ "$1" ==\
+  ?([+-])+([[:digit:]])?(.)*([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]] ||
+  [[ "$1" ==\
+  ?([+-])*([[:digit:]]).+([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]]
+}
+
+fortran_to_decimal() {
+ # Give the decimal representation of Fortran-formatted real number $1.
+ local n="$1" b e bb decb idot sign=""
+ check_number_R "$n" || return
+ b="${n%[dDeE]*}"
+ [ "$b" = "$n" ] && { echo "$b" ; return ; }
+ e="${n#*[dDeE]}"
+ ((e==0)) && { echo "$b" ; return ; }
+ bb="${b/./}"
+ if [ "${bb:0:1}" = - ] ; then
+  sign=- ; bb=${bb:1}
+ fi
+ case "$b" in
+ $sign$bb|$sign$bb.) idot=0 ;;
+ $sign.$bb) idot=-${#bb} ;;
+ *) decb="${b#*.}" ; idot=-${#decb} ;;
+ esac
+ ((e>0)) && e="+10#${e#+}" || e="-10#${e#-}"
+ idot=$((idot+e))
+ if ((idot>0)) ; then
+  echo "$sign$bb$(repeat $idot 0)"
+ elif ((idot==0)) ; then
+  echo "$sign$bb"
+ elif ((idot<-${#bb})) ; then
+  echo "$sign.$(zero_pad ${idot#-} "$bb")"
+ else # idot in [-${#bb}, -1]
+  nint=$((${#bb}+idot))
+  echo "$sign${bb:0:$nint}.${bb:$nint}"
+ fi
+}
+
+unpad() {
+ # Remove leading and trailing blanks from "$@"
+ local string="$@"
+ while [ "${string:0:1}" = " " ] ; do
+  string="${string:1}"
+ done
+ while [ "${string:$((${#string}-1)):1}" = " " ] ; do
+  string="${string:0:$((${#string}-1))}"
+ done
+ echo "$string"
+}
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ uncap() {
+  # Turn upper case into lower case in $1.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ }
+ cap() {
+  # Turn lower case into upper case in $1.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   a) c=A ;; b) c=B ;; c) c=C ;; d) c=D ;; e) c=E ;; f) c=F ;; g) c=G ;;
+   h) c=H ;; i) c=I ;; j) c=J ;; k) c=K ;; l) c=L ;; m) c=M ;; n) c=N ;;
+   o) c=O ;; p) c=P ;; q) c=Q ;; r) c=R ;; s) c=S ;; t) c=T ;; u) c=U ;;
+   v) c=V ;; w) c=W ;; x) c=X ;; y) c=Y ;; z) c=Z ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ }
+ ;;
+*)
+ uncap() { echo "${1,,}" ; }
+ cap() { echo "${1^^}" ; }
+ ;;
+esac
+
+rem_list() {
+ # Remove item $1 from $2-$n
+ local item out=""
+ for item in ${@:2} ; do [ "$item" = "$1" ] || out="$out $item" ; done
+ echo "$out"
+}
+
+uniq_list() {
+ local x ; unpad $({ for x in "$@"; do echo $x ; done ; } | sort | uniq)
+}
+
+pretty_print() {
+ # Print $3 with line folding at column $lwidth, with indentation $1 on the
+ # first line and indentation $2 on the following.
+ local indent1=$1 indent_rest=$2 text word line el="" lwidth=79
+ text="$(unpad "$3")"
+ line=""
+ while ((${#text}>0)) ; do
+  word="${text%% *}"
+  text="$(unpad "${text:${#word}}")"
+  if [ -z "$line" ] ; then # only happens first time around
+   line="$(printf "%${indent1}s")$word"
+  else
+   if ((${#line}+1+${#word}>lwidth)) ; then
+    echo "$line$el" ; line="$(printf "%${indent_rest}s")$word"
+   else
+    line="$line $word"
+   fi
+  fi
+ done
+ [ -z "$line" ] || echo "$line$el"
+}
+
+# Errors, warnings and infos
+errstop() { echo ; pretty_print 0 7 "ERROR: $1" ; echo ; exit 1 ; }
+errstopd() { echo ; pretty_print 0 7 "ERROR [$1]: $2" ; echo ; exit 1 ; }
+errwarn() { pretty_print 0 9 "WARNING: $1" ; }
+errwarnd() { pretty_print 0 9 "WARNING [$1]: $2" ; }
+info() { (($1<=verbosity)) && pretty_print 0 1 "$2" ; }
+
+# Print T if input is 1 and F if input is 0.
+boolean() { case "$1" in 1) echo T ;; 0) echo F ;; esac ; }
+
+force_ratio() {
+ # Force ratio $1=$2*$3, where all parameters are supposed to be integers.
+ local a_name b_name c_name a b c
+ a_name=$1 b_name=$2 c_name=$3
+ eval "a=\$$a_name ; b=\$$b_name ; c=\$$c_name"
+ if ((a>0)) ; then
+  if ((b>0)) ; then
+   if ((c>0)) ; then
+    ((a!=b*c)) && errstop "Inconsistent values of $a_name, $b_name and $c_name"
+   else
+    ((a%b>0)) && errstop "$a_name not divisible by $b_name"
+    c=$((a/b))
+    eval $c_name=$c
+    info 3 "Made $c_name=$c as $a_name=$a and $b_name=$b"
+    return 0
+   fi
+  else # b==0
+   if ((c>0)) ; then
+    ((a%c>0)) && errstop "$a_name not divisible by $c_name"
+    b=$((a/c))
+    eval $b_name=$b
+    info 3 "Made $b_name=$b as $a_name=$a and $c_name=$c"
+    return 0
+   fi
+  fi
+ else # a==0
+  if ((b>0)) && ((c>0)) ; then
+   a=$((b*c))
+   eval $a_name=$a
+   info 3 "Made $a_name=$a as $b_name=$b and $c_name=$c"
+   return 0
+  fi
+ fi
+ return 1
+}
+
+seconds_to_smhd() {
+ # Given a number of seconds $1, print seconds, minutes, hours and days
+ local d h m s=$1
+ check_number_N "$s" || { echo 0 0 0 0 ; return ; }
+ m=$((s/60)) ; s=$((s-60*$m))
+ h=$((m/60)) ; m=$((m-60*$h))
+ d=$((h/24)) ; h=$((h-24*$d))
+ echo $s $m $h $d
+}
+
+seconds_to_casino_time() {
+ # Given a number of seconds $1, print time in CASINO format.
+ local out=""
+ set -- $(seconds_to_smhd $1)
+ (($4!=0)) && out=$out$4d
+ (($3!=0)) && out=$out$3h
+ (($2!=0)) && out=$out$2m
+ (($1!=0)) && out=$out$1s
+ [ -z "$out" ] && out=0s
+ echo $out
+}
+
+casino_time_to_seconds() {
+ # Given a CASINO-formatted time $1, print number of seconds.
+ local ctime="$1" s=0 t1 ct x
+ for x in d h m s ; do
+  ct="${ctime#*$x}"
+  if [ "$ctime" != "$ct" ] ; then
+   t1="${ctime%$x*}"
+   check_number_N "$t1" || break
+   s=$((s+t1))
+   ctime="$ct"
+  fi
+  case $x in
+  d) s=$((s*24)) ;;
+  h|m) s=$((s*60)) ;;
+  esac
+ done
+ [ -z "$ctime" ] && ((s>0)) || s=0
+ echo $s
+}
+######################### END BASIC FUNCTIONS #########################
+
+########################### START FUNCTIONS ###########################
+init_runpwscf() {
+ # Set host name
+ hostname=$(hostname)
+ # Set current directory
+ base_pwd="$(pwd)"
+ doterr_file=".err"
+ input_file="in.pwscf"
+ out_file="out.pwscf"
+ ehome="$HOME/espresso"
+ # Set $chome to location of this script by default
+ my_loc=$(chase_link $0) ; my_bin=${my_loc##*/}
+ if [[ "$my_loc" == */utils/runqmc/$my_bin ]] ; then
+  chome="${my_loc%%/utils/runqmc/$my_bin}"
+ else
+  chome="$HOME/CASINO"
+ fi
+ [ ! -e $chome ] && errstop "The runpwscf script requires a copy of the \
+  CASINO distribution and expects to find it in  $chome, but it isn't 
+  there."
+ casinohome=$chome
+}
+
+parse_cmdline() {
+ # Parse command line
+ local option option1 val valmin var t1 t2
+ local -a abs_job_dir
+ # Initialize verbosity
+ verbosity=0
+ # Initialize to null
+ version=""
+ force_nocheck="" ; check_only="" ; diagram=""
+ requested_features="" ; name="" ; binary_name=""
+ nompi="" ; nocluster=""
+ nnode="" ; tpp="" ; ppn="" ; nproc="" ; walltime=""
+ shm="" ; numablk=""
+ background="" ; print_out=""
+ gdb=""
+ qmc=""
+ runqmcmd=""
+ twistav=""
+ help_mode=""
+ nproc_dft=""
+ xwfnstart=""
+ xwfnstop=""
+ ntwist=""
+ inquire="0"
+ nimage=""
+ npool=""
+ ntg=""
+ ndiag=""
+ # Parse command line.
+ while (($#>0)) ; do
+  case "$1" in
+  --) shift ; break ;;
+  --*) # GNU-style "long" options
+   option="${1#--}"
+   case "$option" in
+   gdb) gdb=0 ;; # No function in runpwscf - runqmcmd only
+   no-mpi) nompi=1 ;;
+   no-cluster) nocluster=1 ;;
+   info) inquire=1 ;;
+   background) background=1 ;;
+   print-out) print_out=1 ; background=1 ;;
+   check-only) check_only=1 ;;
+   check_only) check_only=1 ;;
+   force) force_nocheck=1 ;;
+   diagram) diagram=1 ;;
+   shmem) shm=1 ;;
+   qmc) qmc="-pw2casino" ;;
+   help) help_mode=1 ;;
+   runqmcmd) runqmcmd=1 ;;
+   twistav) twistav=1 ;;
+   opt|dev|debug|prof) version="" ;; # No function in runpwscf - runqmcmd only
+   continue) ;; # No function in runpwscf - runqmcmd only
+   auto-continue) ;; # No function in runpwscf - runqmcmd only
+   valgrind) ;; # No function in runpwscf - runqmcmd only
+   qmc_only) ;; # No function in runpwscf - runqmcmd only
+   dft_only) ;; # No function in runpwscf - runqmcmd only
+   splitqmc) ;; # No function in runpwscf - runqmcmd only
+   startqmc) ;; # No function in runpwscf - runqmcmd only
+   *=*) # long options with integer arguments
+    var="${option%%=*}" ; val="${option#*=}"
+    case "$var" in
+    nnode|nproc|tpp|ppn|verbosity|shmem|splitqmc|startqmc|nproc_dft|xwfnstart|xwfnstop|ntwist|nimage|npool|ntg|ndiag)
+     minval=1 ; [ "$var" = shmem ] && minval=0
+     check_number_Z $val || errstop "Argument to --$var must be an integer."
+     case "$var" in
+     verbosity) minval="" ;;
+     shmem) minval=0 ;;
+     xwfnstart) minval=1 ;;
+     xwfnstop) minval=1 ;;
+     *) minval=1
+     esac
+     [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to --$var must\
+      be an integer greater than or equal to $minval."
+     case "$var" in
+     shmem) var=numablk ;;
+     esac
+     eval "$var=\"\$val\"" ;;
+    name|home|ehome|coretime|walltime|binary|version) # long options with string args
+     case "$var" in
+     binary) var=binary_name ;;
+     esac
+     eval "$var=\"\$val\"" ;;
+    user.*) # user variables
+     var="${var#*.}"
+     [[ "$var" == +([[:lower:][:digit:]_]) ]]\
+      || errstop "Bad user variable name $var in command-line option\
+      '$option' (should be of the form --user.variable=<value>. Note that\
+      variable names must be uppercase)."
+     var=$(cap $var)
+     cl_varlist="$cl_varlist user_$var"
+     eval "user_$var=\"\$val\"" ;;
+    *) errstop "Unrecognized option --$option." ;;
+    esac ;;
+   *) errstop "Unrecognized option --$option."
+   esac ;;
+  -*) # Unix-style "short" options
+   option=${1#-}
+   [ -z "$option" ] && errstop "Bad option '-'."
+   while ((${#option}>0)) ; do
+    option1=${option:0:1}
+    option=${option:1}
+    case "$option1" in
+    v) verbosity=$((verbosity+1)) ;;
+    q) verbosity=$((verbosity-1)) ;;
+    d) version="" ;; # No function in runpwscf - runqmcmd only
+    g) gdb=0 ;; # No function in runpwscf - runqmcmd only
+    1) nompi=1 ;;
+    l) nocluster=1 ;;
+    i) inquire=1 ;;
+    B) background=1 ;;
+    P) print_out=1 ; background=1 ;;
+    c) check_only=1 ;;
+    f) force_nocheck=1 ;;
+    D) diagram=1 ;;
+    s) shm=1 ;;
+    w) qmc="-pw2casino" ;;
+    h) help_mode=1 ;;
+    n|p|t) # short options with integer arguments
+     if [ ! -z "$option" ] ; then
+      val="$option" ; option=""
+     else
+      (($#==1)) && errstop "-$option1 must be followed by an integer argument."
+      shift ; val="$1"
+     fi
+     check_number_N $val || errstop "Argument to -$option1 must be an integer."
+     case "$option1" in
+     n) var=nnode ; minval=1 ;;
+     p) var=nproc ; minval=1 ;;
+     t) var=tpp ; minval=1 ;;
+     esac
+     [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to -$option1\
+      must be an integer greater than or equal to $minval."
+     eval "$var=\"\$val\"" ;;
+    N|H|E|C|T|b) # short options with string arguments
+     if [ ! -z "$option" ] ; then
+      val="$option" ; option=""
+     else
+      (($#==1)) && errstop "-$option1 must be followed by a string argument."
+      shift ; val="$1"
+     fi
+     case "$option1" in
+     N) var=name ;;
+     E) var=ehome ;;
+     C) var=coretime ;;
+     T) var=walltime ;;
+     b) var=binary_name ;;
+     esac
+     eval "$var=\"\$val\"" ;;
+    *) errstop "Unrecognized option -$option1." ;;
+    esac
+   done ;;
+  *) break ;;
+  esac
+  shift
+ done
+
+ espressohome=$ehome
+
+ if [[ ! -z $runqmcmd && ! -z $twistav ]] ; then
+   errstop "Runpwscf script called with  --runqmcmd and --twistav arguments - not allowed."
+ fi
+
+ [ -n "$nproc_dft" ] && nproc=$nproc_dft
+
+ if [ ! -z "$twistav" ] && [ -z "$xwfnstart" ] && [ -z "$check_only" ] ; then
+  errstop "runpwscf is being called by the twistav_pwscf script, but \
+   twistav_pwscf did not pass the required xwfnstart flag. Bug."
+ fi
+ if [ ! -z "$twistav" ] && [ -z "$xwfnstop" ] && [ -z "$check_only" ] ; then
+  errstop "runpwscf is being called by the twistav_pwscf script, but \
+   twistav_pwscf did not pass the required xwfnstop flag. Bug."
+ fi
+
+ # Parse directories from command line
+ njob=0 ; unset job_dir abs_job_dir
+ while (($#>0)) ; do
+  if [ "$RELPATHNAMES" != yes ] ; then
+   # Get absolute path not involving symlinks
+   t1="$(cd "$base_pwd" ; cd "$1" ; pwd -P)"
+   t2="$(cd "$base_pwd" ; cd "$1" ; pwd)"
+  else
+   # Don't use absolute pathnames since different file system on compute nodes
+   t1="$1"
+   t2="$1"
+  fi
+  # Check job directory exists and has the correct permissions
+  [ -d "$t1" ] || errstop "Directory '$1' does not exist."
+  [ -r "$t1" ] || errstop "Directory '$1' is not readable."
+  [ -x "$t1" ] || errstop "Directory '$1' is not traversable."
+  [ -w "$t1" ] || errstop "Directory '$1' is not writable."
+  # Check job directory is not repeated
+  ijob=0 ; while ((ijob<njob)) ; do ijob=$((ijob+1))
+   [ "$t1" = "${abs_job_dir[$ijob]}" ] && errstop "Two directories specified\
+    on the command line, '${job_dir[$ijob]}' and '$t2', resolve to the same\
+    directory, '$t1'."
+  done
+  # Add directory to list
+  njob=$((njob+1)) ; job_dir[$njob]="$t2" ; abs_job_dir[$njob]="$t1"
+  shift
+ done
+
+ # Set the current directory as the only target if none specified
+ if ((njob==0)) ; then
+  njob=1
+  if [ "$RELPATHNAMES" != yes ] ; then
+   job_dir[1]="$(cd "$base_pwd" ; pwd)"
+  else
+   job_dir[1]="."
+  fi
+ fi
+
+}
+
+get_arch_params_init() {
+ # Locate arch definitions file
+ cd "$casinohome/arch/data"
+ if [ ! -f "$CASINO_ARCH.arch" ] ; then
+  errstop "File '$CASINO_ARCH.arch' not found.  Make sure it exists."
+ fi
+ # Define architecture parameters required before parse_cmdline 
+ # (i.e. RELPATHNAMES)
+ define_tags_init
+ clear_tags
+ load_tags "$CASINO_ARCH.arch"
+ # Return to current directory.
+ cd "$base_pwd"
+}
+
+get_arch_params() {
+ # Decide what parameters to use for each machine
+ local mpirun="mpirun -np" host_HOSTNAME host_ARCH host_KERNEL
+ local host_OS mismatch_var hvalue fvalue found v
+ # Locate arch definitions file
+ cd "$casinohome/arch/data"
+ # Define architecture parameters
+ define_tags
+ # Set default values
+ TYPE=single
+ # Load architecture parameters
+ info 1 "Loading tags from $CASINO_ARCH.arch"
+ clear_tags
+ load_tags "$CASINO_ARCH.arch"
+ [ -z "$ENVIRONMENT_COMMAND" ] && ENVIRONMENT_COMMAND=:
+ var_F90="$ENVIRONMENT_COMMAND ; $F90"
+ var_CC="$ENVIRONMENT_COMMAND ; $CC"
+ var_CXX="$ENVIRONMENT_COMMAND ; $CXX"
+ # Print usage at this point if requested.
+ [ "$help_mode" = 1 ] && print_usage
+ # Declare dependencies
+ merge_vardeps RUN_TOPOLOGY "NPROC NNODE NCORE TPN TPP PPN NJOB NPROC_TOTAL\
+  NNODE_TOTAL NCORE_TOTAL"
+ declare_vardeps META.RUN_TOPOLOGY "CORES_PER_NODE CORES_PER_NODE_CLUSTER\
+  MIN_NCORE MAX_NCORE MIN_NNODE MAX_NNODE ALLOWED_NNODE ALLOWED_NCORE" \
+  eval_topology
+ declare_vardeps WALLTIME "TIME_FORMAT WALLTIME_CODES ALLOWED_WALLTIME\
+  MIN_WALLTIME MAX_WALLTIME MIN_CORETIME MAX_CORETIME CORES_PER_NODE"\
+  eval_walltime
+ # Report any errors about the .arch file, in the hope that people will
+ # fix them and we can keep the database as clean and functional as possible.
+ # Users would otherwise be satisfied with an "it seems to work" even if half
+ # of what they've written is not being parsed.
+ report_errors
+ # Match auto-detection variables and warn user if this appears to be the
+ # wrong machine.  Ignore compilers, though, since the code may have been built
+ # elsewhere.
+ host_ARCH=$(uname -m 2> /dev/null)
+ host_KERNEL=$(uname -s 2> /dev/null)
+ host_OS=$(uname -o 2> /dev/null)
+ host_HOSTNAME=$hostname
+ mismatch_var=""
+ for var in HOSTNAME ARCH KERNEL OS ; do
+  eval hvalue=\"\$host_$var\"
+  eval fvalue=\"\$$var\"
+  if [ ! -z "$fvalue" ] && [ ! -z "$hvalue" ] ; then
+   found=0
+   while ((${#fvalue}>0)) ; do
+    v="${fvalue%%,*}"
+    fvalue="$(unpad "${fvalue:${#v}}")"
+    fvalue="$(unpad "${fvalue#,}")"
+    v="$(unpad "$v")"
+    [[ "$hvalue" == $v ]] && { found=1 ; break ; }
+   done
+   ((found==0)) && mismatch_var="$mismatch_var $var"
+  fi
+ done
+ [ -z "$mismatch_var" ] || errwarn "Current CASINO_ARCH=$CASINO_ARCH does not\
+  match the following parameters of the current machine:$mismatch_var"
+ # Return to current directory
+ cd "$base_pwd"
+ info 1 "TYPE of machine is '$TYPE'"
+}
+
+process_cmdline() {
+ local temp temp2 temp3 i my_loc my_bin te teo target_tags
+ #local te_list="gnome-terminal/-x konsole/-e xterm/-e"
+ local te_list="xterm/-e"
+ set_default() {
+  # Set default value of variable $1 to $2 if empty, and complain about having
+  # set the relevant option ('-$1') if $TYPE is of any of the types listed in
+  # $3.
+  local var="$1" val="$2" forbid="$3" varval
+  eval "varval=\"\$$var\""
+  if [ -z "$varval" ] ; then
+   eval "$var=\"\$val\""
+  elif [ ! -z "$forbid" ] ; then
+   if in_line $TYPE $forbid ; then
+    errwarn "option --$var ignored on this machine"
+    eval "$var=\"\$val\""
+   fi
+  fi
+ }
+ # TYPE-changing options
+ case "$TYPE.$nompi.$nocluster" in
+ cluster..1)
+  TYPE=parallel ; nocluster="" ; info 1 "TYPE changed to $TYPE" ;;
+ cluster.1.*)
+  TYPE=single ; nompi="" ; nocluster="" ; info 1 "TYPE changed to $TYPE";;
+ parallel.1.*)
+  TYPE=single ; nompi="" ; info 1 "TYPE changed to $TYPE" ;;
+ esac
+ # Set defaults if not set from command line
+ set_default version ""
+ set_default check_only 0
+ set_default force_nocheck 0
+ set_default tpp 1
+ set_default binary_name pw.x
+ set_default background 0 "cluster"
+ set_default print_out 0 "cluster"
+ set_default gdb 0 "cluster"
+ set_default nproc 0 "single"
+ set_default numablk 0 "single"
+ set_default shm 0 "single"
+ set_default ppn 0 "single"
+ set_default diagram 0 "single"
+ set_default name "$binary_name" "single parallel"
+ set_default nnode 0 "single parallel"
+ set_default walltime "" "single parallel"
+ set_default coretime "" "single parallel"
+ set_default nfile "" "single parallel"
+ set_default attr "" "single parallel"
+ set_default nimage "" "single"
+ set_default npool "" "single"
+ set_default ntg "" "single"
+ set_default ndiag "" "single"
+ # Convert input parameters to variables for substitution
+ var_TYPE=$TYPE
+ var_TPP=$tpp
+ var_NPROC=$nproc
+ var_PPN=$ppn
+ var_NNODE=$nnode
+ var_TPN=0
+ var_SCRIPT=$name
+ var_NJOB=$njob
+ var_NNODE_TOTAL=0
+ var_NPROC_TOTAL=0
+ var_OUT_FILE=$out_file
+ var_ERR_FILE=$doterr_file
+ # Check options that should not be set for multijob runs, and set var_OUT
+ if ((njob>1)) ; then
+  if ((print_out==1)) ; then
+   errwarn "Option --print-out ignored for multi-job runs."
+   print_out=0 ; background=0
+  elif ((background==1)) ; then
+   errwarn "Option --background ignored for multi-job runs: multiple jobs are\
+    always put in the background."
+   background=0
+  fi
+  var_OUT="$base_pwd/runpwscf_stderr.log"
+ else
+  var_OUT="${job_dir[1]}/.err"
+ fi
+ # Set features
+ ((numablk>0)) && shm=1
+ ((tpp>1)) && requested_features="$requested_features Openmp"
+ ((shm==1)) && requested_features="$requested_features Shm"
+ # Determine binary to use
+ binary_not_found=""
+ if ! find_binary ; then
+  binary_not_found="T"
+  if ((check_only==1)) ; then
+   # Let the script go on to catch other issues -- good for testing a
+   # CASINO_ARCH on a different machine or prior to compilation.
+   var_BINARY="&BINARY&"
+  else
+   errstop "Quitting."
+  fi
+ fi
+ var_BINARY_ARGS=""
+ [ ! -z "$qmc" ] && var_BINARY_ARGS=" $qmc"
+ [ ! -z "$nimage" ] && var_BINARY_ARGS=$var_BINARY_ARGS" -nimage $nimage"
+ [ ! -z "$npool" ] && var_BINARY_ARGS=$var_BINARY_ARGS" -npool $npool"
+ [ ! -z "$ntg" ] && var_BINARY_ARGS=$var_BINARY_ARGS" -ntg $ntg"
+ [ ! -z "$ndiag" ] && var_BINARY_ARGS=$var_BINARY_ARGS" -ndiag $ndiag"
+ var_BINARY_ARGS=$var_BINARY_ARGS" < $input_file >> $out_file"
+ [ "${var_BINARY_ARGS:0:1}" == " " ] && var_BINARY_ARGS=${var_BINARY_ARGS:1}
+ # Set up gdb support (DISABLED IN RUNPWSCF - gdb=0)
+ if ((gdb==1)) ; then
+  type gdb >& /dev/null || errstop "'gdb' not found in path."
+  [ "$version" != debug ] && errstop "Cannot use --gdb unless in debug mode."
+  var_BINARY="gdb -q $var_BINARY"
+  if [ "$TYPE" = parallel ] ; then
+   [ -z "$DISPLAY" ] && errstop "Cannot use --gdb in parallel without an X\
+    server connection."
+   [[ "$DISPLAY" != *:0.0 ]] && errwarn "Using --gdb on a remote X client\
+    may incur a large network overhead."
+   terminal_emulator=''
+   for te in $te_list ; do
+    teo=${te#*/} ; te=${te%/*}
+    type $te >& /dev/null && { terminal_emulator="$te $teo" ; break ; }
+   done
+   [ -z "$terminal_emulator" ] && errstop "No known terminal emulator found\
+    (${te_list//\// }), needed for --gdb on parallel machines."
+   var_BINARY="$terminal_emulator bash -lc \"$var_BINARY\""
+  elif [ "$TYPE" = cluster ] ; then
+   errstop "Cannot use --gdb on clusters."
+  fi
+ fi
+ # Set things depending on architecture parameters and command line arguments.
+ case "$TYPE" in
+ single)
+  # Force parameters
+  var_NNODE=1 ; var_NNODE_TOTAL=1 ; var_NPROC=1 ; var_PPN=1
+  # Define defaults
+  [ -z "$RUN_SINGLE" ] && RUN_SINGLE="&BINARY& &BINARY_ARGS&"
+  info 1 "Have set RUN_SINGLE='$RUN_SINGLE'"
+  target_tags="RUN_SINGLE" ;;
+ parallel)
+  # Force parameters
+  var_NNODE=1 ; var_NNODE_TOTAL=1
+  # Define defaults
+  [ -z "$RUN_PARALLEL" ] && RUN_PARALLEL="mpirun -np &NPROC& &BINARY& \
+   &BINARY_ARGS&"
+  info 1 "Have set RUN_PARALLEL='$RUN_PARALLEL'"
+  target_tags="RUN_PARALLEL" ;;
+ cluster)
+  # Get run mode
+  if [ -z "$CLUSTER_RUN_MODE" ] ; then
+   if [ -z "$RUN_CLUSTER" ] ; then
+    CLUSTER_RUN_MODE=batch
+   elif [ -z "$SUBMIT_SCRIPT" ] ; then
+    CLUSTER_RUN_MODE=direct
+   else
+    CLUSTER_RUN_MODE=batch
+   fi
+  else
+   resolve_dependencies "CLUSTER_RUN_MODE" "info 2" || errstop "Quitting."
+  fi
+  case "$CLUSTER_RUN_MODE" in
+  batch)
+   # Define defaults
+   [ -z "$SUBMIT_SCRIPT" ] && SUBMIT_SCRIPT="qsub &SCRIPT&"
+   info 1 "Have set SUBMIT_SCRIPT='$SUBMIT_SCRIPT'"
+   target_tags="SCRIPT_HEAD SCRIPT_RUN SUBMIT_SCRIPT"
+   # Check dependencies required for multi-job runs on clusters
+   if ((var_NJOB>1)) ; then
+    in_line NJOB $SCRIPT_HEAD_deps\
+     || in_line NNODE_TOTAL $SCRIPT_HEAD_deps\
+     || in_line NCORE_TOTAL $SCRIPT_HEAD_deps\
+     || in_line NPROC_TOTAL $SCRIPT_HEAD_deps\
+     || errstop "Tag SCRIPT_HEAD does not depend on NJOB, NNODE_TOTAL,\
+     NCORE_TOTAL or NPROC_TOTAL, hence multi-job runs are not supported for\
+     this CASINO_ARCH."
+   fi ;;
+  direct)
+   target_tags="RUN_CLUSTER"
+   ((var_NJOB>1)) && errstop "Multi-job runs not supported for\
+    CLUSTER_RUN_MODE=direct." ;;
+  esac ;;
+ *) errstop "Wrong value TYPE='$TYPE' in $CASINO_ARCH.arch." ;;
+ esac
+
+ # Get all necessary parameters
+
+ resolve_dependencies "$target_tags" "info 2" || errstop "Quitting."
+
+ # Display diagram
+ ((diagram==1)) && topology_diagram
+
+ # Check and load run commands, and generate batch script when required
+ run_command=""
+ case "$TYPE" in
+ single)
+  [ -z "$RUN_SINGLE" ] && errstop "RUN_SINGLE resolved to empty string;\
+   don't know how to run PWSCF."
+  run_command="$RUN_SINGLE" ;;
+ parallel)
+  [ -z "$RUN_PARALLEL" ] && errstop "RUN_PARALLEL resolved to empty string;\
+   don't know how to run PWSCF."
+  run_command="$RUN_PARALLEL" ;;
+ cluster)
+  case "$CLUSTER_RUN_MODE" in
+  batch)
+   [ -z "$SUBMIT_SCRIPT" ] && errstop "SUBMIT_SCRIPT resolved to empty string;\
+    don't know how to run PWSCF."
+   [ -z "$SCRIPT_RUN" ] && SCRIPT_RUN='mpirun -np &NPROC& &BINARY& \
+    &BINARY_ARGS&  '
+   in_line SCRIPT $SUBMIT_SCRIPT_deps || errwarn "in $CASINO_ARCH.arch\
+    SUBMIT_SCRIPT does not depend on &SCRIPT&." ;;
+  direct)
+   [ -z "$RUN_CLUSTER" ] && errstop "RUN_CLUSTER resolved to empty string;\
+    don't know how to run PWSCF."
+   run_command="$RUN_CLUSTER" ;;
+  esac ;;
+ esac
+}
+
+process_time_format() {
+ # Given a number of seconds $1 and set of variables $2, output the days,
+ # hours, minutes and seconds in the format required by the variables.
+ local d h m s ld lh lm ls fmt="$2" fmt2 carry fmt_time
+ # Get separate time components
+ set -- $(seconds_to_smhd $1)
+ s=$1 ; m=$2 ; h=$3 ; d=$4
+ ls=0 ; lm=0 ; lh=0 ; ld=0
+ # Parse time format string for required variables
+ fmt2="${fmt//D/}" ; ld=$((${#fmt}-${#fmt2}))
+ fmt2="${fmt//H/}" ; lh=$((${#fmt}-${#fmt2}))
+ fmt2="${fmt//M/}" ; lm=$((${#fmt}-${#fmt2}))
+ fmt2="${fmt//S/}" ; ls=$((${#fmt}-${#fmt2}))
+ # Remove unused components
+ carry=0
+ ((ld==0)) && { h=$((h+d*24)) ; d=0 ; }
+ ((lh==0)) && { m=$((m+h*60)) ; h=0 ; }
+ ((lm==0)) && { s=$((s+m*60)) ; m=0 ; }
+ ((ls==0)) && { carry=$s ; s=0 ; }
+ # Carry
+ if ((carry>0)) && ((lm>0)) ; then
+  m=$((m+1)) ; s=0 ; carry=0 ; ((m>60)) && carry=1
+ fi
+ if ((carry>0)) && ((lh>0)) ; then
+  h=$((h+1)) ; m=0 ; carry=0 ; ((h>24)) && carry=1
+ fi
+ if ((carry>0)) && ((ld>0)) ; then
+  d=$((d+1)) ; h=0 ; carry=0
+ fi
+ # Apply padding
+ ((ld>1)) && d=$(zero_pad $ld $d)
+ ((lh>1)) && h=$(zero_pad $lh $h)
+ ((lm>1)) && m=$(zero_pad $lm $m)
+ ((ls>1)) && s=$(zero_pad $ls $s)
+ # Set variables
+ fmt_time="$fmt"
+ ((ld>0)) && fmt_time="${fmt_time//$(repeat $ld D)/$d}"
+ ((lh>0)) && fmt_time="${fmt_time//$(repeat $lh H)/$h}"
+ ((lm>0)) && fmt_time="${fmt_time//$(repeat $lm M)/$m}"
+ ((ls>0)) && fmt_time="${fmt_time//$(repeat $ls S)/$s}"
+ echo "$fmt_time"
+}
+
+eval_topology() {
+ # Evaluate the run topology/size.
+ local t1 l1 t2 l2 nthread var divisor_NNODE divisor_NCORE
+ # Evaluate the machine's topology.
+ [ "$TYPE" = cluster ] && check_number_N $CORES_PER_NODE_CLUSTER \
+  && CORES_PER_NODE=$CORES_PER_NODE_CLUSTER \
+  && info 1 "CORES_PER_NODE_CLUSTER is defined: CORES_PER_NODE overridden"
+ check_number_N $CORES_PER_NODE || CORES_PER_NODE=0
+ ((CORES_PER_NODE>0)) && info 1 "Evaluated CORES_PER_NODE=$CORES_PER_NODE"
+ # Make sure the values are of the correct type
+ l1="" ; l2=""
+ for t1 in $ALLOWED_NNODE ; do
+  if check_number_N $t1 ; then
+   ((t1>0)) && l1="$l1 $t1"
+  elif [ "${t1:0:1}" = % ] && check_number_N ${t1:1} ; then
+   t2=${t1:1}
+   ((t2>1)) && l2="$l2 $t2"
+  fi
+ done
+ ALLOWED_NNODE="$l1"
+ divisor_NNODE="$l2"
+ if ((CORES_PER_NODE>0)) ; then
+  l1="" ; l2=""
+  for t1 in $ALLOWED_NCORE ; do
+   if check_number_N $t1 ; then
+    ((t1>0)) && ((t1%CORES_PER_NODE==0)) && l1="$l1 $t1"
+   elif [ "${t1:0:1}" = % ] && check_number_N ${t1:1} ; then
+    t2=${t1:1}
+    ((t2>1)) && ((t2%CORES_PER_NODE==0)) && l2="$l2 $t2"
+   fi
+  done
+  ALLOWED_NCORE="$l1"
+  divisor_NCORE="$l2"
+ else
+  ALLOWED_NCORE=""
+  divisor_NCORE=""
+ fi
+ check_number_N $MIN_NNODE || MIN_NNODE=0
+ check_number_N $MAX_NNODE || MAX_NNODE=0
+ ((CORES_PER_NODE>0)) && check_number_N $MIN_NCORE && \
+ ((MIN_NCORE>CORES_PER_NODE)) && ((MIN_NCORE%CORES_PER_NODE!=0)) && MIN_NCORE=0
+ ((CORES_PER_NODE>0)) && check_number_N $MAX_NCORE && \
+ ((MAX_NCORE>CORES_PER_NODE)) && ((MAX_NCORE%CORES_PER_NODE!=0)) && MAX_NCORE=0
+ ((MIN_NCORE>0)) && info 2 "Evaluated MIN_NCORE=$MIN_NCORE"
+ ((MAX_NCORE>0)) && info 2 "Evaluated MAX_NCORE=$MAX_NCORE"
+ [ -z "$ALLOWED_NCORE" ] || info 2 "Evaluated ALLOWED_NCORE='$ALLOWED_NCORE'"
+ [ -z "$divisor_NCORE" ] || info 2 "Evaluated divisor_NCORE='$divisor_NCORE'"
+ ((MIN_NNODE>0)) && info 2 "Evaluated MIN_NNODE=$MIN_NNODE"
+ ((MAX_NNODE>0)) && info 2 "Evaluated MAX_NNODE=$MAX_NNODE"
+ [ -z "$ALLOWED_NNODE" ] || info 2 "Evaluated ALLOWED_NNODE='$ALLOWED_NNODE'"
+ [ -z "$divisor_NNODE" ] || info 2 "Evaluated divisor_NNODE='$divisor_NNODE'"
+ # Get the topology of the run using a iterative algorithm to determine
+ # all determinable parameters.
+ # Set default values for unspecified parameters
+ ((var_TPP<1)) && var_TPP=1
+ # Add parameters not available on command line
+ for var in nthread nthread_total ; do eval $var=0 ; done
+ if [ "$TYPE" = cluster ] ; then
+  while : ; do
+   # Force ratios on integer triplets
+   force_ratio nthread_total var_NJOB nthread && continue
+   force_ratio var_NPROC_TOTAL var_NJOB var_NPROC && continue
+   force_ratio var_NNODE_TOTAL var_NJOB var_NNODE && continue
+   force_ratio nthread var_TPP var_NPROC && continue
+   force_ratio var_NPROC var_PPN var_NNODE && continue
+   force_ratio var_TPN var_TPP var_PPN && continue
+   force_ratio nthread var_TPN var_NNODE && continue
+   # Solve remaining situations.
+   if ((var_NPROC>0)) && ((var_NNODE==0)) && ((CORES_PER_NODE>0)) ; then
+    # Maximize tpn
+    var_TPN=$CORES_PER_NODE
+    while ((var_TPN>0)) && ( ((var_NPROC*var_TPN%nthread>0))\
+     || ((nthread%var_TPN>0)) ) ; do
+     var_TPN=$((var_TPN-1))
+    done
+    ((var_TPN<var_TPP)) && var_TPN=$var_TPP
+    info 3 "Implicit topology assumption (T1): TPN=$var_TPN"
+    continue
+   fi
+   if ((var_PPN>0)) && ((var_NNODE==0)) ; then
+    if ((MAX_NNODE>0)) ; then
+     # Maximize var_NNODE
+     var_NNODE_TOTAL=$MAX_NNODE
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S1a): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif ((MAX_NCORE>0)) && ((CORES_PER_NODE>0)) ; then
+     # Maximize var_NNODE
+     var_NNODE_TOTAL=$((MAX_NCORE/CORES_PER_NODE))
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S1b): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    fi
+   fi
+   if ((var_NNODE>0)) && ((var_PPN==0)) && ((CORES_PER_NODE>0)) ; then
+    # Maximize tpn
+    var_TPN=$CORES_PER_NODE
+    while ((var_TPN%var_TPP>0)) ; do var_TPN=$((var_TPN-1)) ; done
+    ((var_TPN<var_TPP)) && var_TPN=$var_TPP
+    info 3 "Implicit topology assumption (T2): TPN=$var_TPN"
+    continue
+   fi
+   if ((var_NNODE==0)) && ((var_NPROC==0)) && ((var_PPN==0)) ; then
+    # Maximize var_NNODE
+    if ((MAX_NNODE>0)) ; then
+     var_NNODE_TOTAL=$MAX_NNODE
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2a): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif [ ! -z "$ALLOWED_NNODE" ] ; then
+     for t1 in $ALLOWED_NNODE ; do
+      ((t1>var_NNODE_TOTAL)) && ((t1%var_NJOB==0)) && var_NNODE_TOTAL=$t1
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2b): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif ((MAX_NCORE>0)) && ((CORES_PER_NODE>0)) ; then
+     var_NNODE_TOTAL=$((MAX_NCORE/CORES_PER_NODE))
+     while ((var_NNODE_TOTAL%var_NJOB>0)) ; do
+      var_NNODE_TOTAL=$((var_NNODE_TOTAL-1))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2c): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    elif [ ! -z "$ALLOWED_NCORE" ] && ((CORES_PER_NODE>0)) ; then
+     for t1 in $ALLOWED_NCORE ; do
+      ((t1%CORES_PER_NODE==0)) && ((t1/CORES_PER_NODE>var_NNODE_TOTAL))\
+       && (((t1/CORES_PER_NODE)%var_NJOB==0))\
+       && var_NNODE_TOTAL=$((t1/CORES_PER_NODE))
+     done
+     if ((var_NNODE_TOTAL>0)) ; then
+      info 3 "Implicit size assumption (S2d): NNODE_TOTAL=$var_NNODE_TOTAL"
+      continue
+     fi
+    fi
+   fi
+   break
+  done
+ else # "$TYPE" != cluster
+  var_NNODE=1 ; var_NNODE_TOTAL=1
+  while : ; do
+   # Force ratios on integer triplets
+   force_ratio nthread_total var_NJOB nthread && continue
+   force_ratio var_NPROC_TOTAL var_NJOB var_NPROC && continue
+   force_ratio nthread var_TPP var_NPROC && continue
+   force_ratio var_NPROC var_PPN var_NNODE && continue
+   force_ratio var_TPN var_TPP var_PPN && continue
+   force_ratio nthread var_TPN var_NNODE && continue
+   # Solve remaining situations.
+   if ((var_NNODE>0)) && ((var_PPN==0)) && ((CORES_PER_NODE>0)) ; then
+    # Maximize tpn
+    var_TPN=$((CORES_PER_NODE/var_NJOB))
+    while ((var_TPN%var_TPP>0)) ; do var_TPN=$((var_TPN-1)) ; done
+    ((var_TPN<var_TPP)) && var_TPN=$var_TPP
+    info 3 "Implicit topology assumption (T2): TPN=$var_TPN"
+    continue
+   fi
+   break
+  done
+ fi
+ # Report
+ ((var_NPROC>0)) && info 1 "Evaluated NPROC=$var_NPROC"
+ ((var_TPP>0)) && info 1 "Evaluated TPP=$var_TPP"
+ ((var_PPN>0)) && info 1 "Evaluated PPN=$var_PPN"
+ ((var_NNODE>0)) && info 1 "Evaluated NNODE=$var_NNODE"
+ # Convert nodes to cores
+ var_NCORE=0 ; var_NCORE_TOTAL=0
+ if ((var_NNODE>0)) && ((CORES_PER_NODE>0)) ; then
+  if ((MAX_NCORE<CORES_PER_NODE)) ; then
+   var_NCORE=$MAX_NCORE
+   var_NCORE_TOTAL=$((var_NNODE_TOTAL*MAX_NCORE))
+  else
+   var_NCORE=$((var_NNODE*CORES_PER_NODE))
+   var_NCORE_TOTAL=$((var_NNODE_TOTAL*CORES_PER_NODE))
+  fi
+ fi
+ # Check we have the required parameters
+ ((var_NPROC==0)) && ((need_NPROC>0)) && ((inquire!=1)) && errstop \
+  "NPROC parameter required on \
+  this machine but could not be deduced from input. Please provide it."
+ ((var_NNODE==0)) && ((need_NNODE>0)) && ((inquire!=1)) && errstop \
+  "NNODE parameter required on\
+  this machine but could not be deduced from input. Please provide it."
+ ((var_PPN==0)) && ((need_PPN>0)) && ((inquire!=1)) && errstop \
+  "PPN parameter required on this\
+  machine but could not be deduced from input. Please provide it."
+ ((var_NCORE==0)) && ((need_NCORE>0)) && ((inquire!=1)) && errstop \
+  "NCORE parameter required on \
+  this machine but could not be deduced from input. Please provide more input."
+ # Check limits
+ if ((var_NNODE>0)) ; then
+  ((MIN_NNODE>0)) && ((var_NNODE_TOTAL<MIN_NNODE)) && errstop\
+   "NNODE_TOTAL=$var_NNODE_TOTAL is below minimum value of $MIN_NNODE"
+  ((MAX_NNODE>0)) && ((var_NNODE_TOTAL>MAX_NNODE)) && errstop\
+   "NNODE_TOTAL=$var_NNODE_TOTAL exceeds maximum value of $MAX_NNODE"
+  ((MIN_NNODE_ENSEMBLE)) && ((var_NNODE<MIN_NNODE_ENSEMBLE)) && errstop\
+   "NNODE=$var_NNODE is below minimum value of $MIN_NNODE_ENSEMBLE"
+  if [ ! -z "$ALLOWED_NNODE" ] || [ ! -z "$divisor_NNODE" ] ; then
+   if ! in_line $var_NNODE_TOTAL $ALLOWED_NNODE ; then
+    t1=0
+    for t2 in $divisor_NNODE ; do
+     ((var_NNODE_TOTAL%t2==0)) && { t1=1 ; break ; }
+    done
+    if ((t1==0)) ; then
+     [ -z "$divisor_NNODE" ] && errstop "NNODE_TOTAL=$var_NNODE_TOTAL is not\
+      in allowed list '$ALLOWED_NNODE'"
+     [ -z "$ALLOWED_NNODE" ] && errstop "NNODE_TOTAL=$var_NNODE_TOTAL is not\
+      divisible by any of '$divisor_NNODE'"
+     errstop "NNODE_TOTAL=$var_NNODE_TOTAL is not in allowed list\
+      '$ALLOWED_NNODE', and is not divisible by any of '$divisor_NNODE'"
+    fi
+   fi
+  fi
+ fi
+ if ((var_NCORE>0)) ; then
+  ((MIN_NCORE>0)) && ((var_NCORE_TOTAL<MIN_NCORE)) && errstop\
+   "NCORE_TOTAL=$var_NCORE_TOTAL is below minimum value of $MIN_NCORE"
+  ((MAX_NCORE>0)) && ((var_NCORE_TOTAL>MAX_NCORE)) && errstop\
+   "NCORE_TOTAL=$var_NCORE_TOTAL exceeds maximum value of $MAX_NCORE"
+  if [ ! -z "$ALLOWED_NCORE" ] || [ ! -z "$divisor_NCORE" ] ; then
+   if ! in_line $var_NCORE_TOTAL $ALLOWED_NCORE ; then
+    t1=0
+    for t2 in $divisor_NCORE ; do
+     ((var_NCORE_TOTAL%t2==0)) && { t1=1 ; break ; }
+    done
+    if ((t1==0)) ; then
+     [ -z "$divisor_NCORE" ] && errstop "NCORE_TOTAL=$var_NCORE_TOTAL is not\
+      in allowed list '$ALLOWED_NCORE'"
+     [ -z "$ALLOWED_NCORE" ] && errstop "NCORE_TOTAL=$var_NCORE_TOTAL is not\
+      divisible by any of '$divisor_NCORE'"
+     errstop "NCORE_TOTAL=$var_NCORE_TOTAL is not in allowed list\
+      '$ALLOWED_NCORE', and is not divisible by any of '$divisor_NCORE'"
+    fi
+   fi
+  fi
+ fi
+ # Check we are not over/undersubscribing nodes without explicit instructions
+ # from the user
+ if [ "$TYPE" != single ] && ((CORES_PER_NODE>0)) && ((var_PPN>0))\
+  && ((var_TPP>0)) ; then
+  t1=$((var_PPN*var_TPP)) ; t2=$ppn ; t3="'--ppn=$var_PPN'"
+  if [ "$TYPE" != cluster ] ; then
+   t1=$((t1*var_NJOB))
+   ((nproc>ppn)) && t2=$nproc
+   t3="'--ppn=$var_PPN' or '--nproc=$var_NPROC'"
+  fi
+  t1=$((t1-CORES_PER_NODE))
+  if ((t1>0)) ; then
+   # Nodes oversubscribed
+   if ((t2==0)) ; then
+    # Not explicitly requested: stop
+    errstop "Running more processes/threads per node than cores there are in\
+     a node. If this was intended, set $t3 explicitly in the command line"
+   else
+    # Explicitly requested: warn
+    errwarn "Running more processes/threads per node than cores there are in\
+     a node."
+   fi
+  elif ((t1<0)) ; then
+   # Nodes undersubscribed
+   if ((t2==0)) ; then
+    # Not explicitly requested: stop
+    errstop "Not using all cores in each node. If this was intended, set\
+     $t3 explicitly in the command line"
+   else
+    # Explicitly requested: warn
+    errwarn "Not using all cores in each node."
+   fi
+  fi
+ fi
+}
+
+eval_walltime() {
+ # Evaluate WALLTIME
+ local t1 lt lt2 lc lc2 ltp ltp2 ifield MIN_WALLTIME2 MAX_WALLTIME2 mintime
+ local maxtime allowed
+ # Convert to seconds
+ MIN_WALLTIME=$(casino_time_to_seconds $MIN_WALLTIME)
+ MAX_WALLTIME=$(casino_time_to_seconds $MAX_WALLTIME)
+ MIN_CORETIME=$(casino_time_to_seconds $MIN_CORETIME)
+ MAX_CORETIME=$(casino_time_to_seconds $MAX_CORETIME)
+ ((MIN_WALLTIME>0)) && info 2 "Evaluated MIN_WALLTIME=$(seconds_to_casino_time\
+  $MIN_WALLTIME)"
+ ((MAX_WALLTIME>0)) && info 2 "Evaluated MAX_WALLTIME=$(seconds_to_casino_time\
+  $MAX_WALLTIME)"
+ ((MIN_CORETIME>0)) && info 2 "Evaluated MIN_CORETIME=$(seconds_to_casino_time\
+  $MIN_CORETIME)"
+ ((MAX_CORETIME>0)) && info 2 "Evaluated MAX_CORETIME=$(seconds_to_casino_time\
+  $MAX_CORETIME)"
+ # First process allow list
+ allowprint=""
+ if [ ! -z "$ALLOWED_WALLTIME" ] ; then
+  lt="" ; ltp=""
+  for t1 in $ALLOWED_WALLTIME ; do
+   t1=$(casino_time_to_seconds $t1)
+   ((t1==0)) && continue
+   lt="$lt $t1"
+   ltp="$ltp $(seconds_to_casino_time $t1)"
+  done
+  ALLOWED_WALLTIME="$lt"
+  allowprint="$ltp"
+ fi
+ # Then process code list, and merge lists if necessary
+ if [ ! -z "$WALLTIME_CODES" ] ; then
+  lt="" ; lc="" ; ltp=""
+  for t1 in $WALLTIME_CODES ; do
+   c1="${t1%=*}"
+   [ -z "$t1" ] && continue
+   t1="${t1##*=}" ; t1=$(casino_time_to_seconds $t1)
+   ((t1==0)) && continue
+   lt="$lt $t1" ; lc="$lc $c1"
+   ltp="$ltp $(seconds_to_casino_time $t1)"
+  done
+  if [ ! -z "$ALLOWED_WALLTIME" ] ; then
+   lt2="" ; lc2="" ; ltp2=""
+   for t1 in $ALLOWED_WALLTIME ; do
+    ifield=$(which_field $t1 $lt)
+    ((ifield==0)) && continue
+    c1=$(field $ifield $ct)
+    lt2="$lt2 $t1" ; lc2="$lc2 $c1"
+    ltp2="$ltp2 $(seconds_to_casino_time $t1)"
+   done
+   WALLTIME_CODES="$lc2" ; ALLOWED_WALLTIME="$lt2"
+   allowprint="$ltp2"
+  else
+   WALLTIME_CODES="$lc" ; ALLOWED_WALLTIME="$lt"
+   allowprint="$ltp"
+  fi
+ fi
+ if [ ! -z "$allowprint" ] ; then
+  allowprint="$(unpad $allowprint)"
+  info 2 "Evaluated ALLOWED_WALLTIME='$allowprint'"
+  if [ ! -z "$WALLTIME_CODES" ] ; then
+   WALLTIME_CODES=$(unpad $WALLTIME_CODES)
+   info 2 "Evaluated WALLTIME_CODES='$WALLTIME_CODES'"
+  fi
+ fi
+ walltime=$(casino_time_to_seconds $walltime)
+ coretime=$(casino_time_to_seconds $coretime)
+ case "$walltime.$coretime" in
+ 0.0|*.0) : ;;
+ 0.*)
+  ((var_NCORE>0)) || errstop "Cannot convert -coretime since the number of\
+   cores could not be deduced from the input.  Specify walltime instead."
+  walltime=$((coretime/var_NCORE)) ;;
+ *.*) errstop "Cannot specify both -walltime and -coretime" ;;
+ esac
+ MIN_WALLTIME2=0 ; MAX_WALLTIME2=0
+ if ((var_NCORE>0)) ; then
+  MIN_WALLTIME2=$((MIN_CORETIME/var_NCORE))
+  MAX_WALLTIME2=$((MAX_CORETIME/var_NCORE))
+ fi
+ mintime=$MIN_WALLTIME
+ ((MIN_WALLTIME2>0)) && ( ((MIN_WALLTIME==0))\
+  || ((MIN_WALLTIME2>MIN_WALLTIME)) ) && mintime=$MIN_WALLTIME2
+ maxtime=$MAX_WALLTIME
+ ((MAX_WALLTIME2>0)) && ( ((MAX_WALLTIME==0))\
+  || ((MAX_WALLTIME2<MAX_WALLTIME)) ) && maxtime=$MAX_WALLTIME2
+ if ((walltime==0)) ; then
+  # See if we can evaluate a default value
+  case "$mintime.$maxtime.$ALLOWED_WALLTIME" in
+  0.0.|*.0.) : ;;
+  0.*.) walltime="$maxtime" ;;
+  *.*.) ((mintime<=maxtime)) && walltime="$maxtime" ;;
+  0.0.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && walltime=$t1
+   done ;;
+  0.*.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ((t1<=maxtime)) && walltime=$t1
+   done ;;
+  *.0.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ((t1>=mintime)) && walltime=$t1
+   done ;;
+  *.*.*)
+   walltime=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ((t1<=maxtime)) && ((t1>=mintime)) && walltime=$t1
+   done ;;
+  esac
+  ((walltime==0)) && ((inquire!=1)) && errstop "This machine requires a\
+   WALLTIME variable, but no walltime was provided on the command line and\
+   could not figure out a sensible default. Please provide a walltime\
+   (e.g. -T 1h)."
+ else
+  if [ ! -z "$ALLOWED_WALLTIME" ] && ! in_line $walltime $ALLOWED_WALLTIME\
+   ; then
+   # Try to match time in allowlist
+   wt=0
+   for t1 in $ALLOWED_WALLTIME ; do
+    ((t1>walltime)) && ( ((wt==0)) || ((wt>t1)) ) && wt=$t1
+   done
+   ((wt==0)) && errstop "No walltime in allowed walltime list '$allowprint'\
+    could be chosen to fit the requested walltime of $(seconds_to_casino_time\
+    $walltime)."
+   # Check limits
+   ((MIN_WALLTIME>0)) && ((wt<MIN_WALLTIME)) && errstop "Requested walltime is\
+    below wall-time minimum of $(seconds_to_casino_time $MIN_WALLTIME)."
+   ((MAX_WALLTIME>0)) && ((wt>MAX_WALLTIME)) && errstop "No walltime\
+    in allowed walltime list '$allowprint' could be chosen to fit the\
+    requested walltime of $(seconds_to_casino_time $walltime) without going\
+    over the walltime limit of $(seconds_to_casino_time $MAX_WALLTIME).\
+    The best fit in the list was $(seconds_to_casino_time $wt)."
+   ((MIN_WALLTIME2>0)) && ((wt<MIN_WALLTIME2)) && errstop "Requested walltime\
+    is below core-time minimum of $(seconds_to_casino_time $MIN_CORETIME)."
+   ((MAX_WALLTIME2>0)) && ((wt>MAX_WALLTIME2)) && errstop "No walltime\
+    in allowed walltime list '$allowprint' could be chosen to fit the\
+    requested walltime of $(seconds_to_casino_time $walltime) without going\
+    over the core-time limit of $(seconds_to_casino_time $MAX_CORETIME).\
+    This limit is usually set from accounting credit information. You should\
+    check you have enough credits to run this calculation.  The best fit in\
+    the list was $(seconds_to_casino_time $wt)."
+   # Apply change
+   info 1 "Corrected walltime request from $(seconds_to_casino_time $walltime)\
+    to $(seconds_to_casino_time $wt) from allowed list"
+   walltime=$wt
+  else
+   # Just check limits
+  ((MIN_WALLTIME>0)) && ((walltime<MIN_WALLTIME)) && errstop "Requested\
+   walltime is below wall-time minimum of\
+   $(seconds_to_casino_time $MIN_WALLTIME)."
+  ((MAX_WALLTIME>0)) && ((walltime>MAX_WALLTIME)) && errstop "Requested\
+   walltime exceeds wall-time maximum of $(seconds_to_casino_time\
+   $MAX_WALLTIME)."
+  ((MIN_WALLTIME2>0)) && ((walltime<MIN_WALLTIME2)) && errstop "Requested\
+   walltime is below core-time minimum of\
+   $(seconds_to_casino_time $MIN_CORETIME)."
+  ((MAX_WALLTIME2>0)) && ((walltime>MAX_WALLTIME2)) && errstop "Requested\
+   walltime exceeds core-time maximum of $(seconds_to_casino_time\
+   $MAX_CORETIME).  This limit is usually set from accounting credit\
+   information. You should check you have enough credits to run this\
+   calculation."
+  fi
+ fi
+ # Generate var_WALLTIME
+ if [ ! -z "$WALLTIME_CODES" ] ; then
+  var_WALLTIME=$(field $(which_field $walltime $ALLOWED_WALLTIME)\
+   $WALLTIME_CODES)
+ elif [ ! -z "$TIME_FORMAT" ] ; then
+  var_WALLTIME=$(process_time_format "$walltime" "$TIME_FORMAT")
+ else
+  errstop "$CASINO_ARCH.arch does not provide a TIME_FORMAT or a\
+   WALLTIME_CODES tag, so runpwscf will not be able to produce a submission\
+   script."
+ fi
+ info 1 "Evaluated WALLTIME='$var_WALLTIME'"
+}
+
+topology_diagram() {
+ # Draw a diagram of the topology of the calculation
+ local icore iproc ithread max_width t1 nx ny ix ix1 iy
+ local core_border_top core_border_bottom empty_core line1 line2 line3
+ local ppn_total append
+ local -a core_run
+ ((CORES_PER_NODE>0)) && ((var_TPP>0)) && ((var_PPN>0)) || return
+ # Get contents of diagram
+ max_width=0 ; icore=0
+ ppn_total=$var_PPN
+ [ "$TYPE" != cluster ] && ppn_total=$((ppn_total*var_NJOB))
+ if ((var_TPP>1)) && ((var_TPP*ppn_total<=CORES_PER_NODE)) ; then
+  # Interleave Ps and ts for a clearer picture
+  iproc=0 ; while ((iproc<ppn_total)) ; do iproc=$((iproc+1))
+   icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+   t1="P${core_run[$icore]}"
+   ((${#t1}>max_width)) && max_width=$((${#t1}))
+   core_run[$icore]="$t1"
+   ithread=0 ; while ((ithread<var_TPP-1)) ; do ithread=$((ithread+1))
+    icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+    t1="${core_run[$icore]}t"
+    ((${#t1}>max_width)) && max_width=$((${#t1}))
+    core_run[$icore]="$t1"
+   done
+  done
+ else
+  # Place Ps and ts sequentially for accuracy
+  iproc=0 ; while ((iproc<ppn_total)) ; do iproc=$((iproc+1))
+   icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+   t1="P${core_run[$icore]}"
+   ((${#t1}>max_width)) && max_width=$((${#t1}))
+   core_run[$icore]="$t1"
+  done
+  ithread=0 ; while ((ithread<(var_TPP-1)*ppn_total)) ; do
+   ithread=$((ithread+1))
+   icore=$((icore+1)) ; ((icore>CORES_PER_NODE)) && icore=1
+   t1="${core_run[$icore]}t"
+   ((${#t1}>max_width)) && max_width=$((${#t1}))
+   core_run[$icore]="$t1"
+  done
+ fi
+ # Define size of diagram
+ nx=1 ; ny=$CORES_PER_NODE
+ ix=1 ; while ((ix*ix<CORES_PER_NODE)) ; do ix=$((ix+1))
+  iy=$((CORES_PER_NODE/ix))
+  if ((CORES_PER_NODE%ix==0)) && ((ix<iy)) ; then
+   nx=$ix ; ny=$iy
+  fi
+ done
+ if ((nx*2<ny)) ; then
+  nx=$ix
+  ny=$((CORES_PER_NODE/nx)) ; ((CORES_PER_NODE%nx>0)) && ny=$((ny+1))
+  ((nx>ny)) && { nx=$ny ; ny=$ix ; }
+ fi
+ # Print diagram
+ echo "Diagram of the calculation (cores in a node, $nx x $ny grid):"
+ core_border_top=" +$(repeat $((2+max_width)) -)+"
+ core_border_bottom=" +$(repeat $((2+max_width)) -)+"
+ empty_core="$(repeat $((5+max_width)) " ")"
+ echo "+$(repeat $((nx*(5+max_width)+1)) -)+"
+ icore=0
+ iy=0 ; while ((iy<ny)) ; do iy=$((iy+1))
+  line1="|" ; line2="|" ; line3="|"
+  ix=0 ; while ((ix<nx)) ; do ix=$((ix+1))
+   icore=$((icore+1))
+   if ((icore>CORES_PER_NODE)) ; then
+    line1="$line1$empty_core"
+    line2="$line2$empty_core"
+    line3="$line3$empty_core"
+   else
+    line1="$line1$core_border_top"
+    line2="$line2 | $(pad $max_width ${core_run[$icore]}) |"
+    line3="$line3$core_border_bottom"
+   fi
+  done
+  line1="$line1 |" ; line2="$line2 |" ; line3="$line3 |"
+  echo "$line1" ; echo "$line2" ; echo "$line3"
+ done
+ append=""
+ if [ "$TYPE" = cluster ] ; then
+  append="$append x $var_NNODE"
+  ((var_NJOB>1)) && append="$append x $var_NJOB"
+ fi
+ echo "+$(repeat $((nx*(5+max_width)+1)) -)+$append"
+ if ((var_TPP>1)) ; then
+  echo " [P]: process, [t]: OpenMP thread"
+ else
+  echo " [P]: process"
+ fi
+}
+
+find_binary() {
+ # Locate binary depending on version and features.
+ local feature_dir f base_dir dir_list line
+ [ "$inquire" = "1" ] && return 0
+ # Check base directory exists.
+ base_dir="$espressohome/bin"
+ [ -d "$base_dir" ] || { errwarn "Binary directory $base_dir not found." ;\
+  return 1 ; }
+ # Sort features alphabetically.
+
+# requested_features=$({ for f in $requested_features ; do echo $f ; done ; }\
+#  | sort)
+ requested_features=""
+
+ # Try the exact feature combination.
+
+# feature_dir="${requested_features// /}"
+  feature_dir=""
+
+ [ -z "$feature_dir" ] || feature_dir="$feature_dir/"
+# var_BINARY="$base_dir/$feature_dir$version/$binary_name" # DISABLED
+ var_BINARY="$base_dir/$binary_name"
+ [ -x "$var_BINARY" ] && requested_features=$feature_dir && return 0
+ # Find subdirectories of base_dir.
+ dir_list=""
+ {
+  while read line ; do
+   dir_list="$dir_list ${line#$base_dir/}"
+  done
+ } < <(find "$base_dir" -maxdepth 1 -mindepth 1 -type d 2> /dev/null | sort)
+ (exit 0) # bypass bash fd leak (v3.2 - v4.1)
+ [ -z "$dir_list" ] && { errwarn "Binary not found in $base_dir." ;\
+  return 1 ; }
+ # Try to locate appropriate binary in one of the subdirectories.
+ for feature_dir in $dir_list ; do
+  # Check the binary in the directory would have the required features.
+  if [ ! -z "$requested_features" ] ; then
+   for f in $requested_features ; do
+    [ "${feature_dir//$f/}" = "$feature_dir" ] && continue 2
+   done
+  fi
+  # Check that the binary exists.
+#  var_BINARY="$base_dir/$feature_dir/$version/$binary_name"
+  var_BINARY="$base_dir/$binary_name"
+  [ -x "$var_BINARY" ] && requested_features=$feature_dir && return 0
+ done
+ if [ -z "$requested_features" ] ; then
+  errwarn "Binary not found in $base_dir and its subdirectories."
+ else
+  errwarn "Binary compiled with support for '$requested_features' not found in\
+   $base_dir and its subdirectories."
+ fi
+ return 1
+}
+
+clean_pwd() {
+ # Remove pre-existing output files.
+ local pwd="$1" is_first_job=$2
+ rm -f "$pwd/$out_file" >& /dev/null
+ rm -f "$pwd/$doterr_file" >& /dev/null
+ [ "$TYPE" = cluster ] && ((is_first_job==1)) && rm -f "$var_OUT" >& /dev/null
+}
+
+extr_k_cart_pwscf () {
+#
+# Extract the k points in Cartesian coords from a PWSCF input file and put
+# them in a nicely formatted pwscf_kpoints.in file. (NOT USED)
+#
+local nk kline j line weight outfile=$1 twist_number=$2
+rm -f pwscf_kpoints.in
+nk=$(awk '/number of k points=/{print $5}' $outfile)
+kline=$(awk '/number of k points=/{print NR}' $outfile)
+kline=$((kline+2))
+echo $twist_number > pwscf_kpoints.in
+echo $nk >> pwscf_kpoints.in
+for ((j=0; j < nk ; j++)) ; do
+ weight=$(awk 'NR=='$((kline+j))' {print $NF}' $outfile)
+ line=$(awk 'NR=='$((kline+j))' {print}' $outfile)
+ line="${line#*= (}"
+ line="${line%%)*}"
+ echo $line $weight >> pwscf_kpoints.in
+done
+}
+
+extr_k_crystal_pwscf () {
+#
+# Extract the k points (in crystal coords) from a PWSCF input file and put
+# them in a nicely formatted pwscf_kpoints.in file. Note these are only
+# printed in out.pwscf if 'verbosity = high' in in.pwscf.
+#
+local nk kline j line weight outfile=$1 twist_number=$2
+rm -f pwscf_kpoints.in
+nk=$(awk '/number of k points=/{print $5}' $outfile)
+kline=$(awk '/number of k points=/{print NR}' $outfile)
+kline=$((kline+nk+4))
+echo $twist_number > pwscf_kpoints.in
+echo $nk >> pwscf_kpoints.in
+for ((j=0; j < nk ; j++)) ; do
+ weight=$(awk 'NR=='$((kline+j))' {print $NF}' $outfile)
+ line=$(awk 'NR=='$((kline+j))' {print}' $outfile)
+ line="${line#*= (}"
+ line="${line%%)*}"
+ echo $line $weight >> pwscf_kpoints.in
+done
+}
+
+sub_new_k_pwscf () {
+#
+# Insert the modified k points in the pwscf_kpoints.out file back into the
+# PWSCF input file.
+#
+local inpfile=$1
+kline=$(awk '/K_POINTS/{print NR}' $inpfile)
+nk=$(awk 'NR==2 {print}' pwscf_kpoints.out)
+awk 'NR < '$kline'' $inpfile > $inpfile.new
+echo 'K_POINTS crystal' >> $inpfile.new
+echo $nk >> $inpfile.new
+for ((j=1; j <= nk ; j++)) ; do
+ line=$(awk 'NR=='$((j+2))' {print}' pwscf_kpoints.out)
+ echo $line >> $inpfile.new
+done
+awk 'NR > '$((kline+nk+1))'' $inpfile >> $inpfile.new
+}
+
+run_pwscf() {
+ # Run PWSCF under directory $1
+ local pwd="$1" is_first_job=$2 is_last_job=$3
+ [ -z "$pwd" ] && pwd=.
+ if ((check_only==0)) ; then
+  # Print header
+  touch "$pwd/$out_file" >& /dev/null
+  touch "$pwd/$doterr_file" >& /dev/null
+  touch "$var_OUT" >& /dev/null
+  if [ -z "$requested_features" ] ; then
+   echo "PWSCF [$CASINO_ARCH] run on $hostname" >> "$pwd/$out_file"
+  else
+   echo "PWSCF [$CASINO_ARCH, $requested_features] run on $hostname" >> "$pwd/$out_file"
+  fi
+ fi
+
+ if [ ! -z "$run_command" ] ; then
+  # Single-/multi-processor workstations, or clusters that can submit to the
+  # queue without a batch script.
+
+  ((check_only==1)) && return
+  # Finish printing header
+  echo "Job started: $(date)" >> "$pwd/$out_file"
+  # Set environment
+  [ -z "$ENVIRONMENT_COMMAND" ] || eval "$ENVIRONMENT_COMMAND"
+  export OMP_NUM_THREADS=$var_TPP
+  if ((numablk>0)) ; then
+   export CASINO_NUMABLK=$numablk
+  else
+   unset CASINO_NUMABLK
+  fi
+  # Run PWSCF
+  cd "$pwd"
+
+  if [ -z "$twistav" ] ; then # ordinary calculation
+
+   if ((gdb==0)) ; then
+    if ((background==1)) && type -P setsid >& /dev/null ; then
+     { setsid bash -c "$run_command $qmc" ; } < $input_file >> "$out_file" 2>&1
+    else
+     { $run_command $qmc ; } < $input_file >> "$out_file" 2>&1
+    fi
+   else # need interactivity
+    eval $run_command $qmc
+   fi
+   cd "$base_pwd"
+   # Clean up output files
+   node=0 ; while ((node<var_NPROC-1)) ; do node=$((node+1))
+    if [ -s "$pwd/$dotout_file$node" ] ; then
+     echo >> "$pwd/$out_file"
+     echo "--Output from node #$node--" >> "$pwd/$out_file"
+     echo >> "$pwd/$out_file"
+     cat "$pwd/$dotout_file$node" >> "$pwd/$out_file"
+     echo >> "$pwd/$out_file"
+    fi
+    rm -f "$pwd/$dotout_file$node" >& /dev/null
+   done
+   if [ -s "$pwd/$doterr_file" ] ; then
+    echo >> "$pwd/$out_file"
+   echo "--Job's stderr--" >> "$pwd/$out_file"
+    echo >> "$pwd/$out_file"
+    cat "$pwd/$doterr_file" >> "$pwd/$out_file"
+   fi
+   rm -f "$pwd/$doterr_file" >& /dev/null
+   echo >> "$pwd/$out_file"
+   echo "Job finished: $(date)" >> "$pwd/$out_file"
+   [ -e input_tmp.in ] && rm input_tmp.in >&/dev/null
+   [ -n "$runqmcmd" ] && touch .pwscf_finished # RUNQMCMD only
+
+  else # twist averaged calculation
+
+   cp $input_file $input_file.orig
+   for ((i=$xwfnstart; i < $((xwfnstop+1)) ; i++)) ; do # loop twist angles
+
+    if ((gdb==0)) ; then
+     if ((background==1)) && type -P setsid >& /dev/null ; then
+      { setsid bash -c "$run_command $qmc" ; } < $input_file >> "$out_file" 2>&1
+     else
+      { $run_command $qmc ; } < $input_file >> "$out_file" 2>&1
+     fi
+    else # need interactivity
+     eval $run_command $qmc
+    fi
+
+  # Clean up output files
+    node=0
+    while ((node<var_NPROC-1)) ; do node=$((node+1))
+     if [ -s "$pwd/$dotout_file$node" ] ; then
+      echo >> "$pwd/$out_file"
+      echo "--Output from node #$node--" >> "$pwd/$out_file"
+      echo >> "$pwd/$out_file"
+      cat "$pwd/$dotout_file$node" >> "$pwd/$out_file"
+      echo >> "$pwd/$out_file"
+     fi
+     rm -f "$pwd/$dotout_file$node" >& /dev/null
+    done
+    if [ -s "$pwd/$doterr_file" ] ; then
+     echo >> "$pwd/$out_file"
+     echo "--Job's stderr--" >> "$pwd/$out_file"
+     echo >> "$pwd/$out_file"
+     cat "$pwd/$doterr_file" >> "$pwd/$out_file"
+    fi
+    rm -f "$pwd/$doterr_file" >& /dev/null
+    echo >> "$pwd/$out_file"
+    echo "Job finished: $(date)" >> "$pwd/$out_file"
+
+    cp $input_file $input_file.$i
+    mv $out_file $out_file.$i
+    [ ! -s $prefix$wfn_file ] && exit 1
+    mv $prefix$wfn_file $prefix$wfn_file.$i
+
+    if ((i!=xwfnstop)) ; then
+     extr_k_crystal_pwscf $out_file.$i $i
+     twistoffset_pwscf < pwscf_kpoints.in
+     [ ! -e pwscf_kpoints.out ] || [ ! -s pwscf_kpoints.out ] && errstop "The twistoffset_pwscf auxiliary program does not appear to be producing the expected output file."
+     sub_new_k_pwscf $input_file
+     mv $input_file.new $input_file
+     rm -f pwscf_kpoints.in pwscf_kpoints.out
+    fi
+
+   done
+   mv -f $input_file.orig $input_file
+   [ -e input_tmp.in ] && rm input_tmp.in >&/dev/null
+   touch .pwscf_finished
+
+  fi
+
+ else
+  # Clusters with batch scripts
+  if [ -z "$twistav" ] ; then # ordinary calculation
+
+   if ((is_first_job==1)) ; then
+    # Start writing batch script
+    write_batch_script_header
+   fi
+   # Job execution
+   if [ "$RELPATHNAMES" != yes ] ; then
+    write_batch_script_run "$pwd"
+   else
+    if ((is_first_job==1)) ; then
+     write_batch_script_run "$pwd"
+    else
+     write_batch_script_run "../$pwd"
+    fi
+   fi
+   if ((is_last_job==1)) ; then
+    # Finish writing batch script
+    write_batch_script_footer
+    ((check_only==1)) && return
+   # Finish printing header
+    ((is_first_job==1)) && echo "Job submitted: $(date)" >> "$pwd/$out_file"
+    # Submit script
+    eval "$SUBMIT_SCRIPT" | tee -a "$var_OUT"
+   fi
+
+ else # twist averaging calculation
+
+  # Write batch script
+  write_batch_script_twistav
+  ((check_only==1)) && return
+  # Finish printing header
+  echo "Job submitted: $(date)" >> "$pwd/$out_file"
+  # Submit script
+  eval "$SUBMIT_SCRIPT" | tee -a "$var_OUT"
+
+ fi
+
+ fi # run directly / submit batch script
+}
+
+write_batch_script_header() {
+ # Create submision script and print header part.
+ [ -z "$var_SCRIPT" ] && return
+ rm -f "$var_SCRIPT"
+ touch "$var_SCRIPT"
+ chmod u+x "$var_SCRIPT"
+ # Evaluate and write the heder
+ print_block_tag SCRIPT_HEAD >> "$var_SCRIPT"
+ # Write start time, export environment variables
+ [ -z "$ENVIRONMENT_COMMAND" ]\
+  || echo "$ENVIRONMENT_COMMAND" >> "$var_SCRIPT"
+
+ if [ "$SCRIPTCSH" != "yes" ] ; then # bash
+
+  echo "export OMP_NUM_THREADS=$var_TPP" >> "$var_SCRIPT"
+  if ((numablk>0)) ; then
+   echo "export CASINO_NUMABLK=$numablk" >> "$var_SCRIPT"
+  else
+   echo "unset CASINO_NUMABLK" >> "$var_SCRIPT"
+  fi
+  echo "njob=0" >> "$var_SCRIPT"
+
+ else # weird machines which insist on csh scripts
+
+  echo "set OMP_NUM_THREADS=$var_TPP" >> "$var_SCRIPT"
+  if ((numablk>0)) ; then
+   echo "set CASINO_NUMABLK=$numablk" >> "$var_SCRIPT"
+  else
+   echo "unset CASINO_NUMABLK" >> "$var_SCRIPT"
+  fi
+  echo "set njob=0" >> "$var_SCRIPT"
+  echo "set job_dir=\"\"" >> "$var_SCRIPT"
+
+ fi
+
+}
+
+write_batch_script_run() {
+ # Evaluate and write the run command
+ local pwd="$1"
+ [ -z "$var_SCRIPT" ] && return
+ pwd2="$pwd"
+ [ "$RELPATHNAMES" = yes ] && pwd2=${pwd##*/}
+ # Set job directory (for use later at the clean-up stage)
+ echo "cd \"$pwd\"" >> "$var_SCRIPT"
+
+ if [ "$SCRIPTCSH" != "yes" ] ; then # bash
+
+  echo "njob=\$((njob+1)) ; job_dir[\$njob]=\"$pwd2\"" >> "$var_SCRIPT"
+  # Write start time.
+  echo "echo \"Job started: \$(date)\" >> \"$out_file\"" >> "$var_SCRIPT"
+  # Print run command
+  ((njob>1)) && echo "{" >> "$var_SCRIPT"
+  print_block_tag SCRIPT_RUN >> "$var_SCRIPT"
+  ((njob>1)) && echo "} &" >> "$var_SCRIPT"
+
+ else # weird machines which insist on csh scripts
+
+  echo "@ njob++ 
+  set job_dir=(\$job_dir \"$pwd2\")" >> "$var_SCRIPT"
+  # Write start time.
+  echo "echo \"Job started: \`date\`\" >> \"$out_file\"" >> "$var_SCRIPT"
+  # Print run command
+  if ((njob>1)) ; then
+   print_block_tag_csh SCRIPT_RUN >> "$var_SCRIPT"
+  else
+   print_block_tag SCRIPT_RUN >> "$var_SCRIPT"
+  fi
+
+ fi
+}
+
+write_batch_script_footer() {
+ local ijob
+ # Write the clean-up section of the batch script
+ [ -z "$var_SCRIPT" ] && return
+
+ if [ "$SCRIPTCSH" != "yes" ] ; then
+
+  if [ "$RELPATHNAMES" != yes ] ; then
+   echo "cd \"$base_pwd\"" >> "$var_SCRIPT"
+  else
+   ((njob>1)) && echo "cd .." >> "$var_SCRIPT"
+  fi
+  cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+wait
+ijob=0 ; while ((ijob<njob)) ; do ijob=\$((ijob+1))
+ pwd="\${job_dir[\$ijob]}"
+ if [ -s "\$pwd/$doterr_file" ] ; then
+  echo >> "\$pwd/$out_file"
+  echo "--Job's stderr--" >> "\$pwd/$out_file"
+  echo >> "\$pwd/$out_file"
+  cat "\$pwd/$doterr_file" >> "\$pwd/$out_file"
+ fi
+ rm -f "\$pwd/$doterr_file" >& /dev/null
+ echo >> "\$pwd/$out_file"
+done
+echo "Job finished: \$(date)" >> "\$pwd/$out_file"
+rm -f "$var_SCRIPT"
+[ -e \$pwd/input_tmp.in ] && rm -f \$pwd/input_tmp.in >&/dev/null
+_EOF
+
+ else
+
+  nn=$((var_NPROC-1))
+  cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+cd "$base_pwd"
+wait
+set ijob=0 
+while ( \$ijob < \$njob ) 
+ @ ijob++
+ set pwd="\${job_dir[\$ijob]}"
+ if ( -e "\$pwd/$doterr_file" && ! -z "\$pwd/$doterr_file" ) then
+  echo >> "\$pwd/$out_file"
+  echo "--Job's stderr--" >> "\$pwd/$out_file"
+  echo >> "\$pwd/$out_file"
+  cat "\$pwd/$doterr_file" >> "\$pwd/$out_file"
+ endif
+ rm -f "\$pwd/$doterr_file" >& /dev/null
+ echo >> "\$pwd/$out_file"
+ echo "Job finished: \`date\`" >> "\$pwd/$out_file"
+ rm -f "\$pwd/.runqmc.lock" >& /dev/null
+ rm -f "$var_SCRIPT"
+ if ( -e \$pwd/input_tmp.in ) rm -f \$pwd/input_tmp.in >&/dev/null
+end
+_EOF
+fi
+[ -n "\$runqmcmd" ] || [ -n "\$twistav" ] && echo "touch .pwscf_finished # RUNQMCMD/TWISTAV only" >> $base_pwd/$var_SCRIPT
+}
+
+write_batch_script_twistav() {
+ # Create submission script and print header part.
+ [ -z "$var_SCRIPT" ] && return
+ if [ "$SCRIPTCSH" = "yes" ] ; then
+  errstop "runpwscf does not support twist-averaging calculations on machines
+   where SCRIPTCSH=yes in the arch file. Ask MDT if you require this 
+   functionality. I bet no-one ever does."
+ fi
+ rm -f "$var_SCRIPT"
+ touch "$var_SCRIPT"
+ chmod u+x "$var_SCRIPT"
+ # Evaluate and write the heder
+ print_block_tag SCRIPT_HEAD >> "$var_SCRIPT"
+
+ cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+
+ extr_k_crystal_pwscf () {
+ local nk kline j line weight outfile=\$1 twist_number=\$2
+ rm -f pwscf_kpoints.in
+ nk=\$(awk '/number of k points=/{print \$5}' \$outfile)
+ kline=\$(awk '/number of k points=/{print NR}' \$outfile)
+ kline=\$((kline+nk+4))
+ echo \$twist_number > pwscf_kpoints.in
+ echo \$nk >> pwscf_kpoints.in
+ for ((j=0; j < nk ; j++)) ; do
+  weight=\$(awk 'NR=='\$((kline+j))' {print \$NF}' \$outfile)
+  line=\$(awk 'NR=='\$((kline+j))' {print}' \$outfile)
+  line="\${line#*= (}"
+  line="\${line%%)*}"
+  echo \$line \$weight >> pwscf_kpoints.in
+ done
+ }
+_EOF
+
+ cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+
+ sub_new_k_pwscf () {
+ local inpfile=\$1
+ kline=\$(awk '/K_POINTS/{print NR}' \$inpfile)
+ nk=\$(awk 'NR==2 {print}' pwscf_kpoints.out)
+ awk 'NR < '\$kline'' \$inpfile > \$inpfile.new
+ echo 'K_POINTS crystal' >> \$inpfile.new
+ echo \$nk >> \$inpfile.new
+ for ((j=1; j <= nk ; j++)) ; do
+ line=\$(awk 'NR=='\$((j+2))' {print}' pwscf_kpoints.out)
+  echo \$line >> \$inpfile.new
+ done
+ awk 'NR > '\$((kline+nk+1))'' \$inpfile >> \$inpfile.new
+ }
+
+_EOF
+
+ # Write start time, export environment variables
+ [ -z "$ENVIRONMENT_COMMAND" ]\
+  || echo "$ENVIRONMENT_COMMAND" >> "$var_SCRIPT"
+ echo " export OMP_NUM_THREADS=$var_TPP" >> "$var_SCRIPT"
+ if ((numablk>0)) ; then
+  echo " export CASINO_NUMABLK=$numablk" >> "$var_SCRIPT"
+ else
+  echo " unset CASINO_NUMABLK" >> "$var_SCRIPT"
+ fi
+ echo " cd $pwd" >> "$var_SCRIPT"
+ # Write start time.
+ echo " echo \"Job started: \$(date)\" >> \"$out_file\"" >> "$var_SCRIPT"
+ echo "export CASINO_ARCH=$CASINO_ARCH" >> "$var_SCRIPT"
+ # Start loop
+ echo " cp $input_file $input_file.orig" >> "$var_SCRIPT"
+ echo "for (( i = $xwfnstart ; i < $((xwfnstop+1)) ; i++)) ; do" >> "$var_SCRIPT"
+ # Print run command
+ print_block_tag SCRIPT_RUN >> "$var_SCRIPT"
+ # Write the clean-up section of the batch script
+ cat >> "$base_pwd/$var_SCRIPT" <<_EOF
+  cd $base_pwd
+  wait
+  node=0
+  while ((node<$var_NPROC-1)) ; do node=\$((node+1))
+   if [ -s "$pwd/$dotout_file\$node" ] ; then
+    echo >> "$pwd/$out_file"
+    echo "--Output from node #\$node--" >> "$pwd/$out_file"
+    echo >> "$pwd/$out_file"
+    cat "$pwd/$dotout_file\$node" >> "$pwd/$out_file"
+    echo >> "$pwd/$out_file"
+   fi
+   rm -f "$pwd/$dotout_file\$node" >& /dev/null
+  done
+  if [ -s "$pwd/$doterr_file" ] ; then
+   echo >> "$pwd/$out_file"
+   echo "--Job's stderr--" >> "$pwd/$out_file"
+   echo >> "$pwd/$out_file"
+   cat "$pwd/$doterr_file" >> "$pwd/$out_file"
+  fi
+  rm -f "$pwd/$doterr_file" >& /dev/null
+  echo >> "$pwd/$out_file"
+  echo "Job finished: \$(date)" >> "$pwd/$out_file"
+
+  cp $input_file $input_file.\$i
+  mv $out_file $out_file.\$i
+  [ ! -s $prefix$wfn_file ] && exit 1
+  mv $prefix$wfn_file $prefix$wfn_file.\$i
+
+  if ((i != $xwfnstop )) ; then
+   extr_k_crystal_pwscf $out_file.\$i \$i
+   [ ! -x $(type -p twistoffset_pwscf) ] && ( echo "The twistoffset_pwscf auxiliary program cannot be found." ; exit 1 ;)
+   $(type -p twistoffset_pwscf) < pwscf_kpoints.in
+   [ ! -e pwscf_kpoints.out ] || [ ! -s pwscf_kpoints.out ] && ( echo "The twistoffset_pwscf auxiliary program does not appear to be producing the expected output file."; exit 1 ; )
+   sub_new_k_pwscf $input_file
+   mv $input_file.new $input_file
+   rm -f pwscf_kpoints.in pwscf_kpoints.out
+  fi
+
+ done
+
+ mv -f $input_file.orig $input_file
+ touch $pwd/.pwscf_finished
+ rm -f $var_SCRIPT
+ rm -f $wfn_file
+
+_EOF
+}
+
+check_pwd() {
+ # Check we can run in directory $1
+ local anyvalid found fpath t1 job_pwd="$1" abs_pwd final_fpath
+ [ -z "$FORCE_PATH" ] && return
+ abs_pwd="$(cd "$job_pwd" ; pwd -P)"
+ found=0 ; anyvalid=0
+ eval_tag FORCE_PATH
+ fpath="$FORCE_PATH"
+ final_fpath=""
+ while ((${#fpath}>0)) ; do
+  t1="${fpath%%,*}"
+  fpath="$(unpad "${fpath:${#t1}}")"
+  fpath="$(unpad "${fpath#,}")"
+  t1="$(unpad "$t1")"
+  [ -z "$t1" ] && continue
+  anyvalid=1
+  [[ "$job_pwd" == $t1/* ]] || [[ "$abs_pwd" == $t1/* ]]\
+   && { found=1 ; break ; }
+  if [ -z "$final_fpath" ] ; then
+   final_fpath="$t1"
+  elif ((${#fpath}==0)) ; then
+   final_fpath="$final_fpath or $t1"
+  else
+   final_fpath="$final_fpath, $t1"
+  fi
+ done
+ ((anyvalid==1)) && ((found==0)) && errstop "Cannot run under directory\
+  '$job_pwd'.  On this machine you are only allowed to run under $final_fpath"
+}
+
+info_params () {
+# Echo parameters that may be useful in deciding how to run a job.
+# Activate with 'runpwscf --inquire' or 'runpwscf -i'.
+ echo 
+ echo RUNPWSCF info
+ echo =============
+ echo
+ echo Currently active CASINO_ARCH : $CASINO_ARCH
+ [ ! -z "$DESCRIPTION" ] && echo $DESCRIPTION
+ echo
+ [ ! -z "$TYPE" ] && echo "TYPE             : "$TYPE
+ echo
+ [ ! -z "$CORES_PER_NODE" ] && echo "CORES_PER_NODE   : "$CORES_PER_NODE
+ if [ "$TYPE" = "cluster" ] ; then
+  [ ! -z "$CORES_PER_NODE_CLUSTER" ] && echo "CORES_PER_NODE_CLUSTER: "\
+$CORES_PER_NODE_CLUSTER
+  [ ! -z "$ALLOWED_NCORE" ] && echo "ALLOWED_NCORE    :$ALLOWED_NCORE"
+  [ ! -z "$ALLOWED_NNODE" ] && echo "ALLOWED_NNODE    :$ALLOWED_NNODE"
+  ((MIN_NCORE>0)) && echo "MIN_NCORE        : "$MIN_NCORE
+  ((MAX_NCORE>0)) && echo "MAX_NCORE        : "$MAX_NCORE
+  ((MIN_NNODE>0)) && echo "MIN_NNODE        : "$MIN_NNODE
+  ((MAX_NNODE>0)) && echo "MAX_NNODE        : "$MAX_NNODE
+  [ ! -z "$MIN_WALLTIME" ] && echo "MIN_WALLTIME     : "$MIN_WALLTIME
+  [ ! -z "$MAX_WALLTIME" ] && echo "MAX_WALLTIME     : "$MAX_WALLTIME
+  [ ! -z "$WALLTIME_CODES" ] && echo "WALLTIME_CODES   :  "$WALLTIME_CODES
+  [ ! -z "$ALLOWED_WALLTIME" ] && echo "ALLOWED_WALLTIME :  "$ALLOWED_WALLTIME
+  [ ! -z "$SUBMIT_SCRIPT" ] && echo "SUBMIT_SCRIPT    : "$SUBMIT_SCRIPT
+  [ -n "$MAX_NJOBS" ] && echo "MAX_NJOBS         : "$MAX_NJOBS
+ fi
+ echo 
+ [ ! -z "$F90" ] && echo "F90              : "$F90
+ [ ! -z "$CC" ] && echo "CC               : "$CC
+ [ ! -z "$CXX" ] && echo "CXX              : "$CXX
+ echo 
+ if [ ! -z "$SUPPORT_OPENMP" ] ; then
+  echo "SUPPORT_OPENMP   : "$SUPPORT_OPENMP
+ else
+  echo "SUPPORT_OPENMP   : unknown"
+ fi
+ if [ ! -z "$SUPPORT_SHM" ] ; then
+  echo "SUPPORT_SHM      : "$SUPPORT_SHM
+ else
+  echo "SUPPORT_SHM      : unknown"
+ fi
+ echo 
+}
+
+input_pseudo_check_and_dos2unix() {
+# Check existence of various input/pseudo files and make sure not in DOS format
+ local pwd="$1" i j ntyp pseudo_dir pseudo_name line1 cr_char is_dos
+ local have_dos2unix=0
+ [ -z "$pwd" ] && pwd=.
+# Existence of input file
+[ ! -s $pwd/$input_file ] && errstop "File $pwd/$input_file missing or empty."
+# Run dos2unix on input file (and pw2casino.dat), if necessary and possible.
+ cr_char=$(echo -e "\015")
+ type dos2unix >& /dev/null && [[ "$CASINO_ARCH" != *sun* ]] && have_dos2unix=1
+ { while read i ; do
+  [ -f "$pwd/$i" ] && [ -r "$pwd/$i" ] && [ -w "$pwd/$i" ] || continue
+  case "$i" in
+  $input_file|pw2casino.dat)
+   is_dos=$(head -n 50 "$pwd/$i" | grep -c "$cr_char$")
+   if ((is_dos>0)) ; then
+    if ((have_dos2unix==1)) ; then
+     echo -n "File '$pwd/$i' appears to be in DOS format. Converting..."
+     dos2unix -k "$pwd/$i" >& /dev/null
+     echo " Done."
+    else
+     errstop "File '$pwd/$i' appears to be in DOS format. The dos2unix program\
+      cannot be found.  Please convert this file by hand, or use the -f option\
+      to runpwscf to bypass error checking."
+    fi
+   fi ;;
+  esac
+ done ; } < <(/bin/ls -1 "$pwd/")
+# Check existance of pseudopotential files, and dos2unix if necessary and
+# possible.
+ pseudo_dir=$(get_pwscf_param "pseudo_dir" "$pwd/$input_file") || exit
+ [[ $pseudo_dir != */ ]] && pseudo_dir="$pseudo_dir"/
+ ntyp=$(get_pwscf_param "ntyp" "$pwd/$input_file") || exit
+ line1=$(awk '/ATOMIC_SPECIES/{print NR}' $pwd/$input_file)
+ pseudo_stop=0
+ for ((j=1; j <= ntyp ; j++)) ; do
+  pseudo_name=$(awk 'NR=='$((line1+j))' {print $NF}' $pwd/$input_file)
+  if [ ! -e $pseudo_dir$pseudo_name ] || [ ! -s $pseudo_dir$pseudo_name ] ; then
+   errwarn "Pseudopotential file $pseudo_dir$pseudo_name is empty or does\
+    not exist."
+   pseudo_stop=1
+  else
+   is_dos=$(head -n 50 "$pseudo_dir$pseudo_name" | grep -c "$cr_char$")
+   if ((is_dos>0)) ; then
+    if ((have_dos2unix==1)) ; then
+     echo -n "File '$pseudo_dir$pseudo_name' appears to be in DOS format.\
+     Converting..."
+     dos2unix -k "$pseudo_dir$pseudo_name" >& /dev/null
+     echo " Done."
+    else
+     errstop "File '$pseudo_dir$pseudo_name' appears to be in DOS format. The\
+      dos2unix program cannot be found.  Please convert this file by hand."
+    fi
+   fi
+  fi
+ done
+ ((pseudo_stop==1)) && errstop "Pseudopotential error. Quitting."
+ (exit 0) # bypass bash fd leak (v3.2 - v4.1)
+}
+
+#check_params() {
+# Full consistency check of input file $1/input.
+#
+# THIS FUNCTION CURRENTLY DOESN'T DO ANYTHING
+#continue
+#}
+
+get_wfn_file_name() {
+# Which xwfn.data file to use in PWSCF-based twistav case?
+ local wfn
+ wfn=bwfn.data.b1
+ if [ -s $pwd/pw2casino.dat ] ; then
+  blip_convert=$(get_pwscf_param "blip_convert" "$pwd/pw2casino.dat") || exit
+  check_logical "$blip_convert" || errstop "The blip_convert keyword in \
+   pw2casino.dat is set to an invalid value."
+  blip_convert=$(get_logical "$blip_convert")
+  if ((blip_convert==0)) ; then
+   wfn=pwfn.data
+  else
+   blip_binary=$(get_pwscf_param "blip_binary" "$pwd/pw2casino.dat") || exit
+   check_logical "$blip_binary" || errstop "The blip_binary keyword in \
+    pw2casino.dat is set to an invalid value."
+   blip_binary=$(get_logical "$blip_binary")
+   ((blip_binary==0)) && wfn=bwfn.data
+  fi
+ fi
+ echo $wfn
+}
+
+count_pwscf_param() {
+#
+# Count the number of occurences of the keyword where it isn't commented out
+# in a PWSCF input file.
+#
+local keyword=$1 inpfile=$2 noccur
+noccur=$(grep -v '^[    ]*!' $inpfile | grep -cw $keyword)
+echo $noccur
+}
+
+get_pwscf_param() {
+#
+# Get values of keywords out of a PWSCF input file.
+#
+local keyword=$1 inpfile=$2
+# Get line containing keyword from input file.
+line=$(grep -v '^[ 	]*!' $inpfile | grep -w $keyword)
+# Remove everything preceding and including keyword.
+line="${line#*$keyword}"
+# Remove everything following and including the *first* comma, or do nothing
+# if there is no comma.
+line="${line%%,*}"
+# Remove everything preceding and including equal sign.
+line="${line#*=}"
+# Remove any additional spaces.
+while [ "${line:0:1}" = " " ] ; do line="${line# }" ; done
+while [ "${line:$((${#line}-1)):1}" = " " ] ; do line="${line% }" ; done
+# Remove quotes.
+line="${line#\'}" ; line="${line%\'}"
+line="${line#\"}" ; line="${line%\"}"
+echo "$line"
+}
+
+############################ END FUNCTIONS ############################
+
+# Initialize script.
+init_runpwscf
+# Load library of bash functions for handling the tag system.
+[ -e "$casinohome/arch/taglib.sh" ]\
+ || errstop "$casinohome/arch/taglib.sh library not found."
+source "$casinohome/arch/taglib.sh"
+# Get architecture-dependent stuff required before command-line parsing.
+get_arch_params_init
+# Parse command line.
+parse_cmdline "$@"
+[ -n "$runqmcmd" ] || [ -n "$twistav" ] && trap "touch .pwscf_finished; exit" INT TERM
+# Get architecture-dependent stuff
+get_arch_params
+# Print usage at this point if requested
+[ "$help_mode" = 1 ] && print_usage
+# Check command-line arguments for parameters incompatible with arch
+[[ ! -e $input_file ]] && [ "$inquire" != "1" ] && errstop "The runpwscf script expects the PWSCF input file to be called $input_file - but this does not exist."
+process_cmdline
+# Info function
+if [ "$inquire" = "1" ] ; then
+ info_params
+ exit 0
+fi
+# Check that njob does not exceed any specified maximum.
+if [ -n "$MAX_NJOBS" ] && [ $njob -gt $MAX_NJOBS ]; then
+ errstop "The number of jobs requested exceeds the maximum for this machine."
+fi
+# Account for PWSCF bug where pw2casino.dat is not read if outdir /= '.'
+if [ -e "pw2casino.dat" ] ; then
+ n=$(count_pwscf_param "outdir" "$input_file") || exit
+ ((n>1)) && errstop "Multiple uncommented occurences of keyword 'outdir' in $input_file."
+ if ((n==1)) ; then
+  outdir=$(get_pwscf_param "outdir" "$input_file") || exit
+  [[ "$outdir" != "." && -d "$outdir" ]] && cp pw2casino.dat $outdir >& /dev/null
+ fi
+fi
+# Get base name of wfn_file (bwfn.data, pwfn.data, bwfn.data.b1 etc.)
+ wfn_file=$(get_wfn_file_name)
+# Get prefix
+ n=$(count_pwscf_param "prefix" "$input_file") || exit
+ ((n>1)) && errstop "Multiple uncommented occurences of keyword 'prefix' in $input_file."
+prefix=$(get_pwscf_param "prefix" "$input_file") || exit
+[[ ! -z $prefix ]] && prefix=$prefix.
+# Loop over jobs
+ijob=0 ; while ((ijob<njob)) ; do ijob=$((ijob+1))
+ check_pwd "${job_dir[$ijob]}"
+ is_first_job=0 ; ((ijob==1)) && is_first_job=1
+ is_last_job=0 ; ((ijob==njob)) && is_last_job=1
+ # Check input and pseudo files, etc
+ ((force_nocheck==0)) && input_pseudo_check_and_dos2unix "${job_dir[$ijob]}"
+ [ ! -z $binary_not_found ] && exit 1
+ # Clean current directory
+ [ "$RELPATHNAMES" != yes ] && ((check_only==0)) && clean_pwd \
+  "${job_dir[$ijob]}" $is_first_job
+ # Run PWSCF
+ if [ "$TYPE" = cluster ] ; then
+  run_pwscf "${job_dir[$ijob]}" $is_first_job $is_last_job
+ else
+  if ((njob==1)) && ((background==0)) ; then
+   info 1 "Running PWSCF job #$ijob as foreground task"
+   run_pwscf "${job_dir[$ijob]}" $is_first_job $is_last_job
+  else
+   info 1 "Running PWSCF job #$ijob as background task"
+   run_pwscf "${job_dir[$ijob]}" $is_first_job $is_last_job \
+    >& /dev/null & disown -a
+   if ((check_only==0)) && ((print_out==1)) ; then
+    # Poll for output file, then tail and attach tail to PWSCF pid
+    pid=$!
+    while [ ! -e "${job_dir[$ijob]}/$out_file" ] ; do
+     sleep 1
+     in_line $pid $(ps h -u$USER -o pid) || break
+    done
+    tail --pid=$pid -f "${job_dir[$ijob]}/$out_file"
+   fi
+  fi
+ fi
+done
+exit 0

@@ -1,0 +1,309 @@
+Converter GAMESS-US to CASINO
+-----------------------------
+
+written by A. Badinski (if you have questions, please contact me
+at abadinski@gmail.com) 
+
+[MDT NOTE: No - contact Mike T at mdt26@cam.ac.uk as Alex has formally retired.]
+
+[MDT NOTE2: Albert Defusco is writing an internal GAMESS converter which is
+ intended to supplant this utility. Check documentation for current status..]
+
+latest changes: 1.1.2009
+
+The GAMESS-US to CASINO converter consists of two scripts:
+
+1. gamess2qmc: extracts all relevant Hartree Fock output from GAMESS
+2. getdet: extracts the relevant determinant information (In a later
+   development, both scripts can be merged in principle.)
+
+Functionality (and limitations):
+
+1. contracted and uncontracted Gaussian basis functions
+2. s, p, d basis functions (sp=L basis functions have not been
+   implemented yet)
+3. symmetry of the nuclear coordinates is understood and automatically
+   converted into required information for use in CASINO
+4. RHF, ROHF and UHF calculations
+5  closed-shell MCSCF calculations (open-shell MCSCF calculations have
+   not been implemented yet, should be a small modification only)
+6. Determinant-based MCSCF calculations (for configuration state
+   function (CSF) based MCSCF, the conversion between GAMESS-US and
+   CASINO did not seem to work in some cases; I did not find a general
+   solution; the converter is therefore only limited to determinant-based
+   MCSCF calculations)
+7. some steps still require manual work to generate MCSCF wavefunctions;
+   later versions should eliminate that
+
+---------------------- gamess2qmc --------------------------
+
+Usage: gamess2qmc -t hf/opt/nat -l vec.data *.log
+
+The option -t is required. It says what kind of orbitals are read
+in. These can be Hartree-Fock orbitals from a Hartree-Fock calculation
+(hf), or optimized orbitals (opt) or natural orbitals (nat) from MCSCF
+or CI calculation. When natural orbitals are read in, please first
+delete the last empty line right after the calculated orbital
+coefficients are listed in the *.log file. (This is required for
+reading.)
+
+The option -l vec.data is not required. It says that the LCAO
+coefficients are re-read from the vec.data file that was previously
+written out by GAMESS into the scratch directory. Before the vec.data
+file is read, delete all lines by hand that are not required in the
+vec.data file before and after the relevant orbital coefficients; In
+HF calculations, this option is advisable as the accuracy of the
+orbital coefficients is improved. In MCSCF/CI calculations this option
+is also advisable to make sure that the correct orbital coefficients
+are read in.  If this option is not chosen, the original coefficients
+from the *.log file are chosen.
+
+The option -v n, where n is a number between 1 and 5 sets the
+verbosity level.  Only relevant for debugging.
+
+!!! Important information for the user !!! In every GAMESS-US
+calculation, it is important to set ISPHER=1. GAMESS-US operates with
+Cartesian Gaussians and ISPHER=1 restricts these Cartesian Gaussian
+as is required to transform them later into Spherical Gaussian for use
+in CASINO. This option generally results in a nonzero "NUMBER OF
+SPHERICAL CONTAMINANTS DROPPED".
+
+It is also important to check that the "NUMBER OF LINEARLY DEPENDENT
+MOS DROPPED" is zero. This is important for the converter to work
+properly. If this number is nonzero, try to decrease QMTTOL. A level
+that generally seems to work is 1.0E-8.
+
+
+------------------------- getdet ----------------------------
+
+Usage: getdet -t det -r 0.0001 ci.log
+       getdet -t gms -r 0.0001 mcscf.log
+
+The option -t is required and says that determinant information is
+extracted from CI output for use in CASINO (det) or that determinant
+information is extracted from MCSCF output for re-optimization of the
+orbitals in a GAMESS MCSCF calculation (gms).
+
+The option -r 0.0001 is required. It says that determinants with a
+coefficient that are larger then 0.0001 are written out.
+
+!!! Important information for the user!!! In mcscf.inp set NORB to the
+number of orbitals that are read below (one often forgets to change
+that number). When performing long MCSCF calculations, make sure to
+set the plot tolerance PRTTOL to a value that is small enough so that
+enough determinants are written out. Only use determinant-based MCSCF
+calculations as CSF based calculations were found not to give
+consistent results within CASINO.
+
+
+------------------------- example ---------------------------
+
+If you have found this script, you should have also found the example
+directory MCSCF_demo. In the following, all steps to achieve a
+determinant-based MCSCF run in CASINO are explained and all files are
+given in the directory.
+
+
+
+1. --- HF calculation ---
+
+rungms rhf 01 1 > rhf.log
+
+(01 is the GAMESS version number and 1 the number of nodes)
+
+mv /scratch/ab582/rhf.dat .
+
+cp rhf.dat vec.dat
+
+vi vec.dat and delete all information before and after the orbital
+coefficients
+
+gamess2qmc -t hf -l vec.dat rhf.log
+
+the gwfn.data file is written out
+
+Now, perform a VMCHF calculation (a VMC calculation without a Jastrow
+factor) to check if you get the right HF energy. My example file
+contains the pseudopotential file for N that I generated from the
+Gaussian expansion parameters from the DF pseudopotential
+(see www.tcm.phy.cam.ac.uk/~mdt26/casino2_pseudopotentials.html).
+This guarantees that all GAMESS and CASINO calculations are performed
+with the same pseudopotential and we can expect that the HF (or later
+MCSCF) results from GAMESS to agree with those from CASINO if the
+conversion works properly.
+
+In the example:
+
+GAMESS gives -19.3791   Ha
+CASINO gives -19.380(2) Ha
+
+which agrees within one standard error. If the conventional
+"tabulated" pseudopotential is used from the website (and differs
+from the one used here), difference between the GAMESS results and
+CASINO results may arise that can be as large as several mHa. This is
+avoided here.
+
+
+
+2. --- MCSCF calculation ---
+
+rungms mcscf 01 1 > mcscf.log
+
+getdet -t gms -r 0.05 writes out the file gamess.data
+
+ $GCILST
+2 2 2 2 0 0 0 0 0 0
+2 2 0 2 2 0 0 0 0 0
+2 2 2 0 0 2 0 0 0 0
+2 2 1 1 1 1 0 0 0 0
+0 2 2 2 2 0 0 0 0 0
+0 2 2 2 0 2 0 0 0 0
+write the number 6 into a new second line of this file and delete this line
+ $END
+
+This file needs to be edited by hand. First, copy the number 6 into a news
+second line and delete the penultimate line
+
+ $GCILST
+6 2
+2 2 2 2 0 0 0 0 0 0
+2 2 0 2 2 0 0 0 0 0
+2 2 2 0 0 2 0 0 0 0
+2 2 1 1 1 1 0 0 0 0
+0 2 2 2 2 0 0 0 0 0
+0 2 2 2 0 2 0 0 0 0
+ $END
+
+Also, I have written a second number (2) after 6 in the second
+line. Please read the GAMESS manual for different values. I think 1 is
+the default (when omitted) and says that full symmetry is applied. To
+my experience, this only works when all orbitals are doubly occupied
+(when all space group lines are deleted that contain 1).
+
+Also, when a 0 appears in an entire column vector (molecular orbital)
+over all space representations, they must be deleted, otherwise
+GAMESS has difficulties.
+
+ $GCILST
+6 2
+2 2 2 2 0 0
+2 2 0 2 2 0
+2 2 2 0 0 2
+2 2 1 1 1 1
+0 2 2 2 2 0
+0 2 2 2 0 2
+ $END
+
+Now, create a new mcscf_again.inp file that contains that $GCILST
+block.  The orbital coefficients can remain the same from the previous
+HF calculation.
+
+rungms mcscf_again 01 1 > mcscf_again.log
+
+
+
+3. --- CI calculation ---
+
+Due to a bug in the GAMESS routine, we need to do a CI calculation in
+order to obtain the appropriate MCSCF orbital coefficients. If you may
+want to understand that in more detail, the GAMESS MCSCF output states
+"IF YOU WISH TO SEE CI EXPANSIONS BASED ON THE CANONICAL (OR NATURAL) ORBITALS,
+YOU MUST RUN A CI CALCULATION WITH THAT ORBITAL CHOICE READ IN $VEC."
+
+Therefore, copy all relevant information into a new ci.inp file and
+type
+
+rungms ci 01 1 > ci.log
+
+The computed CI energy should be compared with the previous MCSCF energy. In my
+experience, they always agree up to the last decimal place. Then type
+
+getdet -t det -r 0.00000 ci.log
+
+The last execution reads all determinant coefficients from the ci.log file and
+writes them into a file det.data:
+
+MULTIDETERMINANT INFORMATION
+----------------------------
+MD
+9
+9.69755300000E-01    1    0
+-1.27728100000E-01    2    1
+-1.27728100000E-01    2    1
+-8.25967000000E-02    3    1
+-8.25967000000E-02    3    1
+-5.47506000000E-02    4    1
+-5.47506000000E-02    4    1
+-5.36436000000E-02    5    1
+-5.36436000000E-02    5    1
+DET 2 1 PR 5 1 7 1      # occ. pat. [D2222002]
+DET 2 2 PR 5 1 7 1      # occ. pat. [D2222002]
+DET 3 1 PR 4 1 6 1      # occ. pat. [D2220220]
+DET 3 2 PR 4 1 6 1      # occ. pat. [D2220220]
+DET 4 1 PR 4 1 6 1      # occ. pat. [D222-++-]
+DET 4 2 PR 5 1 7 1      # occ. pat. [D222-++-]
+DET 5 1 PR 5 1 7 1      # occ. pat. [D222+--+]
+DET 5 2 PR 4 1 6 1      # occ. pat. [D222+--+]
+DET 6 2 PR 4 1 6 1      # occ. pat. [D222++--]
+DET 6 2 PR 5 1 7 1      # occ. pat. [D222++--]
+DET 7 1 PR 4 1 6 1      # occ. pat. [D222--++]
+DET 7 1 PR 5 1 7 1      # occ. pat. [D222--++]
+DET 8 1 PR 2 1 7 1      # occ. pat. [D2022202]
+DET 8 2 PR 2 1 7 1      # occ. pat. [D2022202]
+DET 9 1 PR 2 1 6 1      # occ. pat. [D2022220]
+DET 9 2 PR 2 1 6 1      # occ. pat. [D2022220]
+
+Take that block and paste it into the gwfn.data file where the following
+information stands:
+
+MULTIDETERMINANT INFORMATION
+----------------------------
+GS
+
+
+!!!!!!!!!!!!!!!!!Note added by R. Dawes - May 22 2014
+
+The phases of the optimized MCSCF orbitals are often switched by GAMESS during
+the CI calculation.  This means that the outputted MULTIDETERMINANT INFORMATION
+will be inconsistent with the orbital coefficients obtained by processing the
+mcscf output.  The answer is to process the orbitals as they appear in the CI
+calculation output.  However, in the CI calc output they are not labeled
+correctly to be processed by the "gamess2qmc" script and therefore must be
+renamed.  The following example command will relabel them from the file
+"N2_ci.log" from "INITIAL GUESS ORBITALS" to "MCSCF OPTIMIZED ORBITALS" (which
+they are with some phase changes).
+
+sed -e 's/INITIAL GUESS ORBITALS$/MCSCF OPTIMIZED ORBITALS/' -e 's/^.*END OF INITIAL.*$/DONE WITH MCSCF ITERATIONS/' N2_ci.log > n2.gamess
+
+Processing the relabeled CI output with the "gamess2qmc" and "getdet" scripts
+will produce correct energies in subsequent VMC and DMC calculations.
+(inconsistent phases causes huge jumps in the energies)
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+Finally, you are ready to run a CASINO calculation.
+
+For testing, the following results are obtained:
+
+GAMESS gives: -19.4742
+CASINO gives: -19.470(3)
+
+which agrees within one standard error.
+
+Some additional information: the information that is written out on
+the screen by the script getdet is useful to check that the conversion
+worked. E.g.
+
+        DET 10 1 PR 4 1 7 1
+        DET 10 2 PR 5 1 6 1
+det in CASINO   2375-2-3-4-6
+made consistent 2357-2-3-4-6  casino_phase -1
+
+The first two lines specify the format for determinant 10 as required by
+CASINO. The third line gives another representation of that same determinant
+(the positive numbers correspond to molecular orbitals with alpha spin and the
+negative numbers correspond to molecular orbitals with beta spin). The fourth
+line gives the representation of that same determinant after the columns have
+been commuted as required. The corresponding phase factor is written out that
+is later on multiplied with the determinant coefficient.

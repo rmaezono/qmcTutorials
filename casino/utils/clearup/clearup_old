@@ -1,0 +1,262 @@
+#!/bin/bash
+
+##############
+#  CLEARUP   #
+# NDD, 2002. #
+##############
+
+# Script for clearing up junk files / output produced by CASINO
+# before one starts afresh. It attempts to "reset" directories
+# to suitable starting points.
+
+# DISCLAIMER: CASINO USERS USE THIS SCRIPT ENTIRELY AT THEIR OWN RISK.
+# THE AUTHOR ACCEPTS NO RESPONSIBILITY FOR THE LOSS OF ANY
+# FILES AS A RESULT OF USING THIS SCRIPT.
+
+base_dir=`pwd`
+first_clearup=1
+clearup_dir=.
+
+while [[ $first_clearup == 1 || ! -z $1 ]]
+do {
+
+ if [[ ! -z $1 ]]
+ then {
+  if [[ $1 == -help ]]
+  then {
+   echo "Usage: clearup [-help] [directory1 .. directoryN]"
+   exit 0
+   }
+  else {
+   clearup_dir=$1
+   }
+  fi
+  shift
+  }
+ fi
+
+ if [[ ! -d $clearup_dir ]]
+ then {
+  echo "There doesn't seem to be a directory called "$clearup_dir"."
+  exit 1
+  }
+ fi
+ echo "Clearing up after CASINO in: "$clearup_dir
+ cd $clearup_dir
+
+# Move input file for DMC configuration generation to input.
+ if [[ -e input && -e input.gz ]]
+ then {
+  rm input.gz
+ }
+ fi
+ mv io*/input_congen input_congen >& /dev/null
+ mv io*/input_congen.gz input_congen.gz >& /dev/null
+ if [[ -e input_congen.gz ]]
+ then {
+  if [[ -e input.gz ]]
+  then {
+   mv input_congen.gz input.gz
+   }
+  else {
+   if [[ -e input ]]
+   then {
+    rm input
+    mv input_congen.gz input.gz
+    gunzip input.gz
+    }
+   else {
+    mv input_congen.gz input.gz
+    }
+   fi
+   }
+  fi
+  }
+ fi
+ if [[ -e input_congen ]]
+ then {
+  mv input_congen input
+  }
+ fi
+
+# Move input file for VARMIN configuration generation to input.
+ if [[ -e input ]]
+ then {
+  if (( `grep -i "irun" input | grep -c "4"` > 0 ))
+  then {
+   mv io*/input_1 input >& /dev/null
+   }
+  fi
+  }
+ else {
+  if [[ ! -e input.gz ]]
+  then {
+   mv io*/input_1.gz input.gz >& /dev/null
+   if [[ -e input.gz ]]
+   then {
+    gunzip input.gz
+    }
+   fi
+   mv io*/input_1 input >& /dev/null
+   }
+  fi
+  }
+ fi
+
+# Get rid of the .hist and .posout files.
+ rm dmc.hist dmc.hist.gz dmc.hist.trimmed dmc.hist.trimmed.gz dmc.hist2 dmc.hist2.gz dmc.hist2.trimmed dmc.hist2.trimmed.gz vmc.hist vmc.hist.gz vmc.hist2 vmc.hist2.gz vmc.posout vmc.posout.gz vmc.posout_pcf vmc.posout_pcf.gz >& /dev/null
+
+# Get rid of io directories.
+ rm -r io io_old* >& /dev/null
+
+# Get rid of indicator files.
+ rm ERROR ERROR.gz VMC_ACTIVE VMC_ACTIVE.gz VMC_FINISHED VMC_FINISHED.gz ACTIVE_* RUNDMC_ACTIVE RUNDMC_ACTIVE.gz CONFIGS_GENERATED CONFIGS_GENERATED.gz EQUILIBRATION_COMPLETED EQUILIBRATION_COMPLETED.gz DMC_FINISHED DMC_FINISHED.gz RUNVARMIN_ACTIVE RUNVARMIN_ACTIVE.gz VARMIN_ACTIVE VARMIN_ACTIVE.gz VARMIN_FINISHED VARMIN_FINISHED.gz OPTIMISATION_SUCCESSFUL OPTIMISATION_SUCCESSFUL.gz OPTIMIZATION_SUCCESSFUL OPTIMIZATION_SUCCESSFUL.gz POSTFIT_VMC_RUNNING POSTFIT_VMC_RUNNING.gz POSTFIT_VMC_FINISHED POSTFIT_VMC_FINISHED.gz >& /dev/null
+
+# Get rid of out files.
+ rm out out.gz vmc.out.? out_vmc? vmc.out.?.gz vmc.out.?? vmc.out.??.gz varmin.out.? varmin.out.?.gz varmin.out.?? varmin.out.??.gz >& /dev/null
+
+# Get rid of config files.
+ rm condata_* configs_* config.out config.out.gz config.backup config.backup.gz config.in.gz config.in_formatted config.in_formatted.gz config.in_pcf.gz config.out_pcf config.out_pcf.gz >& /dev/null
+
+ if [[ -e input ]]
+ then {
+  if (( `grep -i 'irun' input | grep -c '4'` == 0 ))
+  then {
+   rm config.in >& /dev/null
+   rm config.in_pcf >& /dev/null
+   }
+  fi
+  }
+ else {
+  rm config.in >& /dev/null
+  rm config.in_pcf >& /dev/null
+  }
+ fi
+
+# Get rid of varmin_coeffs files.
+ if [[ -e input ]]
+ then {
+  if (( `grep -i 'irun' input | grep -c '4'` == 0 ))
+  then {
+   rm varmin_coeffs.data >& /dev/null
+   }
+  fi
+  }
+ else {
+  rm varmin_coeffs.data >& /dev/null
+  }
+ fi
+ rm varmin_coeffs.data.gz >& /dev/null
+
+# Get rid of results of density plotter.
+ rm lda.data lda.data.gz diff.data diff.data.gz qmc.data qmc.data.gz out_d2rs out_d2rs.gz int.data int.data.gz den.data den.data.gz >& /dev/null
+
+# Get rid of random state file.
+ rm .varmin_ran_save .varmin_ran_save.gz >& /dev/null
+
+# Get rid of status files.
+ rm status status.gz statusfile statusfile.gz >& /dev/null
+
+# Get rid of err.12345 files
+ rm err.* >& /dev/null
+
+# Get rid of output of wannier and generate_spline.
+ rm wannier_centers.dat wannier_centers.dat.gz plot[x,y,z].??? plot[x,y,z].???.gz output.??? output.???.gz >& /dev/null
+
+# Get rid of core files.
+ rm core core.gz >& /dev/null
+
+# Get rid of PI files on maxwell.
+ if (( `hostname | grep -c maxwell` == 1 ))
+ then {
+  rm PI* >& /dev/null
+  }
+ fi
+
+# Get rid of reblock results.
+ rm reblock.plot reblock.plot.gz reblock.results reblock.results.gz >& /dev/null
+
+# Reset Jastrow function etc. after VARMIN.
+ mv jasfun.start jasfun.data >& /dev/null
+ mv jastrow.start jastrow.data >& /dev/null
+ mv jasfun.start.gz jasfun.data.gz >& /dev/null
+ mv jastrow.start.gz jastrow.data.gz >& /dev/null
+ mv backflow.start backflow.data >& /dev/null
+ mv backflow.start.gz backflow.data.gz >& /dev/null
+ mv heg.start heg.data >& /dev/null
+ mv heg.start.gz heg.data.gz >& /dev/null
+ if [[ -e jastrow.data ]]
+ then {
+  rm jastrow.out >& /dev/null
+  }
+ fi
+ if [[ -e jasfun.data ]]
+ then {
+  rm jasfun.out >& /dev/null
+  }
+ fi
+ if [[ -e backflow.data ]]
+ then {
+  rm backflow.out >& /dev/null
+  }
+ fi
+ if [[ -e heg.data ]]
+ then {
+  rm heg.data.out >& /dev/null
+  }
+ fi
+ if [[ -e correlation.data ]]
+ then {
+  rm correlation.out.[1-9] correlation.out.[1-9][1-9] >& /dev/null
+  }
+ fi
+
+# Get rid of jastrow_plot and orbital_check files
+ rm jastrow_value_u.out jastrow_deriv_u.out jastrow_sderiv_u.out jastrow_value_chi_*.out jastrow_deriv_chi_*.out jastrow_sderiv_chi_*.out jastrow_value_f_*.out jastrow_value_p.out jastrow_value_q_*.out jastrow_value_u.out.gz jastrow_deriv_u.out.gz jastrow_sderiv_u.out.gz jastrow_value_chi_*.out.gz jastrow_deriv_chi_*.out.gz jastrow_sderiv_chi_*.out.gz jastrow_value_f_*.out.gz jastrow_value_p.out.gz jastrow_value_q_*.out.gz >& /dev/null orbital_check.out.*
+
+# Get rid of plot_backflow files
+ rm bfconfig.out bfconfigx.out bfions.out bffield.out bfeta_*.out bfmu_*.out bfphi_*.out bfconfig.out.gz bfconfigx.out.gz bfions.out.gz bffield.out.gz bfeta_*.out.gz bfmu_*.out.gz bfphi_*.out.gz >& /dev/null
+
+# Get rid of qmc_plot files
+ rm lineplot.dat lineplot.dat.gz 2Dplot.dat 2Dplot.dat.gz 3Dplot.dat 3Dplot.dat.gz vmc_data.plot vmc_data.plot.gz dmc_data.plot dmc_data.plot.gz >& /dev/null
+
+# Get rid of pair correlation data files
+ rm corr.eueu corr.eued corr.eded corr.euhu corr.euhd corr.edhu corr.edhd corr.huhu corr.huhd corr.hdhd corr.ee corr.eh corr.hh vmc.corr dmc.corr corr.eueu.gz corr.eued.gz corr.eded.gz corr.euhu.gz corr.euhd.gz corr.edhu.gz corr.edhd.gz corr.huhu.gz corr.huhd.gz corr.hdhd.gz corr.ee.gz corr.eh.gz corr.hh.gz vmc.corr.gz dmc.corr.gz >& /dev/null
+
+# Get rid of OLD directories.
+ if [[ -d OLD ]]
+ then {
+  if [[ -e OLD/dmc.hist || -e OLD/dmc.hist.gz || -e OLD/dmc.hist2 || -e OLD/dmc.hist2.gz || -e OLD/vmc.hist || -e OLD/vmc.hist.gz || -e OLD/vmc.hist2 || -e OLD/vmc.hist2.gz || -e OLD/out || -e OLD/input ]]
+  then {
+   rm -r OLD >& /dev/null
+   }
+  fi
+  }
+ fi
+
+# Get rid of job-submision scripts.
+ for jobscript in *
+ do {
+  if [[ $jobscript == [c,v,e,d,f][0-9]* || $jobscript == casino_[0-9]* ]]
+  then {
+   if (( `grep casino $jobscript | grep -c mpi` > 0 || `grep casino $jobscript | grep -c prun` > 0 || `grep casino $jobscript | grep -c poe` > 0 ))
+   then {
+    rm $jobscript >& /dev/null
+    }
+   fi
+   }
+  fi
+  }
+ done
+
+ first_clearup=0
+
+ cd $base_dir
+
+ }
+done
+
+echo "Finished."
+
+exit 0
+

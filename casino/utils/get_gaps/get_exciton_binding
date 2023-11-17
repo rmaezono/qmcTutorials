@@ -1,0 +1,304 @@
+#!/bin/bash
+###############################################################################
+# GET_EXCITON_BINDING                                                         #
+#                                                                             #
+# NDD    02.2011                                                              #
+#                                                                             #
+# Calculate the exciton binding of a real material.                           #
+#                                                                             #
+# Use the "-out" flag to specify that the energies are to be read from the out#
+# file or the dmc.status file; otherwise the energies will be read from the   #
+# results of the reblock utility stored in reblock.results.                   #
+###############################################################################
+
+# Colours.
+default="\033[0m" ; black="\033[30m" ; red="\033[31m"
+green="\033[32m"  ; brown="\033[33m" ; blue="\033[34m"
+purple="\033[35m" ; cyan="\033[36m"  ; grey="\033[37m"
+
+usage="Usage: get_exciton_binding [-out] <dir_GS> [<dir_add> <dir_minus>] <dir_prom>"
+
+
+function read_input {
+######################################################################
+# Read the input file in directory $1.  Get the number of electrons. #
+######################################################################
+ local gzipped
+
+# Check input file is there.
+ gzipped=0
+ if [ ! -f "$1"/input ]; then
+  if [ -f "$1"/input.gz ]; then
+   gunzip "$1"/input.gz
+   gzipped=1
+  else
+   echo -e "${red}Cannot find input file in $1.$default"
+   echo "$usage"
+   exit 5
+  fi # Gzipped input
+ fi # No input
+
+# Get electron number from input file.
+ if [ $(grep -Eic "^ *neu  *: " "$1"/input) -eq 1 ]; then
+  neu=$(awk '{if(tolower($1)=="neu"){print $3 ; exit}}' "$1"/input)
+ else
+  neu=0
+ fi # neu present
+ if [ $(grep -Eic "^ *ned  *: " "$1"/input) -eq 1 ]; then
+  ned=$(awk '{if(tolower($1)=="ned"){print $3 ; exit}}' "$1"/input)
+ else
+  ned=0
+ fi # ned present
+ N=$(($neu+$ned))    # Total number of electrons
+ if [ $N -eq 0 ]; then
+  echo -e "${red}Error: no electrons in $1?$default"
+  exit 10
+ fi # N=0
+
+# Get number of primitive cells from input file.
+ npcells=$(awk 'BEGIN{p=0} (p==1){print $1*$2*$3 ; p=0}
+                (tolower($1)=="%block" && tolower($2)=="npcell"){p=1}' \
+            "$1"/input)
+
+# For checking purposes.
+ backflow=$(awk '{if (tolower($1)=="backflow") {print $3}}' "$1"/input)
+ dtdmc=$(awk '{if (tolower($1)=="dtdmc") {print $3}}' "$1"/input)
+
+ if [ $gzipped -eq 1 ]; then
+  gzip "$1"/input
+ fi # Need to re-gzip input.
+
+}
+
+
+function read_reblock {
+###############################################################################
+# Check reblock.results file is there.  Get the total energy and the error in #
+# the total energy.                                                           #
+###############################################################################
+ local gzipped
+ gzipped=0
+ if [ ! -f "$1"/reblock.results ]; then
+  if [ -f "$1"/reblock.results.gz ]; then
+   gunzip "$1"/reblock.results.gz
+   gzipped=1
+  else
+   echo -e "${red}Cannot find reblock.results in $1.$default"
+   echo "$usage"
+   exit 15
+  fi # Gzipped reblock.results
+ fi # No reblock.results
+ E=$(awk "/Total energy/{printf \"%.15g\n\",\$6*$npcells}" \
+  "$1"/reblock.results)
+ err_E=$(awk "/Total energy/{printf \"%.15g\n\",\$7*$npcells}" \
+  "$1"/reblock.results)
+ if [ $gzipped -eq 1 ]; then
+  gzip "$1"/reblock.results
+ fi # Need to re-gzip reblock.results.
+}
+
+
+function read_out {
+ local gzipped outfile
+############################################################################
+# Check out file (or dmc.status) is there.  Read the total energy from it. #
+############################################################################
+ outfile=$(ls -Ud1 "$1"/out* "$1"/dmc.status* 2>/dev/null | tail -1)
+ if [ -z "$outfile" ] || [ ! -f "$outfile" ]; then
+  echo -e "${red}Cannot find out in $1.$default"
+  echo "$usage"
+  exit 20
+ fi # No out
+ if [ "${outfile%.gz}.gz" = "$outfile" ]; then
+  gunzip "$outfile"
+  gzipped=1
+  outfile="${outfile%.gz}"
+ else
+  gzipped=0
+ fi # Gzipped?
+ if [ $(grep -c "All energies given in au per primitive cell" "$outfile") \
+  -eq 0 ] ; then
+  echo -e "${red}Please check units in $outfile.$default"
+  exit 25
+ fi
+ if [ $(grep -ic "warning" "$outfile") -gt 0 ]; then
+  echo -e "${purple}Warning: warnings in $outfile.$default"
+  echo
+ fi
+ E=$(awk "/^ Total energy                 = /{p=\$4}
+          END{printf \"%.15g\n\",p*($npcells)}" "$outfile")
+ err_E=$(awk "/^ Total energy                 = /{p=\$6}
+              END{printf \"%.15g\n\",p*($npcells)}" "$outfile")
+ if [ $gzipped -eq 1 ]; then
+  gzip "$outfile"
+ fi # Need to re-gzip out.
+}
+
+
+#############################
+# Main program starts here. #
+#############################
+
+echo
+echo "GET_EXCITON_BINDING"
+echo "==================="  
+echo
+
+# Parse flags on command line.
+read_out=0
+case "$1" in
+out|-out)
+ read_out=1
+ shift ;;
+esac
+
+# If two directories are specified then we assume they are the GS and the
+# promotion, allowing the excitonic gap to be determined.  If four directories
+# are specified then we assume that they contain the ground-state, addition,
+# subtraction and promotion calculations, allowing the exciton binding energy
+# to be calculated.  The ground-state directory must be provided first.
+if [ $# -eq 4 ]; then
+ get_binding=1
+elif [ $# -eq 2 ]; then
+ get_binding=0
+else
+ echo -e "${red}Error: need to supply directories holding (i) GS, (ii) addition, (iii)$default"
+ echo -e \
+  "${red}subtraction and (iv) promotion data on the command line.$default"
+ echo "$usage"
+ exit 30
+fi
+
+# Loop over directories specified on the command line.
+dircount=1
+while [ -n "$1" ]; do
+
+ if [ ! -d $1 ]; then
+  echo -e "${red}Cannot find directory $1.$default"
+  echo "$usage"
+  exit 35
+ fi # No dir $1.
+
+# Read the input file.
+ read_input "$1"
+
+# Save N, etc., for GS calc.  Compare excited-state values with GS values.
+ if [ $dircount -eq 1 ]; then
+  N0=$N
+  backflow0=$backflow
+  dtdmc0=$dtdmc
+  neu0=$neu
+  ned0=$ned
+  npcells0=$npcells
+ else
+  if [ $dircount -eq 2 ] || [ $dircount -eq 3 ]; then
+   if [ $N -ne $(($N0-1)) ] && [ $N -ne $(($N0+1)) ]; then
+    echo -e "${red}Should only have additions and subtractions of a single electron.$default"
+    echo -e "${red}This is not the case in $1.$default"
+    echo "$usage"
+    exit 40
+   fi # N/=N0-1 and N/=N0+1
+   if [ $neu -eq $neu0 ]; then
+    smspin=1
+    chspin=2
+   elif [ $ned -eq $ned0 ]; then
+    smspin=2
+    chspin=1
+   else
+    echo -e "${red}The number of down-spin electrons should be the same as in the GS.$default"
+    echo "$usage"
+    exit 45
+   fi # ned /= ned0
+  elif [ $dircount -eq 4 ]; then
+   if [ $neu -ne $neu0 ] || [ $ned -ne $ned0 ]; then
+    echo -e "${red}The electron numbers should be the same as the GS in the excitation.$default"
+    echo "$usage"
+    exit 50
+   fi # neu/=neu0
+  fi # dircount
+  if [ $npcells -ne $npcells0 ]; then
+   echo -e "${red}The number of primitive cells should be the same as in the GS.$default"
+   echo "$usage"
+   exit 55
+  fi # npcells /= npcells0
+  if [ "$backflow" != "$backflow0" ]; then
+   echo -e "${red}Use of backflow seems to be inconsistent in $1.$default"
+   echo "$usage"
+   exit 60
+  fi # BF /= BF0
+  if [ "$dtdmc" != "$dtdmc0" ]; then
+   echo -e "${red}DMC time step seems to be inconsistent in $1.$default"
+   echo "dtdmc0 = $dtdmc0"
+   echo "dtdmc  = $dtdmc"
+   echo "$usage"
+   exit 65
+  fi # BF /= BF0
+ fi # GS
+
+# Extract total energies from reblock.results or out files.
+ if [ $read_out -eq 0 ]; then
+  read_reblock "$1"
+ else
+  read_out "$1"
+ fi # reblock.results or out.
+ if [ -z "$E" ] || [ -z "$err_E" ]; then
+  echo -e "${red}Have not found energy data in $1.$default"
+  echo "$usage"
+  exit 70
+ fi
+ if [ $dircount -eq 1 ]; then
+  E0=$E
+  err_E0=$err_E
+ elif [ $dircount -eq 2 ] || [ $dircount -eq 3 ]; then
+  if [ $N -gt $N0 ]; then
+# Addition.
+   Eadd=$E
+   err_Eadd=$err_E
+  else
+# Subtraction.
+   Esub=$E
+   err_Esub=$err_E
+  fi # N>N0
+ else # Promotion
+  Epr=$E
+  err_Epr=$err_E
+ fi # GS
+
+ shift
+ if [ $get_binding -eq 1 ]; then
+  dircount=$((dircount+1))
+ else
+  dircount=$((dircount+3))
+ fi # Update counter
+
+done # directories
+
+# Calculate and report excitonic energy gap and accompanying error bar.
+Egap=$(awk "BEGIN{printf \"%.15g\\n\",$Epr-($E0)}")
+err_Egap=$(awk "BEGIN{printf \"%.15g\\n\",sqrt(($err_E0)^2+($err_Epr)^2)}")
+echo -e "${blue}Exciton gap (au): $green$Egap  $err_Egap$default"
+echo
+Egap_eV=$(awk "BEGIN{printf \"%.15g\\n\",$Egap*27.211396132}")
+err_Egap_eV=$(awk "BEGIN{printf \"%.15g\\n\",$err_Egap*27.211396132}")
+echo -e "${blue}Exciton gap (eV): $green$Egap_eV  $err_Egap_eV$default"
+echo
+
+# Calculate and report exciton binding energy and accompanying error bar.
+if [ $get_binding -eq 1 ]; then
+ EB=$(awk "BEGIN{printf \"%.15g\\n\",$Eadd+($Esub)-($E0)-($Epr)}")
+ err_EB=$(awk "BEGIN{printf \"%.15g\\n\",sqrt(($err_Eadd)^2+($err_Esub)^2 \
+                +($err_E0)^2+($err_Epr)^2)}")
+ echo -e "${blue}Exciton binding (au): $green$EB    $err_EB$default"
+ echo
+
+# Report gaps in eV units.
+ EB_eV=$(awk "BEGIN{printf \"%.15g\\n\",$EB*27.211396132}")
+ err_EB_eV=$(awk "BEGIN{printf \"%.15g\\n\",$err_EB*27.211396132}")
+ echo -e "${blue}Exciton binding (eV): $green$EB_eV  $err_EB_eV$default"
+ echo
+fi
+
+echo -e "${blue}Done.$default"
+echo
+
+exit 0

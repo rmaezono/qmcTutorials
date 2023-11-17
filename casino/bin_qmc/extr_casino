@@ -1,0 +1,19 @@
+#!/bin/bash
+# Simple script to grab the energies and error bars from a sequence of out.$
+# files resulting from a DMC-MD simulation. Output to x,y,dy plot file.
+# MDT 10.2011
+
+[[ -e ENERGIESqmc.dat ]] && rm ENERGIES_qmc.dat
+touch ENERGIESqmc.dat
+
+# Number of out files
+noutfiles=$(ls -1 out.[0-9]* | wc -l)
+
+for ((i=0; i < noutfiles ; i++)) ; do
+
+ energy=$(grep "Total energy                 =" out.$i | awk '{print $4}')
+ variance=$(grep "Total energy                 =" out.$i | awk '{print $6}')
+
+ echo $i $energy $variance >> ENERGIESqmc.dat
+
+done

@@ -1,0 +1,25 @@
+#!/bin/bash
+# This script is just a wrapper to call louishelp_helper with arguments so
+# that LOUIS's internal help system can be used transparently.
+
+if ! type louishelp_helper 2>&1 > /dev/null ; then
+ echo "The 'louishelp_helper' binary was not found."
+ exit 1
+fi
+ 
+case $# in
+1) echo "$1" | louishelp_helper ;;
+2) echo -e "$1\n$2" | louishelp_helper ;;
+*)
+ echo
+ echo "Usage:"
+ echo "louishelp <louis_keyword>"
+ echo "louishelp search <searchword>"
+ echo "louishelp all"
+ echo "louishelp basic"
+ echo "louishelp inter"
+ echo "louishelp expert"
+ echo "louishelp list"
+ echo
+ exit 1 ;;
+esac

@@ -1,0 +1,36 @@
+#!/bin/bash
+###############################################################################
+# CLEARUP_TWISTAV       NDD    13/02/08     MDT 11.2011                       #
+# Get rid of the stuff left behind by the twistav_pwscf and twistav_castep    #
+# scripts.                                                                    #
+###############################################################################
+
+# PWSCF
+
+files=$(ls *pwscf* 2> /dev/null | wc -l)
+
+if [ "$files" != "0" ] ; then
+
+ rm -rf core casino pw.x CRASH input_tmp.in in.pwscf.[1-9]* out.[1-9]* \
+  vmc.hist.[1-9]* dmc.hist.[1-9]* *.save out.pwscf.[1-9]* dmc.status \
+  config.out.[1-9]* config.in pwfn.data bwfn.data bwfn.data.bin 2> /dev/null
+
+fi
+
+# CASTEP
+
+files=$(ls *.castep *.cell *.param 2> /dev/null | wc -l)
+
+if [ "$files" != "0" ] ; then
+
+ rm -rf twist*/ STATUS *.check *.wvfn.? *.err *.bands *.casino *.castep \
+  *.castep_bin *.cst_esp *.cell.new *.bib E_v_twist.dat twistanalysis.results \
+  2> /dev/null
+
+ norig=$(ls -1 *.cell.orig 2> /dev/null | wc -l)
+ if [ $norig -eq 1 ]; then
+  orig=$(ls -1 *.cell.orig)
+  mv $orig ${orig%.orig}
+ fi # .cell.orig file exists.
+
+fi

@@ -1,0 +1,52 @@
+CRYSTAL2003_TO_QMC
+==================
+
+For CRYSTAL95 and CRYSTAL98, the separate utility supplied in
+CASINO/utils/wfn_converters/crystal9x_to_qmc can be used to generate
+gwfn.data files for CASINO.
+
+With the release of CRYSTAL 2003, support for generating gwfn.data file should
+be built into the CRYSTAL properties program. The new CRYSTAL module is
+included in this directory just for reference.
+
+MDT 11.2003
+
+
+Update
+------
+
+That said, there is currently a problem with this, as Carla Roetti wants
+to keep CRYSTAL 'pure' and doesn't want the thing to be included in the main
+CRYSTAL program and wants me to convert it into a utility. This is despite
+the fact that I was writing it under instructions from Nic Harrison who
+told me to write an internal module.
+
+Converting it into a utility is really tedious, since the fort.12 file
+used by the 95/98 utility no longer exists, and now in addition I need
+the symmetry information to unwrap the orbitals out of the Irreducible
+Brillouin zone, which I don't know how to read.
+
+Clearly this is getting really boring, as you can see, and the current
+status of the interface is uncertain. Contact me - mdt26 at cam.ac.uk -
+for the latest information.
+
+Update 2
+--------
+
+The initial release of CRYSTAL03 had a broken pseudopotential
+evaluator which gave erroneous results if the powers of r you
+you used in the expansion went outside a limited range. Roberto Orlando
+has now fixed this. A version of CRYSTAL which contains this fix should
+now be available.
+
+Update 3
+--------
+
+10.2005 Further attempt to make the CRYSTAL03 interface talk to the new
+CRYSTAL API failed. Not enough information provided by the CRYSTAL developers.
+Forget it.
+
+Update 4
+--------
+
+Use CRYSTAL06 instead!

@@ -1,0 +1,47 @@
+2DHF to CASINO converter
+========================
+(2009) J.R. Trail 
+TCM group, Cavendish Laboratory, Cambridge, UK. 
+jrt32@cam.ac.uk
+last modified 13/01/14
+executable   : uf2dwfn
+read files   : inp.data inp.orb
+written files: dwfn.data
+
+
+The 2DHF to CASINO converter is an executable file that converts output from
+the numerical orbital Hartree-Fock diatomic molecule code 2DHF (see
+http://fizyka.umk.pl/~jkob/software/2dhf/) to CASINO format. 
+
+Compilation:
+
+This utility is not automatically compiled by the CASINO install system, and
+must be compiled manually.
+
+To do this, type './install' in the source directory (this currently assumes
+you are using the Intel ifort compiler; you should adjust the script 
+accordingly if you want to use some other compiler).
+
+The resulting executable, 'uf2dwfn', is placed in the user bin directory
+(~/bin/uf2dwfn - see install).
+
+Usage:
+
+First run 2dhf for the diatomic molecule of interest, and copy input+output
+files to names read by converter:
+
+> ~/2dhf/bin/x2dhf < O2.data	 	! Perform HF
+> cp 2dhf_output.orb inp.orb		! Copy orbitals file
+> cp O2.data         inp.data		! Copy input file
+
+with input file O2.inp as specified in 2DHF documentation. Next run the
+converter:
+
+> ~/bin/uf2dwfn				! Convert to CASINO format.
+
+to generate the file dwfn.data for CASINO.
+
+NB: The compilation of ufdwfn.f90 must be consistent with that for 2dhf since
+the orbital file (inp.orb) is unformatted. The install script given here is
+consistent with the default 2DHF(2005) ifort compilation on a x86_64 linux
+machine.

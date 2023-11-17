@@ -1,0 +1,71 @@
+RNA
+===
+PLR 8.2005
+
+RNA is the Rapid Network Assessment tool.  RNA's main use is to scan the
+computers in a pre-defined computer network to find a suitable one on which
+to run a background job.
+
+Type 'rna --help' for proper documentation.
+
+Adapting your shell
+===================
+You may want to define the following to get a 'pc' function in your shell that
+logs you into a computer in the network while keeping the working directory.
+
+* Modify your ~/.bashrc file adding the following:
+
+dirload() {
+ local directory
+ cd ; [ ! -e ~/.dirsave ] && return
+ directory=$(head -1 ~/.dirsave) ; rm ~/.dirsave
+ [ -d "$directory" ] && cd $directory
+}
+
+dirsave() {
+ local directory=$1
+ [ -z "$directory" ] && directory="$(pwd)"
+ [ -e ~/.dirsave ] && rm ~/.dirsave
+ echo $directory > ~/.dirsave
+}
+
+pc() {
+ (($#!=1)) && { echo "Usage: pc <pc#>" ; return ; }
+ set -- $(rna --info=access,name,login $1)
+ case "$1" in
+ -) echo "Computer ID not found." ;;
+ CLOSED) echo "Not allowed to log into $2." ;;
+ OPEN)
+  rna --info $2
+  dirsave ; ssh $2 -l $3 ; dirload ;;
+ *) echo "Communication with rna faulty." ;;
+ esac
+}
+
+* Add this to your ~/.bash_login file:
+
+dirload() {
+ local directory
+ cd ; [ -e ~/.dirsave ] || return
+ directory="$(head -1 ~/.dirsave)" ; rm ~/.dirsave
+ [ -d "$directory" ] && cd "$directory"
+}
+[ ! -z "$SSH_CLIENT" ] && [ "${SSH_CLIENT#131.111.62.}" != "$SSH_CLIENT" ]\
+ && dirload
+unset dirload
+
+* Add this to your ~/.bash_logout file:
+
+dirsave() {
+ local directory="$1"
+ [ -z "$directory" ] && directory="$(pwd)"
+ [ -e ~/.dirsave ] && rm -f ~/.dirsave
+ echo "$directory" > ~/.dirsave
+}
+[ ! -z "$SSH_CLIENT" ] && [ "${SSH_CLIENT#131.111.62.}" != "$SSH_CLIENT" ]\
+ && dirsave
+unset dirsave
+
+* Then type 'source ~/.bashrc' to make changes immediately effective. From
+  then on, typing 'pc <computer-ID>' should log you into the specified
+  computer while keeping the working directory.

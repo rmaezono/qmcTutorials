@@ -1,0 +1,371 @@
+#!/bin/bash
+###########################################################
+# Like envmc, but for VP (virtual-parallel) calculations. #
+# PLR 10.2006                                             #
+###########################################################
+
+set +u
+
+version_no="0.20"
+
+# Read arguments if present
+show_colours=1 ; readdone=0 ; nfig=1 ; die=0
+while ((readdone==0)) ; do
+ case $1 in
+ -nc|--nocolours) show_colours=0 ; shift ;;
+ -nf) shift ; (($#==0)) && die=1 || { nfig=$1 ; shift ; } ;;
+ *) readdone=1 ;;
+ esac
+done
+(($#==0)) && alldirs=. || alldirs=$*
+
+# Colour definition
+[[ "$TERM" == xterm-* ]] && export TERM=xterm
+if tput -S < /dev/null >& /dev/null ; then
+ {
+  IFS_save="$IFS"
+  IFS=$(echo -e "\t")
+  read default black blue green cyan red purple brown grey
+  IFS="$IFS_save"
+ } < <(echo -e "sgr0 \nht\n setf 0 \nht\n setf 1 \nht\n setf 2 \nht\n\
+  setf 3 \nht\n setf 4 \nht\n setf 5 \nht\n setf 6 \nht\n setf 7 \n" | tput -S)
+fi
+# Colour assignment. User-definable
+if ((show_colours==1)) ; then
+ comment=$brown ; fname=$cyan
+ vmccol=$green ; failure=$red
+else
+ default=""
+ comment="" ; fname=""
+ vmccol="" ; failure=""
+fi
+# Display title and usage
+title="${comment}ENVMCVP v$version_no$default: Script to extract VMC energies\
+ from VP CASINO output files."
+usage="${comment}Usage$default: envmcvp [-nc] [-nf <no-figures>] [dirs]"
+echo -e "$title"
+echo -e "$usage"
+echo
+
+############################## Functions ##############################
+function field {
+ # Output field $1 of $2-$n
+ local i n=$#
+ ((n<2)) && return
+ i=$1 ; ((n<=i)) && return
+ shift ; echo ${@:$i:1}
+}
+
+function lastfield {
+ # Output last field $1-$n
+ (($#<1)) && return
+ echo ${@:$#:1}
+}
+
+function fields_from {
+ # Output all fields of $2-$n from $1 (included)
+ local i n=$#
+ ((n<2)) && return
+ i=$1 ; shift ; ((n<=i)) && return
+ echo ${@:$i}
+}
+
+function check_number_N {
+ # Check whether $1 is a positive integer
+ local num="$1" size i=0 c
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in 1|2|3|4|5|6|7|8|9|0) continue ;; esac ; return 1
+ done
+ return 0
+}
+
+# Output $1 spaces
+function space { (($1>0)) && printf "%${1}s" "" ; }
+
+function bsp {
+ # Backspace+delete $1 times, or the length of string $* if $1 is NaN
+ local i=0 n="$*" bspchain
+ [ -z "$n" ] && return
+ check_number_N "$n" || n=${#n}
+ while ((i<n)) ; do i=$((i+1)) ; bspchain="$bspchain\b" ; done
+ bspchain="$bspchain$(space $n)$bspchain" ; echo -en "$bspchain"
+}
+
+function int {
+ # Remove decimals from $1 (round towards zero) using bash built-ins only.
+ local integ
+ integ=${1%%.*} ; [ -z "$integ" ] || [ "$integ" = - ] && integ=0
+ echo $integ
+}
+
+function ceiling_minus {
+ # Round -$1 to integer towards +infinity using bash built-ins only.
+ local mceil
+ mceil=$((-$(floor $1)))
+ echo $mceil
+}
+
+function floor {
+ # Round $1 to integer towards -infinity using bash built-ins only.
+ local tmp flr sign
+ flr=$(int $1)
+ if ((flr<=0)) ; then
+  tmp=${1##*.} ; tmp=${tmp//0/}
+  if ((flr==0)) && [ ! -z "$tmp" ] ; then
+   sign=${1:0:1}
+   if [ "$sign" = - ] ; then
+    flr=-1
+   fi
+  elif [ ! -z "$tmp" ] ; then
+   flr=$((flr-1))
+  fi
+ fi
+ echo $flr
+}
+
+function round {
+ # Round $1 to nearest integer using only bash builtins.
+ local rnd rem sign done n gt_dot5 i=0
+ # Set rnd to int($1) and separate remainder
+ rnd=$(int $1) ; rem=${1/*./} ; n=${rem:0:1} ; gt_dot5=0
+ sign=${1:0:1} ; [ "$sign" = - ] && sign=-1 || sign=1
+ # Determine whether remainder > 0.5
+ if ((n>5)) ; then
+  gt_dot5=1 ; done=1
+ elif ((n<5)) ; then
+  gt_dot5=0 ; done=1
+ else
+  gt_dot5=0 ; done=0
+ fi
+ while ((done==0)) ; do
+  i=$((i+1)) ; n=${rem:$i:1}
+  [ -z "$n" ] && break
+  # Use convention of rounding +-0.5 to +-1 for odd number of trailing zeros
+  ((n>0)) && { gt_dot5=1 ; done=1 ; } || gt_dot5=$((1-gt_dot5))
+ done
+ ((gt_dot5==1)) && rnd=$((rnd+sign))
+ echo $rnd
+}
+
+function epmd2ed {
+ # Convert e.g. -1.178349601 0.002691235 to -1.178(3) format,
+ # with correct rounding and handling of dE>9.5
+ # Args: E dE
+ # Stdout: E(dE) formatted string
+ # Name mnemonics: E Plus/Minus Delta to E(Delta)
+ local E dE oom ceil_oom resc_factor resc_dE resc_E i
+ (($#==0)) && { echo 0 ; return ; }
+ (($#!=2)) && { echo $1 ; return ; }
+ E=$1 ; dE=$2
+ ((disable_epmd2ed==1)) && { echo "$E +/- $dE" ; return ; }
+ # Analyze dE
+ if (($(echo "a=0 ; if($dE==0)a=1 ; a" | bc)==1)) ; then
+  echo $E ; return
+ fi
+ # Order of magnitude (oom=log_10 dE), rescaling factor (10^ceiling(-oom))
+ oom=$(echo "l($dE)/l(10)" | bc -l)
+ ceil_oom=$(ceiling_minus $oom)
+ ceil_oom=$((ceil_oom+numz))
+ resc_factor=$(echo "10^($ceil_oom)" | bc -l)
+ # Rescale so that 1 <= dE < 10. If rounded value is 10, correct resc_factor
+ resc_dE=$(echo "$dE*$resc_factor" | bc -l)
+ resc_dE=$(round $resc_dE)
+ if (($(echo "a=0 ; if($resc_dE==$max_rsc)a=1 ; a" | bc)==1)) ; then
+  resc_dE="1"
+  resc_factor=$(echo "$resc_factor/10" | bc -l)
+  ceil_oom=$((ceil_oom-1))
+ fi
+ # If ceil_oom<0 (dE>9.5), add zeros. E.g. E=-149.2 +- 9.6 -> -150(10)
+ if ((ceil_oom<0)) ; then
+  i=0 ; while ((i>ceil_oom)) ; do i=$((i-1)) ; resc_dE="${resc_dE}0" ; done
+ fi
+ # Round E to desired precision
+ resc_E=$(echo "$E*$resc_factor" | bc -l)
+ resc_E=$(round $resc_E)
+ # This line removes all possible trailing zeros from resc_E. Note that
+ # negative scales make bc complain -hence 2>/dev/null
+ resc_E=$(echo "scale=$ceil_oom ; $resc_E/$resc_factor" | bc 2> /dev/null)
+ # Add leading zero in e.g. -.7612
+ [ "${resc_E:0:2}" = -. ] && resc_E="-0.${resc_E:2}"
+ [ "${resc_E:0:1}" = . ] && resc_E="0.${resc_E:1}"
+ echo "$resc_E($resc_dE)"
+}
+
+function setup_epmd2ed {
+ # Set some stuff for epmd2ed
+ local i
+ disable_epmd2ed=0
+ check_number_N $nfig || return 1
+ ((nfig<1)) && disable_epmd2ed=1
+ max_rsc="1"
+ i=0 ; while ((i<nfig)) ; do i=$((i+1)) ; max_rsc="${max_rsc}0" ; done
+ numz=$((nfig-1))
+}
+
+function reaverage {
+ # Take a set of $n data with errorbars and compute the average and the
+ # global errorbar.
+ # O_ave is just the average of block energies. O_err given by
+ # (<O^2>-<O>^2+(n-1)<block_stdr>)/(nnb-1), where nnb=n*nb
+ local n=$1 i=0 data_ave data2_ave derr_ave derr2_ave in en st nt nt_1
+ shift
+ case $n in
+ 0) echo "0 0" ; return ;;
+ 1) echo "$2 $3" ; return ;;
+ esac
+ i=0 ; nt=0
+ data_ave="0" ; data2_ave="0" ; derr2_ave="0"
+ while ((i<n)) ; do
+  i=$((i+1)) ; in=$1 ; shift ; en=$1 ; shift ; st=$1 ; shift
+  nt=$((nt+in))
+  data_ave="$data_ave+$en*$in"
+  data2_ave="$data2_ave+$en*$en*$in"
+  derr2_ave="$derr2_ave+$st*$st*$in*($in-1)"
+ done
+ nt_1=$((nt-1))
+ data_ave=$(echo "($data_ave)/$nt" | bc -l)
+ derr_ave=$(echo "sqrt((($data2_ave)/$nt+($derr2_ave)/$nt-\
+  $data_ave*$data_ave)/$nt_1)" | bc -l)
+ echo "$data_ave $derr_ave"
+}
+
+function average {
+ # Take a set of $n data and compute the average and errorbar
+ # O_ave is just the average of block energies. O_err given by
+ # (<O^2>-<O>^2)/(n-1)
+ local n=$1 i=0 data_ave data2_ave derr_ave n_1 en
+ shift
+ case $n in
+ 0) echo "0 0" ; return ;;
+ 1) echo "$1 0" ; return ;;
+ esac
+ # E_ave is just the average of block energies. E_stderr given by
+ # (<E^2>-<E>^2)/(N-1)
+ n_1=$((n-1)) ; i=0
+ data_ave="0" ; data2_ave="0"
+ while ((i<n)) ; do
+  i=$((i+1)) ; en=$1 ; shift
+  data_ave="$data_ave+$en"
+  data2_ave="$data2_ave+$en*$en"
+ done
+ data_ave=$(echo "($data_ave)/$n" | bc -l)
+ derr_ave=$(echo "sqrt((($data2_ave)/$n-$data_ave*$data_ave)/$n_1)"\
+  | bc -l)
+ echo "$data_ave $derr_ave"
+}
+
+function load_data {
+ # Read data for calculation $1 from file $2 and load them onto the arrays
+ local i=$1
+ ivmc=0 ; indx=$((nvmc*(i-1)))
+ while : ; do
+  if ! read line ; then break ; fi
+  f1=$(field 1 $line)
+  case "$f1" in
+  File:)
+   read line || break
+   file_caption="$line" ;;
+  VMC) ivmc=$((ivmc+1)) ; indx=$((indx+1))
+   f2=$(field 2 $line) ; f2=${f2###} ; f2=${f2%:}
+   if ((f2!=ivmc)) ; then
+    echo -e "$failure Failed!\n\nBad VMC-run indexing!$default\n" ; return 1
+   fi
+   e[$indx]=$(field 5 $line) ; de[$indx]=$(field 7 $line)
+   ((ccaption_set==0)) && corr_caption[$ivmc]="$(lastfield $line)" ;;
+  E) ivmc=$((ivmc+1)) ; indx=$((indx+1))
+   e[$indx]=$(field 3 $line) ; de[$indx]=$(field 5 $line) ;;
+  var)
+   v[$indx]=$(field 3 $line) ; dv[$indx]=$(field 5 $line) ;;
+  Total) ttline="$ttline $(field 6 $line)" ;;
+  esac
+ done
+ if ((nvmc==0)) ; then
+  nvmc=$ivmc
+ elif ((ivmc!=nvmc)) ; then
+  echo -e "$failure Failed!\n\nBad number of VMC runs!$default\n" ; return 1
+ fi
+ ccaption_set=1
+}
+
+function process_stats_and_print {
+ # Perform statistics-processing
+ local i j indx line ename vname label_pre label_post e_re e_fmt v_re v_fmt
+ local tt_av tt_fmt
+ echo -e "$comment$file_caption$default" ; echo "=========="
+ ename="${comment}E$default    =" ; vname="${comment}var$default ="
+ i=0
+ while ((i<nvmc)) ; do
+  i=$((i+1)) ; eline="" ; vline="" ; tline=""
+  label_pre="${comment}VMC #$i$default:"
+  label_post="${corr_caption[$i]}"
+  j=0
+  while ((j<nnodes)) ; do
+   j=$((j+1)) ; indx=$(((j-1)*nvmc+i))
+   [ "${e[$indx]}" = N/A ] && { eline="N/A" ; break ; }
+   eline="$eline ${nstep[$j]} ${e[$indx]} ${de[$indx]}"
+   vline="$vline ${nstep[$j]} ${v[$indx]} ${dv[$indx]}"
+  done
+  if [ "$eline" = N/A ] ; then
+   e_fmt="${vmccol}N/A$default" ; v_fmt="${vmccol}N/A$default"
+  else
+   e_re=$(reaverage $nnodes $eline) ; e_fmt="$vmccol$(epmd2ed $e_re)$default"
+  fi
+  if [ "$eline" != N/A ] ; then
+   v_re=$(reaverage $nnodes $vline) ; v_fmt="$vmccol$(epmd2ed $v_re)$default"
+  fi
+  echo -e "$label_pre $ename $e_fmt ; $vname $v_fmt $label_post"
+ done
+ if [ ! -z "$ttline" ] ; then
+  tt_av=$(average $nnodes $ttline) ; tt_fmt=$(epmd2ed $tt_av)
+  echo -e "$comment        Average CASINO CPU time$default ::: $vmccol$tt_fmt\
+$comment seconds$default"
+ fi
+ echo
+}
+############################## End functions ##############################
+if ! setup_epmd2ed ; then
+ echo "Error: please check the command line arguments." ; echo
+ exit
+fi
+
+# Loop over VP dirs.
+for dir in $alldirs ; do
+ nnodes=0 ; nvmc=0 ; ttline="" ; ccaption_set=0
+ echo -en "${comment}Directory$default: $fname$dir$default "
+ if [ ! -e "$dir/vpinfo/DIRS" ] || [ ! -e "$dir/vpinfo/NODES" ] ; then
+  echo -e "${failure}not found.$default"
+  echo "==========" ; continue
+ fi
+ {
+  nnodes=0 ; while read pc d ; do nnodes=$((nnodes+1))
+   pc_array[$nnodes]=$pc
+   d_array[$nnodes]="$d"
+  done
+ } < "$dir/vpinfo/DIRS"
+ inode=0 ; while ((inode<nnodes)) ; do inode=$((inode+1))
+  pc="${pc_array[$inode]}"
+  set -- $(grep -w $pc "$dir/vpinfo/NODES")
+  nstep[$inode]=$3
+ done
+ if [ -d "vpinfo/files" ] ; then
+  inode=0 ; while ((inode<nnodes)) ; do inode=$((inode+1))
+   d="vpinfo/files/node$inode"
+   load_data $inode < <(envmc -nc -nf 0 "$d/out") || continue 2
+  done
+ else
+  inode=0 ; while ((inode<nnodes)) ; do inode=$((inode+1))
+   pc="${pc_array[$inode]}"
+   d="${d_array[$inode]}"
+   echo -n "- contacting $pc..."
+   command="envmc -nc -nf 0 \"$d/out\""
+   load_data $inode < <(rna -qkr "$command" $pc | grep -Ev ":$") || continue 2
+   bsp "- contacting $pc..."
+  done
+ fi
+ if ((nnodes==0)) ; then
+  echo -e "${failure}no VP data found.$default"
+  echo "==========" ; continue
+ fi
+ process_stats_and_print
+done

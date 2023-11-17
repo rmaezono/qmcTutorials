@@ -1,0 +1,83 @@
+RUNQMC
+======
+This is the script to run CASINO on all supported platforms.  Among other
+things, RUNQMC does pretty extensive error checking to prevent e.g. jobs
+spending two days on a batch queue only to crash as they start.
+
+The best source of information about RUNQMC is to run 'runqmc --help'.
+This will print the options that are available on the specific machine
+you are running.
+
+Basics
+------
+
+* RUNQMC takes GNU style long-options of the form '--option' and
+  '--option=value', as well as short-style options like '-a -b 3 -c',
+  which is equivalent to '-ab3 -c' or '-acb 3', etc.
+
+* RUNQMC can run calculations on single- and multiprocessor workstations, and
+  on clusters.  To run the CASINO calculation set up in the current directory,
+  simply type 'runqmc'.  This will automatically occupy all cores on a
+  workstation, or the maximum permitted allocation (in both number of cores
+  and walltime) on a cluster.  To specify other calculation parameters, you
+  can use the '-p' and '-T' options, e.g.,
+
+   runqmc -p 256 -T 7h3m
+
+  will run 256 MPI processes (distributed among computational nodes depending
+  on the number of cores per node in the machine, which RUNQMC knows about)
+  with a walltime limit of 7 hours and 3 minutes.
+
+* If you can't remember the basic parameters of the machines that you're 
+  running on (e.g. the number of cores per node, queue-dependent walltime 
+  limits, the maximum number of cores etc.) then typing 'runqmc --info' or
+  'runqmc -i' will print to the screen all relevant parameters available
+  from the machine's arch file. This may help you decide on what values
+  to use for the run time parameters when invoking runqmc.
+
+* RUNQMC can run calculations in multiple directories, by simply giving the
+  directory names at the end of the command line, e.g.
+
+   runqmc -p 256 -T 7h3m diamond beta_tin
+
+  will run the two calculations under 'diamond' and 'beta_tin', where
+  *each* of them uses 256 cores.
+
+  Running e.g. 2 calculations on a 4-core workstation will result in 2
+  cores being used for each of them (unless otherwise specified via '-p').
+  Running multiple calculations on clusters is only possible for specific
+  machines; multiple calculations on clusters will use a single batch queue
+  slot and a single script.  This is useful for large clusters where runs on
+  large numbers of cores are cheaper per core-hour by policy, but is
+  otherwise a bad idea since different calculations will take different
+  times to complete but the longest will be charged for.
+
+  If no directories are specified, the calculation in the current directory
+  will be run.
+
+- In order to run on a cluster log-in node, use the '--no-cluster' option,
+  which will make RUNQMC behave as if the machine was a workstation.  PLEASE
+  CHECK WITH YOUR SYSTEM ADMINISTRATOR TO SEE IF THIS IS OK TO DO.
+
+- If you would like to produce a submission script on a cluster without
+  running CASINO (for verification purposes), use the '--check-only' flag.
+
+- In order to use the OpenMP capabilities of CASINO, use the flag
+  '--tpp=<threads-per-process>'.  RUNQMC will automatically adjust the
+  number of processess per node to leave one OpenMP thread per core.  If
+  you would like to modify this behaviour, use the
+  '--ppn=<processes-per-node>' flag and set your own value.
+
+  You need to have compiled the OpenMP version with 'make Openmp' in order
+  to access this feature.
+
+- In order to use the shared-memory capabilities of CASINO, use the flag
+  '--shmem'.  RUNQMC will tell CASINO to share blip orbitals among all cores
+  in each node - to modify this behaviour use instead
+  '--shmem=<number-of-cores-in-SHM-group>'.
+
+  You need to have compiled the SHM version with 'make Shm' in order to
+  access this feature.
+
+
+PLR 06.2011

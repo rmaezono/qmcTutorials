@@ -1,0 +1,66 @@
+#!/bin/bash
+#----------------------------------------------------------------------------#
+# Take 3D trajectory data from LOUIS and plot it using gnuplot.              #
+#----------------------------------------------------------------------------#
+# Functions
+function errstop { echo "$*" ; exit ; }
+
+# Check that GNUplot is present and that we are have an available DISPLAY
+type -p gnuplot >& /dev/null || errstop "'gnuplot' program required but not\
+ found."
+[ -z "$DISPLAY" ] && errstop "The DISPLAY environment variable is empty. You\
+ need to be running X."
+
+# Parse command line
+gnubatch='.gnubatch'
+plot_col='1:2:4' ; plot_col2='1:2:3'
+plotnodes=0 ; plotparts=0
+axis=1 ; key=1 ; surface=0 ; rev=0 ; symm=1
+while (($#>0)) ; do
+ case $1 in
+ -ps) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal postscript landscape colour' ; fmt='.ps' ;;
+ -eps) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal postscript eps colour' ; fmt='.eps' ;;
+ -png) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal png' ; fmt='.png' ;;
+ -jpeg|-jpg) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal jpeg' ; fmt='.jpg' ;;
+ *) [ -z "$file" ] || errstop "Unrecognized option $1" ; file=$1 ;;
+ esac
+ shift
+done
+
+if [ -z "$file" ] ; then
+ dir="./" ; file='trajectory.dat'
+else
+ dir=${file%/*}
+ if [ -z "$dir" ] ; then
+  [ "${file:0:1}" = / ] && dir=/ || dir=./
+ elif [ "$dir" = "$file" ] ; then
+  dir=./
+ else
+  dir=$dir/
+ fi
+ file="${file##*/}"
+ [ -z "$file" ] && errstop "Argument should be a file, not a directory."
+fi  
+
+outfile=./$file$fmt
+[ -d "$dir" ] || errstop "Missing directory $dir."
+[ -e "$dir$file" ] || errstop "Missing file $dir$file."
+((plotnodes==1)) && [ ! -e $nfile ] && errstop "Missing file $nfile."
+
+rm -f $gnubatch >& /dev/null
+touch $gnubatch
+
+# Write gnuplot batch script
+ echo -n "splot '$dir$file' using 1:2:3" >> $gnubatch
+ echo >> $gnubatch
+ echo "pause -1" >> $gnubatch
+
+# Run gnuplot batch script
+gnuplot $gnubatch >& /dev/null
+
+# Clean up
+#rm -f $gnubatch >& /dev/null

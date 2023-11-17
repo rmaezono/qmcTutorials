@@ -1,0 +1,11 @@
+How to optimize valence basis sets in the solid with billy
+==========================================================
+
+* Put a star next to all the parameters in the basis set you wish to optimize
+
+* Run billy and wait.
+In this case with billy -n 2 si 20, which will run the optimization twice
+for additional accuracy.
+
+* Note that core functions should be optimized with cheap atomic calculations
+(see Mike Towler's 'atomicbilly' code)

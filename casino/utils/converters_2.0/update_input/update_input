@@ -1,0 +1,314 @@
+#!/bin/bash
+#######################################################
+# Convert old 1.x.x input files (input, jastrow.data, #
+# backflow.data, etc) to new 2.x.x format             #
+#                                                     #
+# PLR 10.2005                                         #
+#######################################################
+
+# Print something welcoming..
+echo "update_input: script to update CASINO input files from v1.8.x to v2.x.x ."
+# ..or just a standard header
+echo "Usage: update_input [-ni|--noinput] [-nc|--nocorrelation]"
+echo
+
+# Read options, if present
+doinput=1 ; docorr=1
+while (( $# > 0 )) ; do
+ case $1 in
+ -ni|--noinput) doinput=0 ;;
+ -nc|--nocorrelation) docorr=0 ;;
+ *) echo "Command line option '$1' not recognized." ; exit ;;
+ esac
+done
+
+############################# FUNCTIONS #############################
+function field {
+ local i=0 n=$1
+ while (( $i < $n )) ; do shift ; i=$(($i+1)) ; done
+ echo $1
+}
+
+function uncap {
+ # Turn upper case into lower case in $* or /dev/stdin
+ local lower="abcdefghijklmnopqrstuvwxyz" upper="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+ if (( $# == 0 )) ; then
+  cat /dev/stdin | tr $upper $lower
+ else
+  echo "$*" | tr $upper $lower
+ fi
+}
+
+function kword_unique {
+ # Turns $1 into an unique label for a CASINO keyword, that is, converts $1
+ # to lower case and remove underscores, dots and hyphens (as 'punctuation'
+ # is defined in the ESDF module).
+ local outp inp n i c
+ if (( $# == 0 )) ; then echo "" ; return ; fi
+ outp="" ; inp="$1" ; n=${#inp} ; i=0
+ while (( $i < $n )) ; do
+  # NB, position $i of character $c in string $inp is zero-based in BASH
+  c=${inp:$i:1} ; i=$(($i+1))
+  case $c in
+  _|-|.) : ;;
+  *) outp="$outp$c" ;;
+  esac
+ done
+ echo "$outp"
+}
+############################# FUNCTIONS #############################
+
+# Process input file
+if [ -s input ] && (( $doinput == 1 )) ; then
+ # Scan input file first, without writing anything, to check
+ # for required keywords
+ usejas=1 ; neu=0 ; ned=0 ; nhu=0 ; nhd=0 ; etype=0 ; btype=0 ; irun=0
+ { blmode=0 ; usejas=1 ; while : ; do
+  if ! read line ; then break ; fi
+  kword=`field 1 $line`
+  if [[ "${kword:0:1}" == "#" ]] ; then continue ; fi
+  if (( $blmode != 0 )) ; then
+   case $kword in
+   %end_block|%endblock) blmode=0 ;;
+   esac
+   continue
+  fi
+  sep=`field 2 $line`
+  case $sep in
+  :|=) kval=`field 3 $line` ;;
+  *) kval=`field 2 $line` ;;
+  esac
+  kword=`kword_unique $kword`
+  case $kword in
+  irun)
+   case $kval in
+   1) usejas=0 ; irun=2 ;;
+   2|3|4|5) irun=$kval ;;
+   6|*)
+    echo "Unsupported irun -> runtype conversion! -> Setting irun=2" ; irun=2 ;;
+   esac ;;
+  usejastrow)
+   if (( $usejas != 0 )) ; then
+    case $kval in
+    T|t|.true.) usejas=1 ;;
+    F|f|.false.) usejas=0 ;;
+    esac
+   fi ;;
+  btype) btype=$kval ;;
+  etype) etype=$kval ;;
+  neu) neu=$kval ;;
+  ned) ned=$kval ;;
+  nhu) nhu=$kval ;;
+  nhd) nhd=$kval ;;
+  %block)
+   case $kval in
+   lineplot)
+    echo "Unsupported lineplot -> qmc_plot conversion! Ignoring" ; blmode=2 ;;
+   *) blmode=1 ;;
+   esac ;;
+  *) : ;;
+  esac
+ done ; } <input
+ # Search for data in heg.data if needed
+ use_fp_block=0 ; use_pt_block=0
+ if (( $etype != 0 )) ; then
+  if [ ! -s heg.data ] ; then
+   echo "Problem: etype/=0 but no heg.data found!" ; exit
+  fi
+  case $etype in
+  1|3) orbtype='free' ;;
+  *) echo "Problem: etype=2,4,5,6,7 conversion not supported!" ; exit
+  esac
+  use_fp_block=1
+  if (( $nhu != 0 )) || (( $nhd != 0 )) ; then use_pt_block=1 ; fi
+  dim=0 ; rs=0 ; sim1=0 ; sim2=0 ; sim3=0 ; zsep=0
+  { while : ; do
+   if ! read line ; then break ; fi
+   kword=`field 1 $line`
+   case $kword in
+   Dimensionality)
+    if ! read line ; then break ; fi
+    if ! read line ; then break ; fi
+    dim=$line ;;
+   r_s)
+    if ! read line ; then break ; fi
+    if ! read line ; then break ; fi
+    rs=`field 1 $line` ;;
+   Simulation)
+    if ! read line ; then break ; fi
+    if ! read line ; then break ; fi
+    sim1="$line"
+    if ! read line ; then break ; fi
+    sim2="$line"
+    if (( $dim == 3 )) ; then
+     if ! read line ; then break ; fi
+     sim3="$line"
+    fi ;;
+   Electron)
+    if (( $use_pt_block == 0 )) ; then continue ; fi
+    if ! read line ; then break ; fi
+    if ! read line ; then break ; fi
+    hmass=`field 2 $line` ;;
+   Flag)
+    if (( $dim != 2 )) ; then continue ; fi
+    if ! read line ; then break ; fi
+    if ! read line ; then break ; fi
+    tmp=`field 1 $line`
+    case $tmp in
+    T|t|.true.) zsep=`field 2 $line`
+    esac
+   esac
+  done ; } <heg.data
+  if [[ "$zsep" != "0" ]] ; then
+   # Meaning of r_s has changed for bilayers. Divide by sqrt(2)
+   rs=`echo "$rs/sqrt(2)" | bc -l`
+  fi
+ fi
+ # Start conversion
+ rm -f input_new ; touch input_new
+ { blmode=0 ; while : ; do
+  if ! read line ; then break ; fi
+  kword=`field 1 $line`
+  if [[ "${kword:0:1}" == "#" ]] ; then echo "$line" >> input_new ; continue;fi
+  if (( $blmode != 0 )) ; then
+   if (( $blmode == 1 )) ; then echo "$line" >> input_new ; fi
+   case $kword in
+   %end_block|%endblock) blmode=0 ;;
+   esac
+   continue
+  fi
+  sep=`field 2 $line`
+  case $sep in
+  :|=) kval=`field 3 $line` ;;
+  *) kval=`field 2 $line`;;
+  esac
+  kword=`kword_unique $kword`
+  case $kword in
+  irun)
+   case $irun in
+   2) echo "runtype : vmc" >> input_new ;;
+   3) echo "runtype : dmc" >> input_new ;;
+   4) echo "runtype : opt" >> input_new ;;
+   5) echo "runtype : gen_mpc" >> input_new ;;
+   esac
+   case $usejas in
+   0) echo "use_jastrow : F" >> input_new ;;
+   1) echo "use_jastrow : T" >> input_new ;;
+   esac ;;
+  neu)
+   if (( $use_fp_block == 1 )) ; then
+    echo "neu : 0" >> input_new
+    echo "ned : 0" >> input_new
+    if (( $use_pt_block == 1 )) ; then
+     echo "%block particles" >> input_new
+     echo "3 1.0 $hmass .5 Spin-up hole" >> input_new
+     echo "4 1.0 $hmass -.5 Spin-down hole" >> input_new
+     echo "%endblock particles" >> input_new
+    fi
+    echo "%block free_particles" >> input_new
+    echo "dimensionality $dim" >> input_new
+    echo "r_s $rs" >> input_new
+    echo "cell_geometry" >> input_new
+    echo "$sim1" >> input_new
+    echo "$sim2" >> input_new
+    if (( $dim == 3 )) ; then echo "$sim3" >> input_new ; fi
+    if [[ "$zsep" != "0" ]] ; then
+     echo "z-separation $zsep" >> input_new
+     if (( $use_pt_block == 1 )) ; then
+      echo "top-layer 3 4" >> input_new
+     else
+      echo "top-layer 2" >> input_new
+     fi
+    fi
+    echo "particle 1 det 1 : $neu orbitals $orbtype" >> input_new
+    echo "particle 2 det 1 : $ned orbitals $orbtype" >> input_new
+    if (( $nhu > 0 )) || (( $nhd > 0 )) ; then
+     echo "particle 3 det 1 : $nhu orbitals $orbtype" >> input_new
+     echo "particle 4 det 1 : $nhd orbitals $orbtype" >> input_new
+    fi
+    echo "%endblock free_particles" >> input_new
+    echo "atom_basis_type : none" >> input_new
+   else
+    case $btype in
+    1) echo "atom_basis_type : plane-wave" >> input_new ;;
+    2) echo "atom_basis_type : gaussian" >> input_new ;;
+    3) echo "atom_basis_type : numerical" >> input_new ;;
+    4|5) echo "atom_basis_type : blip" >> input_new ;;
+    esac
+    echo "neu : $neu" >> input_new
+    echo "ned : $ned" >> input_new
+   fi ;;
+  ned|nhu|nhd) : ;; # Ignore: already
+  etype|btype) : ;; # treated above
+  usejastrow)  : ;;
+  iden|energycutoff|pcfsphmode|usenewjas|vmmode|dtvmc2) : ;; # Ignore: removed
+  denftthreshold|usesplineptrs|usecoefffile|poprenorm)  : ;; # in v2.0
+  vmjascheck) : ;;                                           #
+  vminfo) echo "opt_info : $kval" >> input_new ;;
+  newoptmethod) echo "vm_linjas_method : $kval" >> input_new ;;
+  newoptiterations) echo "vm_linjas_its : $kval" >> input_new ;;
+  usenewopt)
+   case $kval in
+   T|t|.true.) echo "opt_method : varmin_linjas" >> input_new ;;
+   F|f|.false.) echo "opt_method : varmin" >> input_new ;;
+   esac ;;
+  vmoptpairing) echo "opt_orbitals : $kval" >> input_new ;;
+  vmoptjasfun) echo "opt_jastrow : $kval" >> input_new ;;
+  vmoptdetcoeff) echo "opt_detcoeff : $kval" >> input_new ;;
+  vmoptbackflow) echo "opt_backflow : $kval" >> input_new ;;
+  inew)
+   case $kval in
+    1) echo "newrun : T" >> input_new ;;
+    0) echo "newrun : F" >> input_new ;;
+   esac ;;
+  isperiodic)
+   echo "periodic : $kval" >> input_new ;;
+  %block)
+   case $kval in
+   lineplot)
+    echo "# unsupported lineplot -> qmc_plot conversion!" >> input_new
+    blmode=2 ;;
+   wavefunction) blmode=2 ;; #delete mode
+   *) blmode=1 ; echo "$line" >> input_new ;;
+   esac ;;
+  *) echo "$line" >> input_new ;;
+  esac
+ done ; } <input
+ echo "Processed 'input' file."
+elif (( $doinput == 1 )) ; then
+ echo "File 'input' not present." ; doinput=0
+else
+ echo "Not processing 'input' file."
+fi
+
+# Correlation.data
+jas=0 ; bf=0
+if [ -s jastrow.data ] ; then jas=1 ; fi
+if [ -s backflow.data ] ; then bf=1 ; fi
+if ( (( $jas != 0 )) || (( $bf != 0 )) ) && (( $docorr == 1 )) ; then
+ rm -f correlation.data ; touch correlation.data
+ echo " START HEADER" >> correlation.data
+ echo "  File generated by update_input on `date`." >> correlation.data
+ echo " END HEADER" >> correlation.data
+ echo >> correlation.data
+ echo " START VERSION" >> correlation.data
+ echo "  1" >> correlation.data
+ echo " END VERSION" >> correlation.data
+ echo >> correlation.data
+ if (( $jas != 0 )) ; then cat jastrow.data >> correlation.data ; fi
+ echo >> correlation.data
+ if (( $bf != 0 )) ; then cat backflow.data >> correlation.data ; fi
+ echo "File 'correlation.data' generated."
+elif (( $docorr == 1 )) ; then
+ echo "Files 'jastrow.data' and 'backflow.data' not present."
+else
+ echo "Skipped generation of 'correlation.data'."
+fi
+
+if (( $doinput == 1 )) ; then
+ mv -f input input_old
+ mv -f input_new input
+ echo "Renamed input -> input_old."
+fi
+
+echo "Conversion finished."

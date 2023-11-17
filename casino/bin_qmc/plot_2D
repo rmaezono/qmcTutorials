@@ -1,0 +1,156 @@
+#!/bin/bash
+#----------------------------------------------------------------------------#
+# Take 2Dplot.dat and plot it using gnuplot.                                 #
+#                                                                            #
+# Changes                                                                    #
+# -------                                                                    #
+# 5.2006 MDT - added -surf and -noscale options.                             #
+#----------------------------------------------------------------------------#
+# Functions
+function errstop { echo "$*" ; exit ; }
+
+# Check that GNUplot is present and that we are have an available DISPLAY
+type -p gnuplot >& /dev/null || errstop "'gnuplot' program required but not\
+ found."
+[ -z "$DISPLAY" ] && errstop "The DISPLAY environment variable is empty. You\
+ need to be running X."
+
+# Print header
+cat <<EOT
+2Dplot: Generate a 2D plot from qmc_plot/plot_expval.
+Usage:  plot_2D [-xy|-xz|-yz] [-ps|-eps|-png|-jpeg|-x11] [-reverse] [-nokey]
+                [-surf] [-nodes nodes_file] [-parts parts_file] [-noscale]
+                [-noaxes] [-noclean] [2Dplot_file]
+EOT
+
+# Parse command line
+gnubatch='.gnubatch'
+plot_col='1:2:4' ; plot_col2='1:2:3'
+plotnodes=0 ; plotparts=0
+axis=1 ; key=1 ; surface=0 ; rev=0 ; symm=1 ; clean=1
+while (($#>0)) ; do
+ case $1 in
+ -ps) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal postscript landscape colour' ; fmt='.ps' ;;
+ -eps) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal postscript eps colour' ; fmt='.eps' ;;
+ -png) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal png' ; fmt='.png' ;;
+ -jpeg|-jpg) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal jpeg' ; fmt='.jpg' ;;
+ -x11) [ -z "$fmt" ] || errstop "Only one output format allowed."
+  gnuout='set terminal x11' ;;
+ -r|-reverse) ((rev==1)) && errstop "Option -reverse found twice" ; rev=1 ;;
+ -nodes) [ -z "$nfile" ] || errstop "Option -nodes found twice"
+  shift ; (($#==0)) && errstop "Missing argument to -nodes"
+  plotnodes=1 ; nfile=$1 ;;
+ -parts) [ -z "$pfile" ] || errstop "Option -parts found twice"
+  shift ; (($#==0)) && errstop "Missing argument to -parts"
+  plotparts=1 ; pfile=$1 ;;
+ -surf) surface=1 ;;
+ -noscale) symm=0 ;;
+ -noaxes|-noaxis) axis=0 ;;
+ -nokey) key=0 ;;
+ -xy) plot_col='1:2:4' ; plot_col2="1:2:3" ;;
+ -xz) plot_col='1:3:4' ; plot_col2="1:3:2" ;;
+ -yz) plot_col='2:3:4' ; plot_col2="2:3:1" ;;
+ -noclean) clean=0 ;;
+ *) [ -z "$file" ] || errstop "Unrecognized option $1" ; file=$1 ;;
+ esac
+ shift
+done
+if [ -z "$file" ] ; then
+ dir="./" ; file='2Dplot.dat'
+else
+ dir=${file%/*}
+ if [ -z "$dir" ] ; then
+  [ "${file:0:1}" = / ] && dir=/ || dir=./
+ elif [ "$dir" = "$file" ] ; then
+  dir=./
+ else
+  dir=$dir/
+ fi
+ file="${file##*/}"
+ [ -z "$file" ] && errstop "Argument should be a file, not a directory."
+fi
+outfile=./$file$fmt
+[ -d "$dir" ] || errstop "Missing directory $dir."
+[ -e "$dir$file" ] || errstop "Missing file $dir$file."
+((plotnodes==1)) && [ ! -e $nfile ] && errstop "Missing file $nfile."
+# Scan the file to get the scaling right
+if ((symm==1)) ; then
+ type -p findmax >& /dev/null\
+  || errstop "Auxiliary program 'findmax' not found in the PATH."
+ maxv=$(cd "$dir" ; echo "$file 4" | findmax)
+ [ -z "$maxv" ] || [ "$maxv" = ERROR ] && symm=0
+fi
+if ((plotparts==1)) ; then
+ [ -e "$pfile" ] || errstop "Missing file $pfile."
+ # Perform splitting of particles into several files to show in diff colours
+ nlines=$(grep -c '' "$pfile")
+ i=0 ; nspin=0
+ while ((i<nlines)) ; do i=$(($i+1))
+  sedn="${i}p" ; jspin=$(sed -n "$sedn" $pfile | awk '{print $1}')
+  ((jspin>nspin)) && { nspin=$jspin ; touch .$pfile.$jspin ; }
+  sed -n "$sedn" "$pfile" | awk '{print $3,$4,$5}' >> .$pfile.$jspin
+ done
+fi
+rm -f $gnubatch >& /dev/null
+touch $gnubatch
+
+# Write gnuplot batch script
+if ((surface==0)) ; then # 2D representation
+ echo "set pm3d map" >> $gnubatch
+else # 3D representation
+ echo "set pm3d" >> $gnubatch
+fi
+echo "unset colorbox" >> $gnubatch
+#echo "set palette model RGB functions 0.8*(1-(gray-1)**2), 0.8*(1-gray**2),\
+#0.5-2*(gray-.5)**2" >> $gnubatch
+echo "set palette model RGB functions gray, 1-gray, 0" >> $gnubatch
+((rev==1)) && echo "set palette negative" >> $gnubatch
+((symm==1)) && echo "set cbrange [-$maxv:$maxv]" >> $gnubatch
+((axis==0)) && { echo "unset xtics ; unset ytics ; unset ztics" >> $gnubatch ;\
+ echo "unset border" >> $gnubatch ; }
+((key==0)) && echo "unset key" >> $gnubatch
+echo "set size ratio -1" >> $gnubatch
+echo -n "splot '$dir$file' using $plot_col with pm3d title 'CASINO 2D plot'" \
+ >> $gnubatch
+if ((plotparts==1)) ; then
+ jspin=0 ; pt=1 ; indx=0
+ while ((jspin<nspin)) ; do jspin=$((jspin+1))
+  indx=$((indx+1)) ; ((indx==3)) && { pt=$((pt+1)) ; indx=1 ; }
+  echo -n ", '.$pfile.$jspin' using $plot_col2 with points pointtype $pt title\
+ 'Particles ($jspin)'" >> $gnubatch
+ done
+fi
+if ((plotnodes==1)) ; then
+ # Need different commands for different versions
+ case "$(set -- $(gnuplot --version 2>&1) ; echo $2)" in
+ 0.*|1.*|2.*|3.*|4.0*|4.1*|4.2*)
+  echo -n ", '$nfile' using $plot_col2 title 'Nodes' with points 0 0"\
+   >> $gnubatch ;;
+ *)
+  echo -n ", '$nfile' using $plot_col2 title 'Nodes' with points"\
+   >> $gnubatch ;;
+ esac
+fi
+echo >> $gnubatch
+echo "pause -1" >> $gnubatch
+echo "Use <right-mouse-button> for zoom-in, and the key-bindings:"
+echo "[A]utoscale  [G]ridlines  [R]uler  [M]ouse-position  [B]orders"
+echo "When finished, give focus to this terminal and press Enter."
+if [ ! -z "$gnuout" ] ; then
+ echo "$gnuout" >> $gnubatch
+ if [ ! -z "$fmt" ] ; then
+  echo "set output '$outfile'" >> $gnubatch
+  echo "The image will then be saved to $outfile."
+ fi
+ echo "replot" >> $gnubatch
+fi
+
+# Run gnuplot batch script
+gnuplot $gnubatch >& /dev/null
+
+# Clean up
+((clean==1)) && rm -f $gnubatch .$pfile.* >& /dev/null

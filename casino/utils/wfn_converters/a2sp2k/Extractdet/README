@@ -1,0 +1,90 @@
+ATSP2K to CASINO converter
+==========================
+(2005) J.R. Trail 
+TCM group, Cavendish Laboratory, Cambridge, UK. 
+jrt32@cam.ac.uk
+last modified 09/01/14
+executable   : extractdet
+read files   : wfn.out, cfg.inp, fort.60
+written files: awfn.data, correlation.data_foot
+
+
+The ATSP2K to CASINO converter is an executable file that converts output
+from the numerical orbital multi-determinant (and Hartree-Fock) atomic
+package Atsp2K (see
+http://nlte.nist.gov/cgi-bin/MCHF/download.pl?d=ATSP2K) to CASINO format.  
+At a numerical level the ATSP2K code works with radial orbitals and
+Configuration State Functions (CSFs) rather than determinants constructed
+from 3-d orbitals, hence this conversion is non-trivial.
+
+
+Compilation:
+
+This utility is not automatically installed by the CASINO build system, and
+must be compiled manually.
+
+To do this, type 'make' in the source directory.
+
+The resulting executable, 'extractdet', is placed in the user bin
+directory (~/bin/extractdet - see Makefile).
+
+For compilation to succeed the Atsp2K code must be installed and compiled
+(it requires libang.a to be present in $ATSP/lib - see Makefile).
+
+
+Multideterminant usage:
+
+First run Atsp2k for the isolated atom of interest:
+
+> ~/Atsp2K/bin/hf    < hf.inp    ! Perform initial HF (to provide initial 
+                                 ! orbitals for mchf)
+> mv wfn.out wfn.inp
+> ~/Atsp2K/bin/lsgen < lsgen.inp ! Make set of CSFs
+> mv clist.out cfg.inp
+> ~/Atsp2K/bin/nonh              ! Make energy expression for set of CSFs
+> ~/Atsp2K/bin/mchf  < mchf.inp  ! Perform multi-determinant SCF.
+
+with input files hf.inp, lsgen.inp, and mchf.inp as specified in Atsp2K
+documentation. Three resulting files (wfn.out, cfg.inp, and fort.60)
+contain the orbitals, CSF specifications, and CSF coefficients to be read
+by the converter. Following this:
+
+> ~/bin/extractdet               ! Convert to CASINO format.
+
+generates the files awfn.data and correlation.data_foot that contain
+orbitals, determinant specifications, and determinant coefficients in
+CASINO format.  The file awfn.data may be supplied to CASINO as is,
+whereas correlation.data_foot should be added to a pre-existing
+correlation.data file.
+
+All of the determinants present in Atsp2K active space are included in
+this input - this can be massive. It is left to the user to modify these
+lists should they need to, either by editing the input files supplied to
+the converter (cfg.inp, fort.60) or the output files provided by it
+(awfn.data, correlation.data_foot).
+
+
+Hartree-Fock usage:
+
+The converter may be used for HF since this is a multi-determinant
+calculation with one determinant. To do so the user supplies a cfg.inp and
+fort.60 that specify the one-determinant ground state CSF, and Atsp2K
+provides the HF orbitals in wfn.out.
+
+For example, for a neutral ground state Nitrogen atom the user creates
+the cfg.inp and fort.60 files by hand, and generates the orbitals using
+Atsp2K HF solver:
+
+> echo '\n\n  1s( 2)  2s( 2)  2p( 3)\n 1S0 1S0 4S3 1S  4S\n*' > cfg.inp
+> echo '    1   4So\n       1    0.000000000\n  1.0000000'    > fort.60
+> ~/Atsp2K/bin/hf                                             < hf.inp
+> ~/bin/extractdet
+
+(For the HF case the correlation.data_foot file may be ignored.)
+
+
+
+NB: As well as using part of the Atsp2K library, the code evaluates
+Clebsch-Gordan coefficients and factorials using the anglib.f90 functions
+written by Paul Stevenson, Oxford University/Oak Ridge National
+Laboratory. anglib.f90 is included in the source supplied.

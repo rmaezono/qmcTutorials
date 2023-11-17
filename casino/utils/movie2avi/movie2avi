@@ -1,0 +1,1371 @@
+#!/bin/bash
+#------------------------------------------------------------#
+# Script to post-process a movie.out file into a video file. #
+#                                                            #
+# PLR 01.2015                                                #
+#------------------------------------------------------------#
+set +u
+
+
+########################### UTILITIES ###########################
+
+
+repeat() {
+  #--------------------#
+  # Print $2 $1 times. #
+  #--------------------#
+  local i string
+  string=""
+  for ((i=1; i<=$1; i++)) ; do
+    string="$string$2"
+  done
+  echo "$string"
+}
+
+
+zero_pad() {
+  #----------------------------------------------------#
+  # Pad integer $2 with zeroes until it has length $1. #
+  #----------------------------------------------------#
+  echo "$(repeat $(($1-${#2})) 0)$2"
+}
+
+
+errstop() {
+  #-----------------------------#
+  # Stop with error message $1. #
+  #-----------------------------#
+  echo "$el"
+  echo "ERROR: $1"
+  echo
+  exit 1
+}
+
+
+check_number_N() {
+  #-------------------------------------------------#
+  # Return success if $1 is a non-negative integer. #
+  #-------------------------------------------------#
+  [[ "$1" == +([[:digit:]]) ]]
+}
+
+
+check_number_R() {
+  #------------------------------------#
+  # Check whether $1 is a real number. #
+  #------------------------------------#
+  [[ "$1" ==\
+     ?([+-])+([[:digit:]])?(.)*([[:digit:]])?([eE]?([+-])+([[:digit:]])) ]]\
+     || [[ "$1" ==\
+     ?([+-])*([[:digit:]]).+([[:digit:]])?([eE]?([+-])+([[:digit:]])) ]]
+}
+
+
+fortran_to_decimal() {
+  #----------------------------------------------------------------------#
+  # Give the decimal representation of Fortran-formatted real number $1. #
+  #----------------------------------------------------------------------#
+  local n="$1" b e bb decb idot sign nint
+
+  check_number_R "$n" || return
+
+  b="${n%[dDeE]*}"
+  if [ "$b" = "$n" ] ; then
+    echo "$b"
+    return
+  fi
+  e="${n#*[dDeE]}"
+  if ((e==0)) ; then
+    echo "$b"
+    return
+  fi
+  case "$b" in
+  0.*) b=${b:1} ;;
+  +0.*) b=${b:2} ;;
+  -0.*) b=-${b:2} ;;
+  esac
+  sign=""
+  bb="${b/./}"
+  if [ "${bb:0:1}" = - ] ; then
+   sign=-
+   bb=${bb:1}
+  fi
+  case "$b" in
+  $sign$bb|$sign$bb.)
+    idot=0 ;;
+  $sign.$bb)
+    idot=-${#bb} ;;
+  *)
+    decb="${b#*.}"
+    idot=-${#decb} ;;
+  esac
+  if ((e>0)) ; then
+    e="+10#${e#+}"
+  else
+    e="-10#${e#-}"
+  fi
+  idot=$((idot+e))
+  if ((idot>0)) ; then
+   echo "$sign$bb$(repeat $idot 0)"
+  elif ((idot==0)) ; then
+   echo "$sign$bb"
+  elif ((idot<-${#bb})) ; then
+   echo "$sign.$(zero_pad ${idot#-} "$bb")"
+  else # idot in [-${#bb}, -1]
+   nint=$((${#bb}+idot))
+   echo "$sign${bb:0:$nint}.${bb:$nint}"
+  fi
+
+}
+
+
+########################### FUNCTIONS ###########################
+
+
+general_setup() {
+  #-----------------#
+  # General set-up. #
+  #-----------------#
+
+  # tput codes
+  [[ "$TERM" == xterm-* ]] && export TERM=xterm
+  el=$(tput el 2> /dev/null)
+  [ -z "$el" ] && el=$(tput ce 2> /dev/null)
+  cr=$(tput cr 2> /dev/null)
+
+  # Get number of cores.
+  case "$(uname -s 2> /dev/null)" in
+  Darwin|FreeBSD)
+    ncore=$(sysctl -n hw.ncpu 2>&1) ;;
+  SunOS)
+    ncore=$(psrinfo -p 2> /dev/null) ;;
+  *)
+    if [ -e /sys/devices/system/cpu/cpu0/topology/thread_siblings_list ] ; then
+      ncore=$(cat /sys/devices/system/cpu/cpu*/topology/thread_siblings_list\
+         | sort -u | wc -l)
+    else
+      ncore=$(grep -cE "^processor" /proc/cpuinfo 2> /dev/null)
+    fi ;;
+  esac
+  check_number_N "$ncore" || ncore=1
+
+}
+
+
+read_command_line() {
+  #-----------------------------------------#
+  # Set options from the command line "$@". #
+  #-----------------------------------------#
+  local option option1 var val minval range range0 range1
+
+  # Print header.
+  echo "MOVIE2AVI"
+  echo "========="
+
+  # Set defaults.
+  out=out
+  xyz=movie.out
+  framedir=./movie_frames
+  video=movie.avi
+  existing_framedir=error
+  camera_axis=z
+  image_width=480
+  frame_rate=10
+  keep_pov=0
+  nproc=$ncore
+  nframe=0
+  xrange=""
+  yrange=""
+  zrange=""
+  particle_colours="Blue:Cyan:Red:Magenta"
+  ion_colours="Green"
+  particle_radius=0.3
+  ion_radius=0.4
+  iscale_with_mass=0
+  pscale_with_mass=0
+  perf_options="+A0.3"
+  transparency=1
+  povray=povray
+  ffmpeg=""
+  ffmpeg=ffmpeg
+  ! type -P ffmpeg >& /dev/null && type -P avconv >& /dev/null && ffmpeg=avconv
+
+  # Parse command line.
+  while (($#>0)) ; do
+
+    case "$1" in
+
+    --*) # GNU-style "long" options
+      option="${1#--}"
+      case "$option" in
+      force)
+        existing_framedir=delete ;;
+      skip)
+        existing_framedir=use ;;
+      keep)
+        keep_pov=1 ;;
+      scale)
+        iscale_with_mass=1
+        pscale_with_mass=1 ;;
+      scale-ions)
+        iscale_with_mass=1 ;;
+      scale-particles)
+        pscale_with_mass=1 ;;
+      quick)
+        perf_options="+Q2"
+        transparency=0 ;;
+      help)
+        dump_help
+        exit ;;
+
+      *=*) # value-setting long options
+        var="${option%%=*}" ; val="${option#*=}"
+        case "$var" in
+        out|movie|video|framedir|xrange|yrange|zrange|camera-axis|\
+           particle-colours|ion-colours|povray|ffmpeg)
+          # String-valued options.
+          var="${var//-/_}"
+          eval "$var=\"\$val\"" ;;
+        particle-radius|ion-radius)
+          # Real-valued options.
+          check_number_R "$val" || errstop\
+             "Argument to --$var must be a real number."
+          var="${var//-/_}"
+          eval "$var=\"\$val\"" ;;
+        nframe|width|frame-rate|nproc)
+           # Integer-valued options.
+          check_number_N $val || errstop\
+             "Argument to --$var must be an integer."
+          var="${var//-/_}"
+          # Set bounds.
+          minval=""
+          case "$var" in
+          nframe) minval=1 ;;
+          width) minval=1 ;;
+          frame_rate) minval=1 ;;
+          nproc) minval=1 ;;
+          esac
+          # Check bounds.
+          [ ! -z "$minval" ] && ((val<minval)) && errstop\
+             "Argument to --$var must be greater than or equal to $minval."
+          # Renames.
+          case "$var" in
+          width) var=image_width ;;
+          esac
+          eval "$var=\"\$val\"" ;;
+        *) errstop "Unrecognized option --$option." ;;
+        esac ;;
+
+      *) errstop "Unrecognized option --$option."
+      esac ;;
+
+    -*) # Unix-style "short" options
+      option=${1#-}
+      [ -z "$option" ] && errstop "Bad option '-'."
+      while ((${#option}>0)) ; do
+        option1=${option:0:1}
+        option=${option:1}
+        case "$option1" in
+        f)
+          existing_framedir=delete ;;
+        s)
+          existing_framedir=use ;;
+        Z)
+          iscale_with_mass=1 ;;
+        M)
+          pscale_with_mass=1 ;;
+        q)
+          perf_options="+Q2"
+          transparency=0 ;;
+        k)
+          keep_pov=1 ;;
+        h)
+          dump_help
+          exit ;;
+
+        o|m|v|d|x|y|z|a|c|C|P|F)
+          # String-valued options.
+          if [ ! -z "$option" ] ; then
+            val="$option"
+            option=""
+          else
+            (($#==1)) && errstop "-$option1 must be followed by a string."
+            shift
+            val="$1"
+          fi
+          # Set variable names.
+          case "$option1" in
+          o) var=out ;;
+          m) var=xyz ;;
+          v) var=video ;;
+          d) var=framedir ;;
+          x) var=xrange ;;
+          y) var=yrange ;;
+          z) var=zrange ;;
+          a) var=camera_axis ;;
+          c) var=particle_colours ;;
+          C) var=ion_colours ;;
+          P) var=povray ;;
+          F) var=ffmpeg ;;
+          esac
+          # Set variable.
+          eval "$var=\"\$val\"" ;;
+        n|w|r|p)
+          # Real-valued options.
+          if [ ! -z "$option" ] ; then
+            val="$option"
+            option=""
+          else
+            (($#==1)) && errstop "-$option1 must be followed by an integer."
+            shift
+            val="$1"
+          fi
+          # Check value type.
+          check_number_N "$val" || errstop\
+             "Argument to -$option1 must be an integer."
+          # Set variable names and value bounds.
+          case "$option1" in
+          n) var=nframe      ; minval=1 ;;
+          w) var=image_width ; minval=1 ;;
+          r) var=frame_rate  ; minval=1 ;;
+          p) var=nproc       ; minval=1 ;;
+          esac
+          # Check bounds.
+          [ ! -z "$minval" ] && ((val<minval)) && errstop \
+             "Argument to -$option1 must be greater than or equal to $minval."
+          # Set variable.
+          eval "$var=\"\$val\"" ;;
+        e|i)
+          # Integer-valued options.
+          if [ ! -z "$option" ] ; then
+            val="$option"
+            option=""
+          else
+            (($#==1)) && errstop "-$option1 must be followed by a real number."
+            shift
+            val="$1"
+          fi
+          # Check value type.
+          check_number_R "$val" || errstop\
+             "Argument to -$option1 must be a real number."
+          # Set variable names.
+          case "$option1" in
+          e) var=particle_radius ;;
+          i) var=ion_radius ;;
+          esac
+          # Set variable.
+          eval "$var=\"\$val\"" ;;
+
+        *) errstop "Unrecognized option -$option1." ;;
+        esac
+      done ;;
+    *)
+      errstop "Unrecognized argument $option" ;;
+    esac
+    shift
+  done
+
+  # Check string options.
+  case "$camera_axis" in
+  x|y|z) : ;;
+  *) errstop "Argument to -a must be one of: x y z"
+  esac
+
+  # Check ranges.
+  for range in "$xrange" "$yrange" "$zrange" ; do
+    if [ ! -z "$range" ] ; then
+      range0=${range%%:*}
+      range1=${range##*:}
+      check_number_R "$range0" && check_number_R "$range1" || errstop\
+         "Argument to -x/-y/-z must be pair of real numbers separated by ':'."
+    fi
+  done
+
+  # Check for required files.
+  [ -e "$out" ] || errstop "File '$out' not found."
+  [ -e "$xyz" ] || errstop "File '$xyz' not found."
+
+  # Check for required programs.
+  type -P "$povray" >& /dev/null || errstop "'$povray' binary not found."
+  type -P "$ffmpeg" >& /dev/null || errstop "'$ffmpeg' binary not found."
+
+  # Check program versions.
+  povray_version=$(povray --version 2>&1 | grep -E "^POV-Ray")
+  povray_version="$(set -- $povray_version ; echo $2)"
+  # FIXME - check against something
+
+}
+
+
+dump_help() {
+  #-------------------------#
+  # Print help information. #
+  #-------------------------#
+
+  cat <<__EOF
+Generate an AVI file from a CASINO movie.out file.  Requires povray and
+ffmpeg or avconv to be installed.
+
+Usage
+-----
+movie2avi [<optional-arguments>]
+
+Before attempting to generate an animation, try running:
+
+  movie2avi -qn1
+
+to render a low-quality version of the first frame as a PNG, and use that as
+a starting point to adjust the parameters below.  If the first PNG looks
+like a grey background with nothing on it, you may need to increase the
+particle radius.
+
+Command-line arguments
+----------------------
+--force | -f
+--skip | -s
+  This script aborts with an error if the frames directory is already
+  present.  These options override this setting: -f forces the deletion
+  and regeneration of the frames, while -s tells the script to skip
+  the frame generation and just convert the existing frames to video.
+
+--keep | -k
+  Keeps a copy of the .pov files in the current directory (for
+  debugging).
+
+--scale
+--scale-ions | -Z
+--scale-particles | -M
+  Scale ions and particles so that their volume is proportional to their
+  mass.  With this option, <ion-radius> (specified via -i) is the radius
+  of a hydrogen nucleus (the radius for all other ions is
+  <ion-radius> * Z^1/3) , while <particle-radius> is the radius of an
+  electron.
+
+--quick | -q
+  Turns off shadows, transparencies and antialiasing (for speed).
+
+--help | -h
+  Shows this help.
+
+--out=<out> | -o <out>
+  Sets name of CASINO out file.
+  Default: out
+
+--movie=<data-file> | -m <data-file>
+  Sets name of the "movie" data file.
+  Default: movie.out
+
+--video=<video> | -v <video>
+  Sets name of output video file.  Note that the video format is determined by
+  the extension, and it is possible to generate avi, mp4, flv or (huge) gif
+  files by changing the value of <video>.
+  Default: movie.avi
+
+--framedir=<framedir> | -d <framedir>
+  Sets name of directory where PNG frames are stored.
+  Default: ./movie_frames
+
+--xrange=<min>:<max> | -x <min>:<max>
+--yrange=<min>:<max> | -y <min>:<max>
+--zrange=<min>:<max> | -z <min>:<max>
+  Defines the x, y and z ranges to focus the scene on.
+  Default: simulation-cell dimensions for periodic systems, and dimensions
+  inferred from the configuration present in the movie file for non-periodic
+  systems.
+
+--camera-axis=x|y|z | -a x|y|z
+  Defines the axis on which the camera sits.
+  Default: z
+
+--particle-colours=<expression> | -c <expression>
+  Defines the colours to use for particles.  <expression> is a colon-delimited
+  list of valid povray colours to be used for successive spin indices.
+  Default: Blue:Cyan:Red:Magenta
+
+--ion-colours=<expression> | -C <expression>
+  Defines the colours to use for ions.  <expression> is a colon-separated list
+  of tokens of the form <colour> or <z>=<colour>.  The first form defines a
+  default colour for ions, and the second form assigns a colour to an atomic
+  number (e.g., "6=Blue:O=Red" would colour carbon atoms in blue and oxygens
+  in red).
+  Default: Green
+
+--povray=<binary> | -P <binary>
+--ffmpeg=<binary> | -F <binary>
+  Set the names of the povray and ffmpeg/avconv binaries.
+  Defaults: "povray" and whichever of "ffmpeg" or "avconv" is in the user's
+  PATH.
+
+--particle-radius=<r> | -e <r>
+  Defines the radius to be used for particles, in atomic units.
+  Default: 0.3
+
+--ion-radius=<r> | -i <r>
+  Defines the radius to be used for (hydrogen) nuclei, in atomic units.
+  Default: 0.4
+
+--nframe=<n> | -n <n>
+  Defines how many frames to render.
+  Default: the number of frames in "movie.out".
+
+--width=<w> | -w <w>
+  Sets the pixel width of the images; the height is automatically calculated to
+  match the system's dimensions.
+  Default: 480
+
+--frame-rate=<r> | -r <r>
+  Sets the frame rate in frames per second (integer).
+  Default: 10
+
+--nproc=<p> | -p <p>
+  Sets the number of simultaneous povray tasks to run.
+  Default: number of CPU cores.
+
+__EOF
+
+}
+
+
+movie_setup() {
+  #-----------------------------------------------#
+  # Read relevant files and get movie properties. #
+  #-----------------------------------------------#
+
+  # Parse out file.
+  parse_out "$out"
+
+  # Pre-parse xyz file to get number of frames and number of ions.
+  parse_xyz "$xyz"
+
+  # Compute bounding box and final image resolution.
+  compute_geometry
+
+  # Assign colours to particles and ions.
+  assign_colours
+
+  # Decide how many frames to do.
+  ((nframe<1)) || ((nframe>nframe_xyz)) && ((nframe=nframe_xyz))
+  name_padding=${#nframe}
+
+  # Report.
+  echo "Set-up$el"
+  echo "------"
+  echo "${dimensionality}D system:"
+  echo "  $netot particles of $nspin species"
+  echo "  $nitot nuclei"
+  echo "Bounding box:"
+  echo "  Near corner: ( $x0, $y0, $z0 )"
+  echo "  Far corner:  ( $x1, $y1, $z1 )"
+  echo "Animation:"
+  echo "  $nframe frames"
+  echo "  ${x_resolution}x$y_resolution pixels"
+  echo
+
+}
+
+
+parse_out() {
+  #----------------------------------------------#
+  # Load information from CASINO output file $1. #
+  #----------------------------------------------#
+  local out="$1"
+  local neu ned line ix
+
+  # Initialize local variables.
+  neu=0
+  ned=0
+
+  # Initialize global variables.
+  nspin=0
+  dimensionality=3
+  periodicity=0
+  a1=""
+  a2=""
+  a3=""
+
+  # Load info from $out.
+  {
+    while : ; do
+      read line || break
+      case "$line" in
+      "NEU "*)
+        set -- $line
+        neu=${@:$#} ;;
+      "NED "*)
+        set -- $line
+        ned=${@:$#} ;;
+      "PERIODIC "*)
+        set -- $line
+        [ "${@:$#}" = T ] && ((periodicity=dimensionality)) ;;
+      Particles)
+        read line
+        read line
+        read line
+        nspin=0
+        while : ; do
+          read ix line
+          [ "$ix" != "$((nspin+1)):" ] && break
+          ((nspin++))
+          set -- $line
+          pcharge[$nspin]=${@:$(($#-3)):1}
+          pmass[$nspin]=${@:$(($#-2)):1}
+          pspin[$nspin]=${@:$(($#-1)):1}
+          nele[$nspin]=0
+          ((nspin==1)) && nele[1]=$neu
+          ((nspin==2)) && nele[2]=$ned
+        done ;;
+      "Free-particle orbitals")
+        read line
+        read line
+        read line
+        while : ; do
+          read line || break
+          set -- $line
+          check_number_N "$1" || break
+          if [ "${@:$#}" = Pairing ] ; then
+            if check_number_N "$8" ; then
+              (($1!=1)) && break
+              shift
+            fi
+            ispin=$2
+            ((nele[ispin]+=$5))
+            ispin=$4
+            ((nele[ispin]+=$7))
+          else
+            if check_number_N "$4" ; then
+              (($1!=1)) && break
+              shift
+            fi
+            ispin=$2
+            ((nele[ispin]+=$3))
+          fi
+        done ;;
+      "Dimensionality "*)
+        set -- $line
+        dimensionality=${@:$#} ;;
+      "Periodicity "*)
+        set -- ${line##*:}
+        periodicity=$1 ;;
+      "A1 ="*)
+        a1=${line##*=} ;;
+      "A2 ="*)
+        a2=${line##*=} ;;
+      "A3 ="*)
+        a3=${line##*=} ;;
+      "Simulation cell lattice vectors (au)")
+        read line
+        read a1
+        read a2
+        read a3 ;;
+      "Setup complete.")
+        break ;;
+      esac
+    done
+  } < "$out"
+
+  # Set up particle splits.
+  netot=0
+  for ((ispin=1; ispin<=nspin; ispin++)) ; do
+    ((nele0[ispin]=netot+1))
+    ((netot+=nele[ispin]))
+    ((nele1[ispin]=netot))
+  done
+
+}
+
+
+parse_xyz() {
+  #----------------------------------------#
+  # Count the number of frames in file $1. #
+  #----------------------------------------#
+  local xyz="$1"
+  local ne line ii dum x y z bbbc netot_xyz
+
+  # Intialize local variables.
+  netot_xyz=0
+
+  # Initialize global variables:
+  nframe_xyz=0
+  nitot=0
+
+  # Report.
+  echo -n "Counting frames...$el$cr"
+
+  # Parse xyz file.
+  {
+    while : ; do
+      read ne || break
+      ((netot_xyz==0)) && ((netot_xyz=ne))
+      read line || break
+      for ((ii=1; ii<=ne; ii++)) ; do
+        read dum x y z dum || break 2
+        if ((periodicity<dimensionality)) ; then
+          if ((ii==1)) && ((nframe_xyz==0)) ; then
+            bbbc="x0=$x ; x1=$x ; y0=$y ; y1=$y ; z0=$z ; z1=$z"
+          else
+            ((ii==1)) && bbbc="x0=$npx0 ; x1=$npx1 ; y0=$npy0 ; y1=$npy1 ;\
+               z0=$npz0 ; z1=$npz1"
+            bbbc="$bbbc ; if ($x<x0) x0=$x ; if ($x>x1) x1=$x ;\
+               if ($y<y0) y0=$y ; if ($y>y1) y1=$y ;\
+               if ($z<z0) z0=$z ; if ($z>z1) z1=$z"
+          fi
+        fi
+      done
+      ((netot_xyz!=ne)) && errstop\
+         "Number of particles mismatch in frame $((nframe_xyz+1))"
+      if ((periodicity<dimensionality)) ; then
+        set -- $(bc -l\
+           <<<"$bbbc ; print x0,\" \",x1,\" \",y0,\" \",y1,\" \",z0,\" \",z1")
+        npx0=$1
+        npx1=$2
+        npy0=$3
+        npy1=$4
+        npz0=$5
+        npz1=$6
+      fi
+      ((nframe_xyz++))
+      echo -n "Counting frames... $nframe_xyz$el$cr"
+      # Stop parsing if we don't need more frames.
+      if ((periodicity==dimensionality)) && ((nframe>0)) ; then
+        ((nframe_xyz>=nframe)) && break
+      fi
+    done
+  } < "$xyz"
+
+  # Compute number of nuclei.
+  nitot=$((netot_xyz-netot))
+
+}
+
+
+compute_geometry() {
+  #------------------------------------------------------------------#
+  # Using the information in a1, a2 and a3, initialize x/y/z ranges. #
+  #------------------------------------------------------------------#
+  local xrange0 yrange0 zrange0 idim axx vector icorner
+  local -a cx min max
+
+  # Initialize local variables.
+  xrange0=-1:1
+  yrange0=-1:1
+  zrange0=-1:1
+
+  case "$periodicity" in
+  3)
+    for ((idim=1; idim<=3; idim++)) ; do
+      axx=""
+      for vector in "$a1" "$a2" "$a3" ; do
+        set -- $vector
+        axx="$axx $(fortran_to_decimal ${@:$idim:1})"
+      done
+      set -- $axx
+      # Check all 8 corners.
+      cx[1]=$1
+      cx[2]=$2
+      cx[3]=$3
+      cx[4]=$(bc -l <<<"($1)+($2)" 2> /dev/null)
+      cx[5]=$(bc -l <<<"($1)+($3)" 2> /dev/null)
+      cx[6]=$(bc -l <<<"($2)+($3)" 2> /dev/null)
+      cx[7]=$(bc -l <<<"($1)+($2)+($3)" 2> /dev/null)
+      min[$idim]=0 ; max[$idim]=0
+      for ((icorner=1; icorner<=7; icorner++)) ; do
+        (($(bc -l <<<"${cx[$icorner]}<${min[$idim]}" 2>/dev/null)==1))\
+           && min[$idim]=${cx[$icorner]}
+        (($(bc -l <<<"${cx[$icorner]}>${max[$idim]}" 2>/dev/null)==1))\
+           && max[$idim]=${cx[$icorner]}
+      done
+    done
+    xrange0=${min[1]}:${max[1]}
+    yrange0=${min[2]}:${max[2]}
+    zrange0=${min[3]}:${max[3]} ;;
+
+  2)
+    for ((idim=1; idim<=2; idim++)) ; do
+      axx=""
+      for vector in "$a1" "$a2" ; do
+        set -- $vector
+        axx="$axx $(fortran_to_decimal ${@:$idim:1})"
+      done
+      set -- $axx
+      # Check all 4 corners.
+      cx[1]=$1
+      cx[2]=$2
+      cx[3]=$(bc -l <<<"($1)+($2)" 2> /dev/null)
+      min[$idim]=0 ; max[$idim]=0
+      for ((icorner=1; icorner<=3; icorner++)) ; do
+        (($(bc -l <<<"${cx[$icorner]}<${min[$idim]}" 2>/dev/null)==1))\
+           && min[$idim]=${cx[$icorner]}
+        (($(bc -l <<<"${cx[$icorner]}>${max[$idim]}" 2>/dev/null)==1))\
+           && max[$idim]=${cx[$icorner]}
+      done
+    done
+    xrange0=${min[1]}:${max[1]}
+    yrange0=${min[2]}:${max[2]}
+    case $dimensionality in
+    2)
+      zrange0=-0.1:0.1 ;;
+    3)
+      zrange0=$npz0:$npz1 ;;
+    esac ;;
+
+  1)
+    min[1]=0 ; max[1]=0
+    set -- $(fortran_to_decimal $a1)
+    (($(bc -l <<<"$1<${min[1]}" 2>/dev/null)==1)) && min[1]=$1
+    (($(bc -l <<<"$1>${max[1]}" 2>/dev/null)==1)) && max[1]=$1
+    xrange0=${min[1]}:${max[1]}
+    case $dimensionality in
+    1)
+      yrange0=-0.1:0.1
+      zrange0=-0.1:0.1 ;;
+    2)
+      yrange0=$npy0:$npy1
+      zrange0=-0.1:0.1 ;;
+    3)
+      yrange0=$npy0:$npy1
+      zrange0=$npz0:$npz1 ;;
+    esac ;;
+
+  0)
+    xrange0=$npx0:$npx1
+    case $dimensionality in
+    1)
+      yrange0=-0.1:0.1
+      zrange0=-0.1:0.1 ;;
+    2)
+      yrange0=$npy0:$npy1
+      zrange0=-0.1:0.1 ;;
+    3)
+      yrange0=$npy0:$npy1
+      zrange0=$npz0:$npz1 ;;
+    esac ;;
+
+  esac
+
+  # Set ranges where not user-provided.
+  [ -z "$xrange" ] && xrange=$xrange0
+  [ -z "$yrange" ] && yrange=$yrange0
+  [ -z "$zrange" ] && zrange=$zrange0
+
+  # Extract axis ranges.
+  x0=${xrange%%:*}
+  x1=${xrange##*:}
+  y0=${yrange%%:*}
+  y1=${yrange##*:}
+  z0=${zrange%%:*}
+  z1=${zrange##*:}
+
+  # Set resolution.
+  x_resolution=$image_width
+  case "$camera_axis" in
+  z)
+    y_resolution=$(bc -l <<<"$x_resolution*(($y1)-($y0))/(($x1)-($x0))"\
+       2> /dev/null) ;;
+  y)
+    y_resolution=$(bc -l <<<"$x_resolution*(($x1)-($x0))/(($z1)-($z0))"\
+       2> /dev/null) ;;
+  x)
+    y_resolution=$(bc -l <<<"$x_resolution*(($z1)-($z0))/(($y1)-($y0))"\
+       2> /dev/null) ;;
+  esac
+  y_resolution=${y_resolution%.*}
+  y_resolution=${y_resolution#-}
+
+}
+
+
+periodic_table_Z() {
+  #-------------------------------------------------------------#
+  # Return the atomic number corresponding to atomic symbol $1. #
+  #-------------------------------------------------------------#
+  local Z
+  Z=0
+  case "$1" in
+  H)  Z=1  ;; He) Z=2  ;; Li) Z=3  ;; Be) Z=4  ;; B)  Z=5  ;;
+  C)  Z=6  ;; N)  Z=7  ;; O)  Z=8  ;; F)  Z=9  ;; Ne) Z=10 ;;
+  Na) Z=11 ;; Mg) Z=12 ;; Al) Z=13 ;; Si) Z=14 ;; P)  Z=15 ;;
+  S)  Z=16 ;; Cl) Z=17 ;; Ar) Z=18 ;; K)  Z=19 ;; Ca) Z=20 ;;
+  Sc) Z=21 ;; Ti) Z=22 ;; V)  Z=23 ;; Cr) Z=24 ;; Mn) Z=25 ;;
+  Fe) Z=26 ;; Co) Z=27 ;; Ni) Z=28 ;; Cu) Z=29 ;; Zn) Z=30 ;;
+  Ga) Z=31 ;; Ge) Z=32 ;; As) Z=33 ;; Se) Z=34 ;; Br) Z=35 ;;
+  Kr) Z=36 ;; Rb) Z=37 ;; Sr) Z=38 ;; Y)  Z=39 ;; Zr) Z=40 ;;
+  Nb) Z=41 ;; Mo) Z=42 ;; Tc) Z=43 ;; Ru) Z=44 ;; Rh) Z=45 ;;
+  Pd) Z=46 ;; Ag) Z=47 ;; Cd) Z=48 ;; In) Z=49 ;; Sn) Z=50 ;;
+  Sb) Z=51 ;; Te) Z=52 ;; I)  Z=53 ;; Xe) Z=54 ;; Cs) Z=55 ;;
+  Ba) Z=56 ;; La) Z=57 ;; Ce) Z=58 ;; Pr) Z=59 ;; Nd) Z=60 ;;
+  Pm) Z=61 ;; Sm) Z=62 ;; Eu) Z=63 ;; Gd) Z=64 ;; Tb) Z=65 ;;
+  Dy) Z=66 ;; Ho) Z=67 ;; Er) Z=68 ;; Tm) Z=69 ;; Yb) Z=70 ;;
+  Lu) Z=71 ;; Hf) Z=72 ;; Ta) Z=73 ;; W)  Z=74 ;; Re) Z=75 ;;
+  Os) Z=76 ;; Ir) Z=77 ;; Pt) Z=78 ;; Au) Z=79 ;; Hg) Z=80 ;;
+  Tl) Z=81 ;; Pb) Z=82 ;; Bi) Z=83 ;; Po) Z=84 ;; At) Z=85 ;;
+  Rn) Z=86 ;; Fr) Z=87 ;; Ra) Z=88 ;; Ac) Z=89 ;; Th) Z=90 ;;
+  Pa) Z=91 ;; U)  Z=92 ;;
+  esac
+  echo "$Z"
+}
+
+
+assign_colours() {
+  #---------------------------------------#
+  # Assign colours to particles and ions. #
+  #---------------------------------------#
+  local ispin token zion
+
+  # Colour particles.
+  default_pcolour=Blue
+  ispin=0
+  while [ ! -z "$particle_colours" ] ; do
+    ((ispin++))
+    token="${particle_colours%%:*}"
+    particle_colours="${particle_colours:$((${#token}+1))}"
+    pcolour[$ispin]="$token"
+  done
+
+  # Colour ions.
+  default_icolour=Green
+  while [ ! -z "$ion_colours" ] ; do
+    token="${ion_colours%%:*}"
+    ion_colours="${ion_colours:$((${#token}+1))}"
+    case "$token" in
+    *=*)
+      zion="${token%%=*}"
+      if check_number_N "$zion" ; then
+        icolour[$zion]="${token#*=}"
+      else
+        zion=$(periodic_table_Z $zion)
+        ((zion>0)) && icolour[$zion]="${token#*=}"
+      fi ;;
+    *)
+      default_icolour="$token" ;;
+    esac
+  done
+}
+
+
+gen_frames() {
+  #----------------------#
+  # Generate the frames. #
+  #----------------------#
+  local nframe_per_proc nproc_extra_frame iframe iproc iframe0
+
+  # Report.
+  echo "Rendering"
+  echo "---------"
+
+  # Check for frame directory and take appropriate action if it exists.
+  if [ -d "$framedir" ] ; then
+    case "$existing_framedir" in
+    error)
+      errstop "Directory '$framedir' present: delete, move, or use -f or -s." ;;
+    delete)
+      rm -rf "$framedir" ;;
+    use)
+      : ;;
+    esac
+  fi
+
+  # Return if framedir exists at this point.
+  if [ -d "$framedir" ] ; then
+    echo "Directory '$framedir' already exists, skipping frame generation.$el"
+    return
+  fi
+
+  # Create frame directory.
+  mkdir -p "$framedir"
+
+  # Distribute frames to processes.
+  ((nproc>nframe)) && ((nproc=nframe))
+  ((nframe_per_proc=nframe/nproc))
+  ((nproc_extra_frame=nframe-nframe_per_proc*nproc))
+
+  # Render frames.
+  if ((nproc==1)) ; then
+    echo "Running single povray process with $nframe_per_proc frames.$el"
+  elif ((nproc_extra_frame==0)) ; then
+    echo "Running $nproc povray processes with $nframe_per_proc frames each.$el"
+  else
+    echo "Running $nproc povray processes with $nframe_per_proc-$((\
+       nframe_per_proc+1)) frames each.$el"
+  fi
+  iframe=0
+  for ((iproc=1; iproc<=nproc; iproc++)) ; do
+    ((iframe0=iframe+1))
+    ((iframe+=nframe_per_proc))
+    ((iproc<=nproc_extra_frame)) && ((iframe++))
+    render_frames "$xyz" "$framedir" $iframe0:$iframe &
+  done
+  wait
+  echo "Povray finished.$el"
+
+}
+
+
+render_frames() {
+  #---------------------------------#
+  # Render the frames using povray. #
+  #---------------------------------#
+  local xyz="$1" framedir="$2" frame_range="$3"
+  local iframe0 iframe1 tmppov ne line ion zion x y z qion col sz iframe
+  local ii ispin ie dum anim_options out_options idim a1x a2x a3x
+  local pov_0 pov_a1 pov_a2 pov_a3 pov_a12 pov_a13 pov_a23 pov_a123
+
+  # Get frame indices.
+  iframe0=${frame_range%%:*}
+  iframe1=${frame_range##*:}
+
+  # Generate temporary pov file - the .pov extension is mandatory.
+  tmppov=./frames-$(zero_pad $name_padding $iframe0)-$(\
+     zero_pad $name_padding $iframe1).pov
+  [ -e "$tmppov" ] && rm -f "$tmppov"
+
+  # File header.
+  touch "$tmppov"
+  cat >> "$tmppov" <<__EOF
+#version 3.7;
+#include "colors.inc"
+global_settings {
+  assumed_gamma 1.0
+}
+background {
+  color Grey
+}
+__EOF
+
+  # Place camera and light source.
+  case "$camera_axis" in
+  z)
+    cat >> "$tmppov" <<____EOF
+camera {
+  location <(($x0)+($x1))/2, (($y0)+($y1))/2, -($z1)-min(($x1)-($x0),($y1)-($y0))>
+  look_at <(($x0)+($x1))/2, (($y0)+($y1))/2, -($z1)>
+  up y
+  right ($x_resolution/$y_resolution)*x
+}
+light_source {
+  <$x0, $y0, (-$z1)-min(($x1)-($x0),($y1)-($y0))>
+  color White
+}
+____EOF
+    ;;
+  y)
+    cat >> "$tmppov" <<____EOF
+camera {
+  location <(($x0)+($x1))/2, $y1+min(($x1)-($x0),($z1)-($z0)), -(($z0)+($z1))/2>
+  look_at <(($x0)+($x1))/2, $y1, -(($z0)+($z1))/2>
+  up x
+  right ($x_resolution/$y_resolution)*(-z)
+}
+light_source {
+  <$x0, $y1+min(($x1)-($x0),($z1)-($z0)), -($z0)>
+  color White
+}
+____EOF
+    ;;
+  x)
+    cat >> "$tmppov" <<____EOF
+camera {
+  location <$x1+min(($y1)-($y0),($z1)-($z0)), (($y0)+($y1))/2, -(($z0)+($z1))/2>
+  look_at <$x1, (($y0)+($y1))/2, -(($z0)+($z1))/2>
+  up -z
+  right ($x_resolution/$y_resolution)*y
+}
+light_source {
+  <$x1+min(($y1)-($y0),($z1)-($z0)), $y0, -($z0)>
+  color White
+}
+____EOF
+    ;;
+  esac
+
+  # Draw simulation cell (only if we are rendering transparent objects).
+  if ((periodicity==dimensionality)) && ((transparency==1)) ; then
+
+    case "$dimensionality" in
+    3)
+      # Get the 8 vertices.
+      pov_a1=""
+      pov_a2=""
+      pov_a3=""
+      pov_a12=""
+      pov_a13=""
+      pov_a23=""
+      pov_a123=""
+      for ((idim=1; idim<=3; idim++)) ; do
+        a1x=$(fortran_to_decimal "$(set -- $a1 ; echo ${@:$idim:1})")
+        a2x=$(fortran_to_decimal "$(set -- $a2 ; echo ${@:$idim:1})")
+        a3x=$(fortran_to_decimal "$(set -- $a3 ; echo ${@:$idim:1})")
+        if ((idim==3)) ; then
+          a1x="-($a1x)"
+          a2x="-($a2x)"
+          a3x="-($a3x)"
+        fi
+        pov_a1="$pov_a1, $a1x"
+        pov_a2="$pov_a2, $a2x"
+        pov_a3="$pov_a3, $a3x"
+        pov_a12="$pov_a12, ($a1x)+($a2x)"
+        pov_a13="$pov_a13, ($a1x)+($a3x)"
+        pov_a23="$pov_a23, ($a2x)+($a3x)"
+        pov_a123="$pov_a123, ($a1x)+($a2x)+($a3x)"
+      done
+      pov_0="<0, 0, 0>"
+      pov_a1="<${pov_a1#, }>"
+      pov_a2="<${pov_a2#, }>"
+      pov_a3="<${pov_a3#, }>"
+      pov_a12="<${pov_a12#, }>"
+      pov_a13="<${pov_a13#, }>"
+      pov_a23="<${pov_a23#, }>"
+      pov_a123="<${pov_a123#, }>"
+      # Draw 2 triangles for each of the 6 sides.
+      cat >> "$tmppov" <<______EOF
+triangle {
+  $pov_0, $pov_a2, $pov_a23
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_0, $pov_a3, $pov_a23
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_0, $pov_a1, $pov_a13
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_0, $pov_a3, $pov_a13
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_0, $pov_a1, $pov_a12
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_0, $pov_a2, $pov_a12
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_a123, $pov_a2, $pov_a23
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_a123, $pov_a3, $pov_a23
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_a123, $pov_a1, $pov_a13
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_a123, $pov_a3, $pov_a13
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_a123, $pov_a1, $pov_a12
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_a123, $pov_a2, $pov_a12
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+______EOF
+      ;;
+
+    2)
+      # Get the 4 vertices.
+      pov_a1=""
+      pov_a2=""
+      pov_a12=""
+      for ((idim=1; idim<=2; idim++)) ; do
+        a1x=$(fortran_to_decimal "$(set -- $a1 ; echo ${@:$idim:1})")
+        a2x=$(fortran_to_decimal "$(set -- $a2 ; echo ${@:$idim:1})")
+        pov_a1="$pov_a1, $a1x"
+        pov_a2="$pov_a2, $a2x"
+        pov_a12="$pov_a12, ($a1x)+($a2x)"
+      done
+      # FIXME - layered systems?
+      pov_0="<0, 0, 0>"
+      pov_a1="<${pov_a1#, }, 0>"
+      pov_a2="<${pov_a2#, }, 0>"
+      pov_a12="<${pov_a12#, }, 0>"
+      # Draw 2 triangles for each of the 6 sides.
+      cat >> "$tmppov" <<______EOF
+triangle {
+  $pov_0, $pov_a1, $pov_a12
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+triangle {
+  $pov_0, $pov_a2, $pov_a12
+  pigment { color rgbf<0.95,0.95,0.95,0.95> }
+}
+______EOF
+      ;;
+
+      # FIXME - 1D?
+
+    esac
+
+  fi # render cell or not
+
+  # Get atom positions from first frame in xyz file and write to pov file.
+  if ((nitot>0)) ; then
+    {
+      read ne
+      read line
+      for ((ion=1; ion<=nitot; ion++)) ; do
+        read zion x y z qion
+        zion=$(periodic_table_Z "$zion")
+        col="${icolour[$zion]}"
+        [ -z "$col" ] && col="$default_icolour"
+        if ((iscale_with_mass==1)) ; then
+          sz="$ion_radius*pow($zion,0.333333)"
+        else
+          sz="$ion_radius"
+        fi
+        cat >> "$tmppov" <<________EOF
+sphere {
+  <$x, $y, -($z)>, $sz
+  texture {
+    pigment { color $col filter 0.7 }
+    finish { phong 0.5 }
+  }
+  interior {
+    ior 1.1
+  }
+}
+________EOF
+      done
+    } < "$xyz"
+  fi
+
+  # Loop over frames.
+  {
+    # Skip frames.
+    for ((iframe=1; iframe<iframe0; iframe++)) ; do
+      read ne
+      read line
+      for ((ii=1; ii<=ne; ii++)) ; do
+        read line
+      done
+      ((iframe++))
+      ((iframe0==1)) && echo -n "Skipping frame #$nframe...$el$cr"
+    done
+    # Render frames.
+    for ((iframe=iframe0; iframe<=iframe1; iframe++)) ; do
+      ((iframe0==1)) && echo -n "Setting up frame #$iframe/$iframe1...$el$cr"
+      cat >> "$tmppov" <<______EOF
+#if (int(clock-$iframe))
+#else
+______EOF
+      read ne
+      read line
+      for ((ion=1; ion<=nitot; ion++)) ; do
+        read line
+      done
+      for ((ispin=1; ispin<=nspin; ispin++)) ; do
+        col="${pcolour[$ispin]}"
+        [ -z "$col" ] && col="$default_pcolour"
+        if ((pscale_with_mass==1)) ; then
+          sz="$particle_radius*pow(${pmass[$ispin]},0.333333)"
+        else
+          sz="$particle_radius"
+        fi
+        for ((ie=nele0[ispin]; ie<=nele1[ispin]; ie++)) ; do
+          read dum x y z dum
+          cat >> "$tmppov" <<________EOF
+sphere {
+  <$x, $y, -($z)>, $sz
+  texture {
+    pigment { color $col }
+    finish { phong 0.1 }
+  }
+}
+________EOF
+        done
+      done
+      cat >> "$tmppov" <<______EOF
+#end
+______EOF
+    done
+  } < "$xyz"
+
+  # Run povray on .pov file.
+  if ((iframe0==iframe1)) ; then
+    anim_options="+K$iframe0.0"
+    out_options="+O$framedir/frame$iframe0.png"
+    ((iframe0==1)) && echo -n "Rendering frame...$el$cr"
+  else
+    anim_options="+KI$iframe0.0 +KF$iframe1.0 +KFI$iframe0 +KFF$iframe1"
+    out_options="+O$framedir/frame.png"
+  fi
+  {
+    while read line ; do
+      if [[ "$line" == "Rendering frame"* ]] ; then
+        set -- $line
+        ((iframe0==1)) &&\
+           echo -n "Rendering frame #$((iframe0+$3-1))/$iframe1...$el$cr"
+      fi
+    done
+  } < <($povray +WT2 -D "$out_options" $anim_options \
+     +W$x_resolution +H$y_resolution $perf_options "$tmppov" 2>&1)
+  ((iframe0==1)) && echo -n "Tydying up...$el$cr"
+
+  # Clean up.
+  ((keep_pov==1)) || rm -f "$tmppov"
+
+  # Rename files to match padding across processes.
+  for ((iframe=iframe0; iframe<=iframe1; iframe++)) ; do
+    mv -f "$framedir/frame$(zero_pad ${#iframe1} $iframe).png"\
+       "$framedir/frame-$(zero_pad $name_padding $iframe).png" 2> /dev/null
+  done
+  ((iframe0==1)) && echo -n "Waiting for other processes...$el$cr"
+
+}
+
+
+gen_video() {
+  #----------------------------------#
+  # Generate video file from frames. #
+  #----------------------------------#
+
+  # Do not generate a video file with a single frame.
+  if ((nframe==1)) ; then
+    echo "Single-frame animation, skipping video generation."
+    return
+  fi
+
+  # Return if ffmpeg not in path.
+  if ! type -P "$ffmpeg" >& /dev/null ; then
+    echo "'$ffmpeg' binary not found, cannot produce video.$el"
+    return
+  fi
+
+  # Delete existing file.
+  if [ -e "$video" ] ; then
+    echo -n "Deleting existing $video.$el$cr"
+    rm -f "$video"
+  fi
+
+  # Generate video.
+  echo -n "Generating $video...$el$cr"
+  if $ffmpeg -r $frame_rate -i "$framedir"/frame-%0${name_padding}d.png\
+     -qscale 1 -r $frame_rate -s ${x_resolution}x$y_resolution "$video"\
+     >& /dev/null ; then
+    echo "Movie file $video generated.$el"
+  else
+    echo "Problem generating $video.$el"
+  fi
+
+}
+
+
+########################## SCRIPT BODY ##########################
+
+
+# General set-up.
+general_setup
+# Read command line.
+read_command_line "$@"
+# Movie set-up.
+movie_setup
+# Generate frames.
+gen_frames
+# Generate video.
+gen_video

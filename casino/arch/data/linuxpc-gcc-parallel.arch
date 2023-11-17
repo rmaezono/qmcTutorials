@@ -1,0 +1,19 @@
+#-! DESCRIPTION: Multiprocessor Linux PC with GNU Compiler Collection's
+#-!  gfortran Fortran compiler
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 2.2007
+#-! ARCH: i?86, x86_64
+
+# Includes
+include $(INCBASE)/f90/gnu.arch
+include $(INCBASE)/cc/gnu.arch
+include $(INCBASE)/cxx/gnu.arch
+include $(INCBASE)/os/gnu-linux.arch
+
+# Main info
+TYPE = parallel
+
+# Compiler rename
+F90 = mpif90
+CC  = mpicc
+ENVIRONMENT_COMMAND = export OMPI_FC=gfortran OMPI_CC=gcc

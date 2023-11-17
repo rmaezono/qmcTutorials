@@ -1,0 +1,14 @@
+     Nickel Durand            ! Title
+     28.0 10.0                ! atomic number, effective nuclear charge
+     3                        ! no of components of the pseudo (s,p,d etc.)
+     2 1 4                    ! (no of Gaussians describing each component)
+     P0                       ! label
+     1.02153800     10.55013200  -1  !  (exponent, coefficient, power of r)
+     1.02153800     -1.01208800   2
+     P1
+     1.40000000     16.41825700   0
+     P2
+     2.73853000     -0.58105000  -2
+     2.73853000     -6.35383400  -1
+     2.73853000      6.65505900   0
+     2.73853000    -11.00888000   2

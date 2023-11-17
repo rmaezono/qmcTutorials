@@ -1,0 +1,5 @@
+PSEUDO CONVERTERS
+=================
+
+This directory contains utilities for converting pseudopotentials used
+by other codes into the format understood by CASINO.

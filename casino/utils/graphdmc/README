@@ -1,0 +1,42 @@
+GRAPHDMC
+--------
+Utility which reads the dmc.hist file and calls the plotting programs xmgr,
+xmgrace or gnuplot. This requires at least one of these to be set up on your
+machine:
+
+ http://plasma-gate.weizmann.ac.il/Grace/
+ http://www.gnuplot.info/
+
+Syntax:
+ graphdmc -h|--help
+ graphdmc [-g|--gnuplot] [-x|--fixnums] [<hist-file>]
+
+'graphdmc' produces 2 plots. The plot above shows the population against the
+number of moves, and the plot below shows the local energy, reference
+energy and the best estimate of the energy against the number of moves.
+
+If the '-x|--fixnums' option is supplied, graphdmc will copy the dmc.hist file
+to dmc.hist.temp first, adding an additional first column which gives the
+line number. The dmc.hist file normally has this already of course, but
+sometimes it is convenient to snip out chunks of data to improve the
+statistics, in which case graphdmc -x will still produce a nice plot
+whereas graphdmc won't. This option may also be used to plot very old
+formats of dmc.hist where the continuous line numbering was not included.
+
+If the '-g|--gnuplot' is supplied, graphdmc will try to use gnuplot by
+default, rather than xmgrace.
+
+If the PLOTTER environment variable is defined and points to a valid 
+binary of xmgrace or gnuplot, graphdmc will use this binary. This may 
+be useful if binary has a non-standard name or is not in the $PATH 
+environment variable. This might be used as follows:
+
+PLOTTER="/path/to/grace/grace5.1.1" graphdmc
+
+Specifying "-g" will always override the PLOTTER environment variable. 
+To force the use of a version of gnuplot that has a non-standard name 
+or is not on the $PATH, define the PLOTTER variable explicitly, without
+including the "-g" flag.
+
+Note that this utility used to be called 'graphit' - hence the symlink 
+in this directory for those who can't break the habit.

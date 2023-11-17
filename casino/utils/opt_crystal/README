@@ -1,0 +1,28 @@
+OPT_CRYSTAL
+===========
+Script to optimize CRYSTAL input parameters ('billy' replacement).
+
+To optimize a CRYSTAL input parameters, the user needs to edit the input
+file and flag each parameter by prepending a symbol to the number. The
+allowed symbols are:
+
+*    [asterisk]: the parameter is optimizable.
+**   [double asterisk]: like *, but the parameter is not allowed to change sign.
+n&   [positive integer, ampersand]: the parameter is optimizable and is in
+     group n. All parameters in a group are forced to have the same value.
+-n&  [negative integer, ampersand]: the parameters is optimizable and has minus
+     the value of the parameters in group n.
+n&&  [positive integer, double ampersand]: like n&, but the parameter is not
+     allowed to change sign.
+-n&& [negative integer, double ampersand]: like -n&,  but the parameter is not
+     allowed to change sign.
+
+Then the user should run 'opt_crystal <file-name>'. See 'opt_crystal -help'
+for more information.
+
+Notice that opt_crystal does not output any information on the process, but
+a log file is written that contains fairly verbose output. opt_crystal can
+be put in the background with Ctrl-Z followed by 'bg', and the log file can
+be viewed using 'tail -f <log-file-name>' as usual.
+
+PLR 11.2009

@@ -1,0 +1,79 @@
+#-------------------#
+# CASINO input file #
+#-------------------#
+
+# AlN ES (blip basis)
+
+# SYSTEM
+neu               : 8              #*! Number of up electrons (Integer)
+ned               : 8              #*! Number of down electrons (Integer)
+periodic          : T              #*! Periodic boundary conditions (Boolean)
+atom_basis_type   : blip           #*! Basis set type (Text)
+%block npcell
+1 1 1
+%endblock npcell
+psi_s             : slater         #*! Type of [anti]symmetrizing wfn (Text)
+complex_wf        : F              #*! Wave function real or complex (Boolean)
+
+# RUN
+runtype           : vmc_dmc        #*! Type of calculation (Text)
+newrun            : T              #*! New run or continue old (Boolean)
+testrun           : F              #*! Test run flag (Boolean)
+
+# VMC
+vmc_equil_nstep   : 1000           #*! Number of equilibration steps (Integer)
+vmc_nstep         : 5000           #*! Number of steps (Integer)
+vmc_nblock        : 1              #*! Number of checkpoints (Integer)
+vmc_nconfig_write : 512            #*! Number of configs to write (Integer)
+vmc_decorr_period : 10             #*! Decorrelation loop length (Integer)
+
+# DMC
+dmc_equil_nstep   : 100            #*! Number of steps (Integer)
+dmc_equil_nblock  : 1              #*! Number of checkpoints (Integer)
+dmc_stats_nstep   : 500            #*! Number of steps (Integer)
+dmc_stats_nblock  : 1              #*! Number of checkpoints (Integer)
+dmc_target_weight : 512.d0         #*! Total target weight in DMC (Real)
+dtdmc             : 0.01           #*! DMC time step (Real)
+use_tmove         : T              #*! Casula nl pp for DMC (Boolean)
+
+# RMC
+
+# OPTIMIZATION
+opt_method        : varmin_linjas  #*! Opt method (varmin/madmin/emin/...)
+opt_cycles        : 1              #*! Number of optimization cycles (Integer)
+opt_jastrow       : T              #*! Optimize Jastrow factor (Boolean)
+opt_det_coeff     : F              #*! Optimize determinant coeffs (Boolean)
+opt_backflow      : F              #*! Optimize backflow parameters (Boolean)
+opt_orbitals      : F              #*! Optimize orbital parameters (Boolean)
+
+# GENERAL PARAMETERS
+use_jastrow       : T              #*! Use a Jastrow function (Boolean)
+backflow          : F              #*! Use backflow corrections (Boolean)
+expot             : F              #*! Use external potential (Boolean)
+timing_info       : F              #*! Activate subroutine timers (Boolean)
+esupercell        : F              #*! Energy/supercell in output (Boolean)
+neighprint        : 0              #*! Neighbour analysis (Integer)
+mpc_cutoff        : 30.d0 hartree  #*! G vector cutoff for MPC (Physical)
+interaction       : ewald          #*! Interaction type (Text)
+finite_size_corr  : F              #*! Eval. finite size correction (Boolean)
+forces            : F              #*! Evaluate forces on atoms (Boolean)
+checkpoint        : 1              #*! Checkpoint level (Integer)
+hartree_xc        : F              #*! XC and Hartree if SF or MPC (Boolean)
+
+# EXPECTATION VALUES
+density           : F              #*! Accumulate density (Boolean)
+spin_density      : F              #*! Accumulate spin densities (Boolean)
+pair_corr         : F              #*! Accumulate rec. space PCF (Boolean)
+pair_corr_sph     : F              #*! Accumulate sph. real space PCF (Boolean)
+loc_tensor        : F              #*! Accumulate localization tensor (Boolean)
+structure_factor  : F              #*! Accumulate structure factor (Boolean)
+struc_factor_sph  : F              #*! Accumulate sph. struc. factor (Boolean)
+onep_density_mat  : F              #*! Accumulate 1p density matrix (Boolean)
+twop_density_mat  : F              #*! Accumulate 2p density matrix (Boolean)
+cond_fraction     : F              #*! Accumulate cond fraction (Boolean)
+dipole_moment     : F              #*! Accumulate elec. dipole moment (Boolean)
+expval_cutoff     : 30.d0 hartree  #*! G vector cutoff for expval (Physical)
+permit_den_symm   : F              #*! Symmetrize QMC charge data (Boolean)
+qmc_density_mpc   : F              #*! Use QMC density in MPC int (Boolean)
+
+# BLOCK INPUT

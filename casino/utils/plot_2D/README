@@ -1,0 +1,45 @@
+PLOT_2D
+=======
+
+This utility uses gnuplot to produce a colour map of a function
+produced by qmc_plot or plot_expval in 2D (or 3D) modes.
+
+Syntax:
+------
+
+2D_plot [-ps|-eps|-png|-jpeg] [--reverse] [--symmetric] [-nodes nodes_file]
+        [-parts parts_file] [2Dplot_file]
+
+Options explained:
+-----------------
+
+[-ps|-eps|-png|-jpeg] -> Write output in one of these formats
+[-nodes nodes_file]   -> This will plot the wf nodes contained in nodes_file
+                         (as produced by qmc_plotter) on top of the colour map.
+[-parts parts_file]   -> This will display the positions of the particles on
+                         top of the graph. These must be pasted from 'out'
+                         into parts_file (particle positions are only given
+                         for 'energy', 'wfn' and 'nodes' plots)
+[--reverse]           -> Reverse the colour gradient. Useful in some wfn
+                         plots, as the phase is arbitrary. Also '-r'
+[-xy|-xz|-yz]         -> Plot function versus XY, XZ or YZ. This ought to
+                         match the plane in which the plot was originally
+                         generated. Default is '-xy'.
+[-surf]               -> Plots 3D surface grid thing with peaks as well
+                         as the 2D pm3d colour contour map.
+[-noscale]            -> Don't scale the data by looking at min and max values.
+                         Often looks better than the default.
+[2Dplot_file]         -> Data file. Default is 2Dplot.dat .
+
+Notes:
+-----
+
+* 3D plots will be treated as 2D plots and the resulting graph (if
+  gnuplot does not crash) would correspond to the last layer of the
+  volume. There is no volume-to-plane projection feature.
+
+PLR 07.2005
+
+CHANGES
+-------
+MDT 05.2006 - added -surf and -noscale options.

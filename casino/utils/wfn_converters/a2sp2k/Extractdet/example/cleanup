@@ -1,0 +1,8 @@
+#!/bin/bash
+
+
+rm -f awfn.data correlation.data_foot
+rm -f fort.* *.log *.lst *.l
+rm -f cfg.h cfg.inp clist.new summry wfn.out wfn.inp
+
+

@@ -1,0 +1,15 @@
+MERGE_PWFN
+==========
+
+OBSOLETE
+
+Old versions of PWSCF (from February 2004 to sometime in 2010) were capable of
+writing out CASINO-formatted wavefunction files directly, but often
+produced a set of separate pwfn.datax [x=1,2,...] - one for each processor.
+This merge_pwfn.f90 utility was used to merge all of these together into a
+single pwfn.data file.
+
+PWSCF will now do this all by itself, so this utility is no longer required.
+
+MDT 3.2011
+

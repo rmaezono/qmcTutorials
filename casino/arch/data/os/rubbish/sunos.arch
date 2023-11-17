@@ -1,0 +1,6 @@
+#-! DESCRIPTION: SunOS, OpenIndiana, OpenSolaris, Solaris, ...
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 4.2003
+#-! KERNEL: SunOS
+#-! *CORES_PER_NODE:
+#-!  psrinfo -p

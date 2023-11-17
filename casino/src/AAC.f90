@@ -1,0 +1,1935 @@
+module slaarnaac
+use dsp
+use file_utils,  only : open_units
+use format_utils,only : wout,i2s
+use slaarnabu,     only : read_orbmods,eval_orbmods,setup_orbmods
+use run_control, only : errstop,errwarn,errstop2,check_alloc
+use store,       only : use_orbmods
+implicit none
+private
+public readawf,atomic_orb_eval,awfdet_setup,get_awfdet_orbmap,get_awfd&
+&et_orbdesc,get_awfdet_ndesc,get_awfdet_rmax
+integer xyzzyaaaa1(2),xyzzyaaab1
+integer xyzzyaaac1
+integer xyzzyaaad1
+integer xyzzyaaae1
+integer,parameter :: xyzzyaaaf1=8
+integer,parameter :: xyzzyaaag1=10
+integer,allocatable :: xyzzyaaah1(:,:,:,:)
+integer,allocatable :: xyzzyaaai1(:,:)
+integer,allocatable :: xyzzyaaaj1(:,:,:)
+integer,parameter :: xyzzyaaak1=3,xyzzyaaal1=0
+integer,allocatable :: xyzzyaaam1(:,:)
+integer,allocatable :: xyzzyaaan1(:)
+logical,allocatable :: xyzzyaaao1(:)
+real(dp) xyzzyaaap1
+real(dp),allocatable :: xyzzyaaaq1(:)
+real(dp),allocatable :: xyzzyaaar1(:,:)
+real(dp),allocatable :: xyzzyaaas1(:,:)
+real(dp) xyzzyaaat1,xyzzyaaau1,xyzzyaaav1,xyzzyaaaw1,xyzzyaaax1,xyzzya&
+&aay1,xyzzyaaaz1,xyzzyaaba1,xyzzyaabb1,xyzzyaabc1,xyzzyaabd1
+contains
+subroutine readawf
+use slaarnabg
+use parallel
+use slaarnabt, only : interp_nev
+use store, only : open_unit
+implicit none
+integer xyzzyaaaa2,xyzzyaaab2,xyzzyaaac2,xyzzyaaad2,xyzzyaaae2,xyzzyaa&
+&af2,xyzzyaaag2,xyzzyaaah2,xyzzyaaai2,xyzzyaaaj2,xyzzyaaak2,xyzzyaaal2
+real(dp) xyzzyaaam2,xyzzyaaan2
+character sp1
+character(80) sline,tmpr
+if(am_master)then
+call open_units(xyzzyaaaa2,xyzzyaaaj2)
+if(xyzzyaaaj2/=0)call errstop('READAWF','Unable to find free i/o unit'&
+&)
+open(xyzzyaaaa2,file='awfn.data',status='old',form='formatted',action=&
+&'read',iostat=xyzzyaaaj2)
+if(xyzzyaaaj2/=0)call errstop('READAWF','Error opening awfn.data.')
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,*,err=6,end=6)xyzzyaaai2
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,*,err=6,end=6)xyzzyaaac1
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,'(a)',err=6,end=6)sline
+read(sline,*,iostat=xyzzyaaaj2)xyzzyaaaa1(1),xyzzyaaaa1(2),xyzzyaaab1
+if(xyzzyaaaj2/=0)then
+read(sline,*,err=7,end=7)xyzzyaaaa1(1),xyzzyaaaa1(2)
+xyzzyaaab1=1
+endif
+allocate(xyzzyaaai1(3,xyzzyaaac1),xyzzyaaah1(3,max(xyzzyaaaa1(1),xyzzy&
+&aaaa1(2)),2,xyzzyaaab1),stat=xyzzyaaal2)
+call check_alloc(xyzzyaaal2,'READAWF','aw_orbdat_rad')
+xyzzyaaah1=0
+read(xyzzyaaaa2,*,err=6,end=6)
+do xyzzyaaah2=1,xyzzyaaab1
+do xyzzyaaab2=1,2
+do xyzzyaaac2=1,xyzzyaaaa1(xyzzyaaab2)
+read(xyzzyaaaa2,*,err=8,end=8)xyzzyaaad2,xyzzyaaah1(1,xyzzyaaac2,xyzzy&
+&aaab2,xyzzyaaah2),xyzzyaaah1(2,xyzzyaaac2,xyzzyaaab2,xyzzyaaah2),xyzz&
+&yaaah1(3,xyzzyaaac2,xyzzyaaab2,xyzzyaaah2)
+if(abs(xyzzyaaah1(3,xyzzyaaac2,xyzzyaaab2,xyzzyaaah2))>xyzzyaaah1(2,xy&
+&zzyaaac2,xyzzyaaab2,xyzzyaaah2))goto 9
+enddo
+enddo
+enddo
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,*,err=6,end=6)xyzzyaaae1
+read(xyzzyaaaa2,*,err=6,end=6)xyzzyaaam2
+if(xyzzyaaam2/=0.d0)then
+xyzzyaaae1=xyzzyaaae1+1
+xyzzyaaaf2=2
+else
+xyzzyaaaf2=1
+endif
+allocate(xyzzyaaaq1(xyzzyaaae1),xyzzyaaar1(xyzzyaaae1,xyzzyaaac1),stat&
+&=xyzzyaaal2)
+call check_alloc(xyzzyaaal2,'READAWF','aw_rgrid')
+xyzzyaaaq1(xyzzyaaaf2)=xyzzyaaam2
+do xyzzyaaae2=xyzzyaaaf2+1,xyzzyaaae1
+read(xyzzyaaaa2,*,err=6,end=6)xyzzyaaaq1(xyzzyaaae2)
+enddo
+do xyzzyaaag2=1,xyzzyaaac1
+read(xyzzyaaaa2,*,err=6,end=6)
+read(xyzzyaaaa2,*,err=10,end=6)xyzzyaaai1(1,xyzzyaaag2),xyzzyaaai1(2,x&
+&yzzyaaag2),xyzzyaaai1(3,xyzzyaaag2)
+do xyzzyaaae2=xyzzyaaaf2,xyzzyaaae1
+read(xyzzyaaaa2,*,err=11,end=6)xyzzyaaar1(xyzzyaaae2,xyzzyaaag2)
+if(xyzzyaaae2/=1)xyzzyaaar1(xyzzyaaae2,xyzzyaaag2)=xyzzyaaar1(xyzzyaaa&
+&e2,xyzzyaaag2)/xyzzyaaaq1(xyzzyaaae2)
+enddo
+enddo
+close(xyzzyaaaa2)
+open_unit(xyzzyaaaa2)=.false.
+do xyzzyaaag2=1,xyzzyaaac1
+if(xyzzyaaai1(3,xyzzyaaag2)==0)then
+xyzzyaaak2=xyzzyaaaf1+max(0,xyzzyaaai1(3,xyzzyaaag2)-2)
+call interp_nev(xyzzyaaaq1(2),xyzzyaaar1(2,xyzzyaaag2),xyzzyaaak2,0.d0&
+&,xyzzyaaar1(1,xyzzyaaag2),xyzzyaaan2)
+else
+xyzzyaaar1(1,xyzzyaaag2)=0.d0
+endif
+xyzzyaaaq1(1)=0.d0
+enddo
+xyzzyaaap1=xyzzyaaaq1(xyzzyaaae1)
+call wout()
+call wout('Atomic wave function:')
+call wout('  Num. orbitals in basis   : '//trim(i2s(xyzzyaaac1)))
+call wout('  Num. radial coefficients : '//trim(i2s(xyzzyaaae1)))
+call wout('  Max radius               : ',xyzzyaaap1,' a.u.',rfmt='(f7&
+&.2)',adjust=.true.)
+call wout()
+call wout('  Orbital spin  n  l')
+call wout('  ------------------')
+do xyzzyaaag2=1,xyzzyaaac1
+if(xyzzyaaai1(1,xyzzyaaag2)==0)then
+sp1='-'
+elseif(xyzzyaaai1(1,xyzzyaaag2)==1)then
+sp1='1'
+else
+sp1='2'
+endif
+write(tmpr,'(4x,i3,5x,a1,2x,i2,1x,i2)')xyzzyaaag2,sp1,xyzzyaaai1(2,xyz&
+&zyaaag2),xyzzyaaai1(3,xyzzyaaag2)
+call wout(tmpr)
+enddo
+call wout()
+endif
+call mpi_bcast(xyzzyaaac1,1,mpi_integer,0,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting aw_norb_rad in readawf')
+call mpi_bcast(xyzzyaaai2,1,mpi_integer,0,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting atn in readawf')
+call mpi_bcast(xyzzyaaaa1(1),2,mpi_integer,0,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting aw_nele in readawf')
+call mpi_bcast(xyzzyaaab1,1,mpi_integer,0,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting aw_ndet in readawf')
+call mpi_bcast(xyzzyaaae1,1,mpi_integer,0,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting aw_ncoef in readawf')
+if(am_slave)then
+allocate(xyzzyaaaq1(xyzzyaaae1),xyzzyaaar1(xyzzyaaae1,xyzzyaaac1),xyzz&
+&yaaai1(3,xyzzyaaac1),xyzzyaaah1(3,max(xyzzyaaaa1(1),xyzzyaaaa1(2)),2,&
+&xyzzyaaab1),stat=xyzzyaaal2)
+call check_alloc(xyzzyaaal2,'READAWF','aw_rgrid')
+endif
+call mpi_bcast(xyzzyaaai1,3*xyzzyaaac1,mpi_integer,0,mpi_comm_world,ie&
+&rror)
+call checkmpi(ierror,'Broadcasting aw_orbdat_rad in readawf')
+call mpi_bcast(xyzzyaaah1,3*2*max(xyzzyaaaa1(1),xyzzyaaaa1(2))*xyzzyaa&
+&ab1,mpi_integer,0,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting aw_ecfg in readawf')
+call mpi_bcast(xyzzyaaaq1,xyzzyaaae1,mpi_double_precision,0,mpi_comm_w&
+&orld,ierror)
+call checkmpi(ierror,'Broadcasting aw_rgrid in readawf')
+call mpi_bcast(xyzzyaaar1,xyzzyaaae1*xyzzyaaac1,mpi_double_precision,0&
+&,mpi_comm_world,ierror)
+call checkmpi(ierror,'Broadcasting aw_orb_rad in readawf')
+xyzzyaaap1=xyzzyaaaq1(xyzzyaaae1)
+allocate(basis(3,1),atno(1),stat=xyzzyaaal2)
+call check_alloc(xyzzyaaal2,'READAWF','basis')
+nbasis=1
+pa1(1)=500.d0
+pa1(2)=0.d0
+pa1(3)=0.d0
+pa2(1)=0.d0
+pa2(2)=500.d0
+pa2(3)=0.d0
+pa3(1)=0.d0
+pa3(2)=0.d0
+pa3(3)=500.d0
+basis(1,1)=0.d0
+basis(2,1)=0.d0
+basis(3,1)=0.d0
+atno(1)=xyzzyaaai2
+if(use_orbmods)call read_orbmods
+return
+6 call errstop('READAWF','Error reading awfn.data')
+7 call errstop('READAWF','Error reading no of electrons and determinan&
+&ts.')
+8 call wout('READAWF: Error reading atom electronic configuration')
+call wout('electron #'//trim(i2s(xyzzyaaac2))//' spin #'//trim(i2s(xyz&
+&zyaaab2))//' determinant #'//trim(i2s(xyzzyaaah2)))
+call errstop('READAWF','Quitting.')
+9 call wout('READAWF: Error reading atom electronic configuration')
+call wout('electron #'//trim(i2s(xyzzyaaac2))//' spin #'//trim(i2s(xyz&
+&zyaaab2))//' determinant #'//trim(i2s(xyzzyaaah2)))
+call wout('has m>|l|. hmm...')
+call errstop('READAWF','Quitting.')
+10 call errstop2('READAWF','Error reading orbital data for orbital: ',&
+&xyzzyaaag2)
+11 call wout('Error reading orbital : ')
+call wout('Orbital #'//trim(i2s(xyzzyaaag2))//' Coef#'//trim(i2s(xyzzy&
+&aaae2)))
+if(xyzzyaaae2>1)then
+call wout('Last coef #'//trim(i2s(xyzzyaaae2-1)))
+call wout('',xyzzyaaar1(xyzzyaaae2-1,xyzzyaaag2))
+endif
+call errstop('READAWF','Quitting.')
+end subroutine readawf
+subroutine awfdet_setup
+use parallel
+use store
+implicit none
+integer xyzzyaaaa3,xyzzyaaab3,xyzzyaaac3,xyzzyaaad3,xyzzyaaae3,xyzzyaa&
+&af3
+integer,allocatable :: xyzzyaaag3(:),xyzzyaaah3(:,:)
+logical xyzzyaaai3,xyzzyaaaj3
+character(80) tmpr
+if(am_master)then
+if(ndet/=xyzzyaaab1)call errstop('AWFDET_SETUP','The numbers of determ&
+&inants in the awfn.data file ('//trim(i2s(xyzzyaaab1))//') and in the&
+& MDET block in the correlation.data file ('//trim(i2s(ndet))//') do n&
+&ot agree.')
+if(nspin/=2)call errstop('AWFDET_SETUP','Numerical atomic orbitals onl&
+&y work for electrons at present.')
+if(any(nuc_nele>xyzzyaaaa1))call errstop('AWFDET_SETUP','Number of ele&
+&ctrons exceeds the stated number of electrons in awfn.data.')
+if(orb_norm/=1.d0)call errwarn('AWFDET_SETUP','orb_norm is ignored inn&
+&umerical orbitals.')
+endif
+allocate(xyzzyaaaj1(nemax,nspin,ndet),xyzzyaaao1(xyzzyaaac1),xyzzyaaas&
+&1(3,xyzzyaaac1),xyzzyaaam1(xyzzyaaak1,ndet*sum(xyzzyaaaa1)),xyzzyaaan&
+&1(ndet*sum(xyzzyaaaa1)),stat=xyzzyaaaf3)
+call check_alloc(xyzzyaaaf3,'AWFDET_SETUP','aw_orbmap,etc')
+xyzzyaaad1=0
+xyzzyaaaj1=0
+xyzzyaaam1=0
+xyzzyaaan1=0
+xyzzyaaaj3=dble(sum(nuc_nele))*dble(xyzzyaaab1)>1000.d0
+if(am_master)then
+call wout('Atomic configuration')
+call wout('====================')
+if(.not.xyzzyaaaj3)then
+call wout('Det   Elec. Spin n  l  m  idx')
+call wout('-----------------------------')
+else
+call wout('(Output too long, omitted.  See awfn.data file instead.)')
+endif
+endif
+do xyzzyaaaa3=1,xyzzyaaab1
+do xyzzyaaab3=1,nspin
+do xyzzyaaac3=1,nuc_nele(xyzzyaaab3)
+xyzzyaaai3=.false.
+do xyzzyaaad3=1,xyzzyaaad1
+if(all(xyzzyaaah1(1:3,xyzzyaaac3,xyzzyaaab3,xyzzyaaaa3)==xyzzyaaam1(1:&
+&3,xyzzyaaad3)))then
+xyzzyaaai3=.true.
+exit
+endif
+enddo
+if(.not.xyzzyaaai3)then
+xyzzyaaad1=xyzzyaaad1+1
+xyzzyaaad3=xyzzyaaad1
+xyzzyaaam1(1:3,xyzzyaaad1)=xyzzyaaah1(1:3,xyzzyaaac3,xyzzyaaab3,xyzzya&
+&aaa3)
+do xyzzyaaae3=1,xyzzyaaac1
+if(all(xyzzyaaai1(2:3,xyzzyaaae3)==xyzzyaaam1(1:2,xyzzyaaad1)))then
+xyzzyaaan1(xyzzyaaad3)=xyzzyaaae3
+exit
+endif
+enddo
+endif
+if(am_master.and..not.xyzzyaaaj3)then
+write(tmpr,'(i4,2x,i3,3x,i1,3x,i2,1x,i2,1x,i2,2x,i2)')xyzzyaaaa3,xyzzy&
+&aaac3,xyzzyaaab3,xyzzyaaah1(1,xyzzyaaac3,xyzzyaaab3,xyzzyaaaa3),xyzzy&
+&aaah1(2,xyzzyaaac3,xyzzyaaab3,xyzzyaaaa3),xyzzyaaah1(3,xyzzyaaac3,xyz&
+&zyaaab3,xyzzyaaaa3),xyzzyaaan1(xyzzyaaad3)
+call wout(tmpr)
+endif
+xyzzyaaaj1(xyzzyaaac3,xyzzyaaab3,xyzzyaaaa3)=xyzzyaaad3
+enddo
+enddo
+enddo
+if(am_master)call wout()
+allocate(xyzzyaaah3(3,xyzzyaaad1),stat=xyzzyaaaf3)
+call check_alloc(xyzzyaaaf3,'AWFDET_SETUP','itrf2')
+xyzzyaaah3(:,1:xyzzyaaad1)=xyzzyaaam1(:,1:xyzzyaaad1)
+deallocate(xyzzyaaam1)
+allocate(xyzzyaaam1(3,xyzzyaaad1),stat=xyzzyaaaf3)
+call check_alloc(xyzzyaaaf3,'AWFDET_SETUP','aw_orbdesc_int')
+xyzzyaaam1(:,1:xyzzyaaad1)=xyzzyaaah3(:,1:xyzzyaaad1)
+deallocate(xyzzyaaah3)
+allocate(xyzzyaaag3(xyzzyaaad1),stat=xyzzyaaaf3)
+call check_alloc(xyzzyaaaf3,'AWFDET_SETUP','itrf')
+xyzzyaaag3(1:xyzzyaaad1)=xyzzyaaan1(1:xyzzyaaad1)
+deallocate(xyzzyaaan1)
+allocate(xyzzyaaan1(xyzzyaaad1),stat=xyzzyaaaf3)
+call check_alloc(xyzzyaaaf3,'AWFDET_SETUP','orb2orb_rad')
+xyzzyaaan1(1:xyzzyaaad1)=xyzzyaaag3(1:xyzzyaaad1)
+deallocate(xyzzyaaag3)
+if(use_orbmods)call setup_orbmods(xyzzyaaac1,xyzzyaaai1)
+xyzzyaaav1=sqrt(3.d0)
+xyzzyaaaw1=sqrt(5.d0)
+xyzzyaaat1=xyzzyaaav1*xyzzyaaaw1
+xyzzyaaau1=0.5d0*xyzzyaaat1
+xyzzyaaax1=sqrt(7.d0/4.d0)
+xyzzyaaay1=sqrt(21.d0/8.d0)
+xyzzyaaaz1=sqrt(105.d0/4.d0)
+xyzzyaaba1=sqrt(35.d0/8.d0)
+xyzzyaabb1=sqrt(45.d0/8.d0)
+xyzzyaabd1=sqrt(35.d0)
+xyzzyaabc1=3.d0/8.d0
+end subroutine awfdet_setup
+subroutine atomic_orb_eval(rvec,jspin,norb,orbmask,val,fsd,orbval,orbg&
+&rad,orblap,orbsderivs)
+use parallel
+use store
+use slaarnabt, only : interp_nev_with_derivs,lookup
+use slaarnaca, only : have_ae,zion
+implicit none
+integer,intent(in) :: jspin,norb
+real(dp),intent(in) :: rvec(3)
+real(dp),intent(inout) :: orbval(norb,real1_complex2),orbgrad(3,norb,r&
+&eal1_complex2),orblap(norb,real1_complex2)
+real(dp),intent(inout),optional :: orbsderivs(6,norb,real1_complex2)
+logical,intent(in) :: val,fsd,orbmask(norb)
+integer xyzzyaaaa4,xyzzyaaab4,xyzzyaaac4,xyzzyaaad4,xyzzyaaae4,xyzzyaa&
+&af4
+logical xyzzyaaag4
+real(dp) xyzzyaaah4,xyzzyaaai4,xyzzyaaaj4,xyzzyaaak4,xyzzyaaal4,xyzzya&
+&aam4,xyzzyaaan4,xyzzyaaao4,xyzzyaaap4,xyzzyaaaq4,xyzzyaaar4,xyzzyaaas&
+&4,xyzzyaaat4,xyzzyaaau4,xyzzyaaav4,xyzzyaaaw4,xyzzyaaax4,xyzzyaaay4,x&
+&yzzyaaaz4,xyzzyaaba4,xyzzyaabb4,xyzzyaabc4,xyzzyaabd4,xyzzyaabe4,xyzz&
+&yaabf4,xyzzyaabg4,xyzzyaabh4,xyzzyaabi4,xyzzyaabj4,xyzzyaabk4,xyzzyaa&
+&bl4,xyzzyaabm4,xyzzyaabn4,xyzzyaabo4,xyzzyaabp4,xyzzyaabq4,xyzzyaabr4&
+&,xyzzyaabs4,xyzzyaabt4,xyzzyaabu4,xyzzyaabv4,xyzzyaabw4,xyzzyaabx4(xy&
+&zzyaaag1),xyzzyaaby4
+xyzzyaaah4=rvec(1)
+xyzzyaaai4=rvec(2)
+xyzzyaaaj4=rvec(3)
+xyzzyaaak4=xyzzyaaah4*xyzzyaaah4
+xyzzyaaan4=xyzzyaaai4*xyzzyaaai4
+xyzzyaaar4=xyzzyaaaj4*xyzzyaaaj4
+xyzzyaaaw4=xyzzyaaak4+xyzzyaaan4+xyzzyaaar4
+if(xyzzyaaaw4<xyzzyaaap1**2)then
+xyzzyaaal4=xyzzyaaak4*xyzzyaaak4
+xyzzyaaam4=xyzzyaaal4*xyzzyaaak4
+xyzzyaaao4=xyzzyaaan4*xyzzyaaai4
+xyzzyaaap4=xyzzyaaan4*xyzzyaaan4
+xyzzyaaaq4=xyzzyaaap4*xyzzyaaan4
+xyzzyaaas4=xyzzyaaar4*xyzzyaaaj4
+xyzzyaaat4=xyzzyaaar4*xyzzyaaar4
+xyzzyaaau4=xyzzyaaaj4*xyzzyaaat4
+xyzzyaaav4=xyzzyaaaj4*xyzzyaaau4
+xyzzyaaax4=sqrt(xyzzyaaaw4)
+xyzzyaabo4=xyzzyaaaw4*xyzzyaaaw4
+xyzzyaabn4=xyzzyaaaw4*xyzzyaaax4
+xyzzyaabp4=xyzzyaabo4*xyzzyaaax4
+xyzzyaabq4=xyzzyaabp4*xyzzyaaax4
+xyzzyaabe4=1.d0/xyzzyaaax4
+xyzzyaabf4=xyzzyaabe4*xyzzyaabe4
+xyzzyaabg4=xyzzyaabe4*xyzzyaabf4
+xyzzyaabh4=xyzzyaabf4*xyzzyaabf4
+xyzzyaabi4=xyzzyaabf4*xyzzyaabg4
+xyzzyaabj4=xyzzyaabg4*xyzzyaabg4
+xyzzyaabk4=xyzzyaabg4*xyzzyaabh4
+xyzzyaabl4=xyzzyaabh4*xyzzyaabh4
+xyzzyaabm4=xyzzyaabh4*xyzzyaabi4
+if(xyzzyaaax4==0.d0)then
+do xyzzyaaaa4=1,xyzzyaaad1
+xyzzyaaab4=xyzzyaaan1(xyzzyaaaa4)
+if(orbmask(xyzzyaaaa4))then
+if(xyzzyaaam1(2,xyzzyaaaa4)==0)then
+if(val)orbval(xyzzyaaaa4,:)=xyzzyaaar1(1,xyzzyaaab4)
+if(fsd)then
+orbgrad(:,xyzzyaaaa4,:)=0.d0
+if(present(orbsderivs))then
+orbsderivs(:,xyzzyaaaa4,:)=sqrt(huge(1.d0))
+else
+orblap(xyzzyaaaa4,:)=sqrt(huge(1.d0))
+endif
+endif
+else
+if(val)orbval(xyzzyaaaa4,:)=0.d0
+if(fsd)then
+orbgrad(:,xyzzyaaaa4,:)=0.d0
+if(present(orbsderivs))then
+orbsderivs(:,xyzzyaaaa4,:)=0.d0
+else
+orblap(xyzzyaaaa4,:)=0.d0
+endif
+endif
+endif
+endif
+enddo
+endif
+xyzzyaaao1=.false.
+xyzzyaaag4=.false.
+do xyzzyaaaa4=1,xyzzyaaad1
+xyzzyaaab4=xyzzyaaan1(xyzzyaaaa4)
+xyzzyaaad4=xyzzyaaam1(2,xyzzyaaaa4)
+xyzzyaaae4=xyzzyaaam1(3,xyzzyaaaa4)
+if(orbmask(xyzzyaaaa4).and..not.xyzzyaaao1(xyzzyaaab4))then
+xyzzyaaaf4=xyzzyaaaf1+max(0,xyzzyaaad4-2)
+if(.not.xyzzyaaag4)then
+call lookup(xyzzyaaaq1(1),xyzzyaaae1,xyzzyaaax4,xyzzyaaac4)
+xyzzyaaac4=min(max(xyzzyaaac4-(xyzzyaaaf4-1)/2,1),xyzzyaaae1+1-xyzzyaa&
+&af4)
+xyzzyaaag4=.true.
+endif
+if(xyzzyaaac4/=1)then
+call interp_nev_with_derivs(xyzzyaaaq1(xyzzyaaac4),xyzzyaaar1(xyzzyaaa&
+&c4,xyzzyaaab4),xyzzyaaaf4,xyzzyaaax4,xyzzyaaas1(1,xyzzyaaab4),xyzzyaa&
+&as1(2,xyzzyaaab4),xyzzyaaas1(3,xyzzyaaab4))
+else
+xyzzyaabu4=dble(xyzzyaaad4)
+xyzzyaabx4(2:xyzzyaaaf4-xyzzyaaad4+1)=xyzzyaaar1(2:xyzzyaaaf4-xyzzyaaa&
+&d4+1,xyzzyaaab4)/xyzzyaaaq1(2:xyzzyaaaf4-xyzzyaaad4+1)**xyzzyaaad4
+if(have_ae)then
+call interp_nev_with_derivs(xyzzyaaaq1(2),xyzzyaabx4(2),xyzzyaaaf4-xyz&
+&zyaaad4,0.d0,xyzzyaabr4,xyzzyaabs4,xyzzyaabt4)
+xyzzyaabv4=xyzzyaabr4
+xyzzyaabw4=-xyzzyaabv4*zion(1)/(xyzzyaabu4+1.d0)
+xyzzyaabx4(2:xyzzyaaaf4-xyzzyaaad4-1)=xyzzyaabx4(2:xyzzyaaaf4-xyzzyaaa&
+&d4-1)-xyzzyaabv4-xyzzyaabw4*xyzzyaaaq1(2:xyzzyaaaf4-xyzzyaaad4-1)
+xyzzyaabx4(2:xyzzyaaaf4-xyzzyaaad4-1)=xyzzyaabx4(2:xyzzyaaaf4-xyzzyaaa&
+&d4-1)/xyzzyaaaq1(2:xyzzyaaaf4-xyzzyaaad4-1)**2
+call interp_nev_with_derivs(xyzzyaaaq1(2),xyzzyaabx4(2),xyzzyaaaf4-xyz&
+&zyaaad4-2,xyzzyaaax4,xyzzyaabr4,xyzzyaabs4,xyzzyaabt4)
+xyzzyaabt4= 2.d0*xyzzyaabr4+4.d0*xyzzyaaax4*xyzzyaabs4+xyzzyaaax4**2*x&
+&yzzyaabt4
+xyzzyaabs4 = 2.d0*xyzzyaaax4*xyzzyaabr4+xyzzyaaax4**2*xyzzyaabs4+xyzzy&
+&aabw4
+xyzzyaabr4  = xyzzyaaax4**2*xyzzyaabr4          +xyzzyaabw4*xyzzyaaax4&
+&+xyzzyaabv4
+else
+call interp_nev_with_derivs(xyzzyaaaq1(2),xyzzyaabx4(2),xyzzyaaaf4-xyz&
+&zyaaad4,xyzzyaaax4,xyzzyaabr4,xyzzyaabs4,xyzzyaabt4)
+endif
+if(xyzzyaaad4==0)then
+xyzzyaaas1(1,xyzzyaaab4)=xyzzyaabr4
+xyzzyaaas1(2,xyzzyaaab4)=xyzzyaabs4
+xyzzyaaas1(3,xyzzyaaab4)=xyzzyaabt4
+elseif(xyzzyaaad4==1)then
+xyzzyaaas1(1,xyzzyaaab4)=xyzzyaaax4*xyzzyaabr4
+xyzzyaaas1(2,xyzzyaaab4)=xyzzyaaax4*xyzzyaabs4+xyzzyaabr4
+xyzzyaaas1(3,xyzzyaaab4)=xyzzyaaax4*xyzzyaabt4+2.d0*xyzzyaabs4
+else
+xyzzyaaas1(1,xyzzyaaab4)=xyzzyaaax4**xyzzyaaad4*xyzzyaabr4
+xyzzyaaas1(2,xyzzyaaab4)=xyzzyaaax4**xyzzyaaad4*xyzzyaabs4+xyzzyaabu4*&
+&xyzzyaaax4**(xyzzyaaad4-1)*xyzzyaabr4
+xyzzyaaas1(3,xyzzyaaab4)=xyzzyaaax4**xyzzyaaad4*xyzzyaabt4+2.d0*xyzzya&
+&abu4*xyzzyaaax4**(xyzzyaaad4-1)*xyzzyaabs4+xyzzyaabu4*(xyzzyaabu4-1.d&
+&0)*xyzzyaaax4**(xyzzyaaad4-2)*xyzzyaabr4
+endif
+endif
+xyzzyaaao1(xyzzyaaab4)=.true.
+if(use_orbmods)then
+call eval_orbmods(xyzzyaaax4,jspin,xyzzyaaab4,xyzzyaabb4,xyzzyaabc4,xy&
+&zzyaabd4)
+xyzzyaaas1(1,xyzzyaaab4)=xyzzyaaas1(1,xyzzyaaab4)+xyzzyaabb4
+xyzzyaaas1(2,xyzzyaaab4)=xyzzyaaas1(2,xyzzyaaab4)+xyzzyaabc4
+xyzzyaaas1(3,xyzzyaaab4)=xyzzyaaas1(3,xyzzyaaab4)+xyzzyaabd4
+endif
+endif
+if(val)then
+if(xyzzyaaad4==0)then
+orbval(xyzzyaaaa4,1)=xyzzyaaas1(1,xyzzyaaab4)
+elseif(xyzzyaaad4==1)then
+if(xyzzyaaae4==0)then
+orbval(xyzzyaaaa4,1)=xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaaj4*xyzzyaabe4*xy&
+&zzyaaav1
+elseif(xyzzyaaae4>0)then
+orbval(xyzzyaaaa4,1)=xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaah4*xyzzyaabe4*xy&
+&zzyaaav1
+else
+orbval(xyzzyaaaa4,1)=xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaai4*xyzzyaabe4*xy&
+&zzyaaav1
+endif
+elseif(xyzzyaaad4==2)then
+if(xyzzyaaae4==2)then
+orbval(xyzzyaaaa4,1)=xyzzyaaau1*(xyzzyaaak4-xyzzyaaan4)*xyzzyaaas1(1,x&
+&yzzyaaab4)*xyzzyaabf4
+elseif(xyzzyaaae4==1)then
+orbval(xyzzyaaaa4,1)=xyzzyaaah4*xyzzyaaaj4*xyzzyaaas1(1,xyzzyaaab4)*xy&
+&zzyaabf4*xyzzyaaat1
+elseif(xyzzyaaae4==0)then
+orbval(xyzzyaaaa4,1)=(2*xyzzyaaar4-xyzzyaaak4-xyzzyaaan4)*xyzzyaaas1(1&
+&,xyzzyaaab4)*xyzzyaabf4*0.5d0*xyzzyaaaw1
+elseif(xyzzyaaae4==-1)then
+orbval(xyzzyaaaa4,1)=xyzzyaaai4*xyzzyaaaj4*xyzzyaaas1(1,xyzzyaaab4)*xy&
+&zzyaabf4*xyzzyaaat1
+else
+orbval(xyzzyaaaa4,1)=xyzzyaaah4*xyzzyaaai4*xyzzyaaas1(1,xyzzyaaab4)*xy&
+&zzyaabf4*xyzzyaaat1
+endif
+elseif(xyzzyaaad4==3)then
+if(xyzzyaaae4==3)then
+orbval(xyzzyaaaa4,1)=xyzzyaaba1*xyzzyaaah4*(xyzzyaaak4-3.d0*xyzzyaaan4&
+&)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4
+elseif(xyzzyaaae4==2)then
+orbval(xyzzyaaaa4,1)=xyzzyaaaz1*xyzzyaaaj4*(xyzzyaaak4-xyzzyaaan4)*xyz&
+&zyaaas1(1,xyzzyaaab4)*xyzzyaabg4
+elseif(xyzzyaaae4==1)then
+orbval(xyzzyaaaa4,1)=xyzzyaaay1*xyzzyaaah4*(5.d0*xyzzyaaar4-xyzzyaaaw4&
+&)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4
+elseif(xyzzyaaae4==0)then
+orbval(xyzzyaaaa4,1)=xyzzyaaax1*xyzzyaaaj4*(5.d0*xyzzyaaar4-3.d0*xyzzy&
+&aaaw4)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4
+elseif(xyzzyaaae4==-1)then
+orbval(xyzzyaaaa4,1)=xyzzyaaay1*xyzzyaaai4*(5.d0*xyzzyaaar4-xyzzyaaaw4&
+&)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4
+elseif(xyzzyaaae4==-2)then
+orbval(xyzzyaaaa4,1)=xyzzyaaaz1*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4*xyzzy&
+&aaas1(1,xyzzyaaab4)*xyzzyaabg4
+else
+orbval(xyzzyaaaa4,1)=xyzzyaaba1*xyzzyaaai4*(3.d0*xyzzyaaak4-xyzzyaaan4&
+&)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4
+endif
+elseif(xyzzyaaad4==4)then
+if(xyzzyaaae4==4)then
+orbval(xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*xyzzyaaas1(1,xyzzyaaab4)*(x&
+&yzzyaaal4-6.d0*xyzzyaaak4*xyzzyaaan4+xyzzyaaap4)*xyzzyaabh4
+elseif(xyzzyaaae4==3)then
+orbval(xyzzyaaaa4,1)=-3.d0*xyzzyaaba1*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaa&
+&ah4*(xyzzyaaak4-3.d0*xyzzyaaan4)*xyzzyaaaj4*xyzzyaabh4
+elseif(xyzzyaaae4==2)then
+orbval(xyzzyaaaa4,1)=-0.75d0*xyzzyaaaw1*xyzzyaaas1(1,xyzzyaaab4)*(xyzz&
+&yaaak4-xyzzyaaan4)*(xyzzyaaak4+xyzzyaaan4-6.d0*xyzzyaaar4)*xyzzyaabh4
+elseif(xyzzyaaae4==1)then
+orbval(xyzzyaaaa4,1)=-xyzzyaabb1*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaah4*&
+&xyzzyaaaj4*(-3.d0+(7.d0*xyzzyaaar4)*xyzzyaabf4))*xyzzyaabf4
+elseif(xyzzyaaae4==0)then
+orbval(xyzzyaaaa4,1)=xyzzyaabc1*(3.d0-30.d0*xyzzyaaar4*xyzzyaabf4+35.d&
+&0*xyzzyaaat4*xyzzyaabh4)*xyzzyaaas1(1,xyzzyaaab4)
+elseif(xyzzyaaae4==-1)then
+orbval(xyzzyaaaa4,1)=xyzzyaabb1*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaai4*xy&
+&zzyaaaj4*(3.d0*xyzzyaaak4+3.d0*xyzzyaaan4-4.d0*xyzzyaaar4)*xyzzyaabh4
+elseif(xyzzyaaae4==-2)then
+orbval(xyzzyaaaa4,1)=-1.5d0*xyzzyaaaw1*xyzzyaaas1(1,xyzzyaaab4)*xyzzya&
+&aah4*xyzzyaaai4*(xyzzyaaak4+xyzzyaaan4-6.d0*xyzzyaaar4)*xyzzyaabh4
+elseif(xyzzyaaae4==-3)then
+orbval(xyzzyaaaa4,1)=3.d0*xyzzyaaba1*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaa&
+&i4*(-3.d0*xyzzyaaak4+xyzzyaaan4)*xyzzyaaaj4*xyzzyaabh4
+else
+orbval(xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaa&
+&ah4*xyzzyaaai4*(xyzzyaaak4-xyzzyaaan4)*xyzzyaabh4
+endif
+endif
+endif
+if(fsd)then
+if(xyzzyaaad4==0)then
+xyzzyaaay4=xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabe4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaay4*xyzzyaaah4
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaay4*xyzzyaaai4
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaay4*xyzzyaaaj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaas1(3,xyzzyaaab4)+2.d0*xyzzyaaay4
+else
+orbsderivs(1,xyzzyaaaa4,1)=(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzya&
+&aak4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaan4+xyzzyaaar4))*xyzzyaabg4
+orbsderivs(2,xyzzyaaaa4,1)=(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzya&
+&aan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaak4+xyzzyaaar4))*xyzzyaabg4
+orbsderivs(3,xyzzyaaaa4,1)=(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaak4+xyzzy&
+&aaan4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4)*xyzzyaabg4
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaah4*xyzzyaaai4*(xyzzyaaas1(3,xyzzyaa&
+&ab4)*xyzzyaaax4-xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaah4*xyzzyaaaj4*(xyzzyaaas1(3,xyzzyaa&
+&ab4)*xyzzyaaax4-xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaai4*xyzzyaaaj4*(xyzzyaaas1(3,xyzzyaa&
+&ab4)*xyzzyaaax4-xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4
+endif
+elseif(xyzzyaaad4==1)then
+if(xyzzyaaae4==-1)then
+xyzzyaaaz4=(xyzzyaaas1(2,xyzzyaaab4)-xyzzyaaas1(1,xyzzyaaab4)*xyzzyaab&
+&e4)*xyzzyaabf4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaaz4*xyzzyaaai4*xyzzyaaah4*xyzzyaaav1
+orbgrad(2,xyzzyaaaa4,1)=(xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(1,xyzzyaaab4&
+&)*xyzzyaabe4)*xyzzyaaav1
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaaz4*xyzzyaaai4*xyzzyaaaj4*xyzzyaaav1
+xyzzyaaba4=xyzzyaaas1(3,xyzzyaaab4)+2.d0*(xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaabe4-xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaai4*xyzzyaaba4*xyzzyaabe4*xyzzyaaav1
+else
+xyzzyaaby4=xyzzyaaav1*xyzzyaabi4
+orbsderivs(1,xyzzyaaaa4,1)=(xyzzyaaby4*xyzzyaaai4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaak4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaak4*xyzzyaaas1(3,xyzzyaaab4)))
+orbsderivs(2,xyzzyaaaa4,1)=(xyzzyaaby4*xyzzyaaai4*(3.d0*(xyzzyaaaw4-xy&
+&zzyaaan4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaan4*xyzzyaaas1(3,xyzzyaaab4)))
+orbsderivs(3,xyzzyaaaa4,1)=(xyzzyaaby4*xyzzyaaai4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaar4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaar4*xyzzyaaas1(3,xyzzyaaab4)))
+orbsderivs(4,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaah4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaan4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaan4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(5,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj&
+&4*(3.d0*xyzzyaaas1(1,xyzzyaaab4)-3.d0*xyzzyaaax4*xyzzyaaas1(2,xyzzyaa&
+&ab4)+xyzzyaaaw4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(6,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaaj4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaan4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaan4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+endif
+elseif(xyzzyaaae4>0)then
+xyzzyaaaz4=(xyzzyaaas1(2,xyzzyaaab4)-xyzzyaaas1(1,xyzzyaaab4)*xyzzyaab&
+&e4)*xyzzyaabf4
+orbgrad(1,xyzzyaaaa4,1)=(xyzzyaaaz4*xyzzyaaak4+xyzzyaaas1(1,xyzzyaaab4&
+&)*xyzzyaabe4)*xyzzyaaav1
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaaz4*xyzzyaaah4*xyzzyaaai4*xyzzyaaav1
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaaz4*xyzzyaaah4*xyzzyaaaj4*xyzzyaaav1
+xyzzyaaba4=xyzzyaaas1(3,xyzzyaaab4)+2.d0*(xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaabe4-xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaah4*xyzzyaaba4*xyzzyaabe4*xyzzyaaav1
+else
+orbsderivs(1,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaah4*(3.d0*(xyzzyaaaw4-xy&
+&zzyaaak4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaak4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(2,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaah4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaan4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaan4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(3,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaah4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaar4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaar4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(4,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaai4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaak4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaak4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(5,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaaj4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaak4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaak4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(6,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj&
+&4*(3.d0*xyzzyaaas1(1,xyzzyaaab4)-3.d0*xyzzyaaax4*xyzzyaaas1(2,xyzzyaa&
+&ab4)+xyzzyaaaw4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+endif
+else
+xyzzyaaaz4=(xyzzyaaas1(2,xyzzyaaab4)-xyzzyaaas1(1,xyzzyaaab4)*xyzzyaab&
+&e4)*xyzzyaabf4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaaz4*xyzzyaaaj4*xyzzyaaah4*xyzzyaaav1
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaaz4*xyzzyaaaj4*xyzzyaaai4*xyzzyaaav1
+orbgrad(3,xyzzyaaaa4,1)=(xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(1,xyzzyaaab4&
+&)*xyzzyaabe4)*xyzzyaaav1
+xyzzyaaba4=xyzzyaaas1(3,xyzzyaaab4)+2.d0*(xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaabe4-xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaaj4*xyzzyaaba4*xyzzyaabe4*xyzzyaaav1
+else
+xyzzyaaby4=xyzzyaaav1*xyzzyaabi4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*((-(xyzzyaaas1(1,xyzzyaaab4)*(xy&
+&zzyaaaw4-3.d0*xyzzyaaak4))+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzy&
+&aaaw4-3.d0*xyzzyaaak4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaak4&
+&)*xyzzyaaaj4)
+orbsderivs(2,xyzzyaaaa4,1)=(xyzzyaaav1*xyzzyaaaj4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaan4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaan4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabi4
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzya&
+&aaw4*xyzzyaaas4+3.d0*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaj4*(&
+&xyzzyaaaw4-xyzzyaaar4)+xyzzyaaas1(1,xyzzyaaab4)*(-3.d0*xyzzyaaaw4*xyz&
+&zyaaaj4+3.d0*xyzzyaaas4))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*xyzzyaaai4*xyzzyaaaj&
+&4*(3.d0*xyzzyaaas1(1,xyzzyaaab4)-3.d0*xyzzyaaax4*xyzzyaaas1(2,xyzzyaa&
+&ab4)+xyzzyaaaw4*xyzzyaaas1(3,xyzzyaaab4)))
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(-(xyzzyaaas1(1,xyzz&
+&yaaab4)*(xyzzyaaaw4-3.d0*xyzzyaaar4))+xyzzyaaas1(2,xyzzyaaab4)*xyzzya&
+&aax4*(xyzzyaaaw4-3.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4&
+&*xyzzyaaar4))
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaai4*((xyzzyaaaw4-3.d0*xy&
+&zzyaaar4)*(-xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*xyzzyaaas1(2,xyzzyaaa&
+&b4))+xyzzyaaaw4*xyzzyaaar4*xyzzyaaas1(3,xyzzyaaab4)))
+endif
+endif
+elseif(xyzzyaaad4==2)then
+if(xyzzyaaae4==-2)then
+orbgrad(1,xyzzyaaaa4,1)=(xyzzyaaak4*xyzzyaaai4*(-2.d0*xyzzyaaas1(1,xyz&
+&zyaaab4)*xyzzyaabe4+xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4+xyzzyaaai4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4)*xyzzyaaat1
+orbgrad(2,xyzzyaaaa4,1)=(xyzzyaaah4*xyzzyaaan4*(-2.d0*xyzzyaaas1(1,xyz&
+&zyaaab4)*xyzzyaabe4+xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4+xyzzyaaah4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4)*xyzzyaaat1
+orbgrad(3,xyzzyaaaa4,1)=(-2.d0*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabe4+xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4*xyzzya&
+&aas1(2,xyzzyaaab4))*xyzzyaabg4*xyzzyaaat1
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=(-6.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4+2.d0*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabe4+xyzzyaaas1(3,xyzzyaaab4))*xyzzyaaa&
+&h4*xyzzyaaai4*xyzzyaabf4*xyzzyaaat1
+else
+orbsderivs(1,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*xyzzyaaai4*((-6.d0*x&
+&yzzyaaaw4+8.d0*xyzzyaaak4)*xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*(3.d0*&
+&xyzzyaaaw4-5.d0*xyzzyaaak4)*xyzzyaaas1(2,xyzzyaaab4)+xyzzyaaaw4*xyzzy&
+&aaak4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabj4
+orbsderivs(2,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*xyzzyaaai4*((-6.d0*x&
+&yzzyaaaw4+8.d0*xyzzyaaan4)*xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*(3.d0*&
+&xyzzyaaaw4-5.d0*xyzzyaaan4)*xyzzyaaas1(2,xyzzyaaab4)+xyzzyaaaw4*xyzzy&
+&aaan4*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabj4
+orbsderivs(3,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*xyzzyaaai4*(-2.d0*(x&
+&yzzyaaaw4-4.d0*xyzzyaaar4)*xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*(xyzzy&
+&aaaw4-5.d0*xyzzyaaar4)*xyzzyaaas1(2,xyzzyaaab4)+xyzzyaaaw4*xyzzyaaar4&
+&*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabj4
+orbsderivs(4,xyzzyaaaa4,1)=(xyzzyaaat1*((xyzzyaabo4+8.d0*xyzzyaaak4*xy&
+&zzyaaan4-2.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan4))*xyzzyaaas1(1,xyzzya&
+&aab4)+xyzzyaaax4*(xyzzyaaaw4*xyzzyaaak4+(xyzzyaaaw4-5.d0*xyzzyaaak4)*&
+&xyzzyaaan4)*xyzzyaaas1(2,xyzzyaaab4)+xyzzyaaaw4*xyzzyaaak4*xyzzyaaan4&
+&*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabj4
+orbsderivs(5,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaai4*xyzzyaaaj4*(-2.d0*(x&
+&yzzyaaaw4-4.d0*xyzzyaaak4)*xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*(xyzzy&
+&aaaw4-5.d0*xyzzyaaak4)*xyzzyaaas1(2,xyzzyaaab4)+xyzzyaaaw4*xyzzyaaak4&
+&*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabj4
+orbsderivs(6,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*xyzzyaaaj4*(-2.d0*(x&
+&yzzyaaaw4-4.d0*xyzzyaaan4)*xyzzyaaas1(1,xyzzyaaab4)+xyzzyaaax4*(xyzzy&
+&aaaw4-5.d0*xyzzyaaan4)*xyzzyaaas1(2,xyzzyaaab4)+xyzzyaaaw4*xyzzyaaan4&
+&*xyzzyaaas1(3,xyzzyaaab4)))*xyzzyaabj4
+endif
+elseif(xyzzyaaae4==1)then
+orbgrad(1,xyzzyaaaa4,1)=(xyzzyaaak4*xyzzyaaaj4*(-2*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaabe4+xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4+xyzzyaaaj4*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabf4)*xyzzyaaat1
+orbgrad(2,xyzzyaaaa4,1)=(-2.d0*xyzzyaaah4*xyzzyaaaj4*xyzzyaaai4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabe4+xyzzyaaah4*xyzzyaaaj4*xyzzyaaai4*xyzzya&
+&aas1(2,xyzzyaaab4))*xyzzyaabg4*xyzzyaaat1
+orbgrad(3,xyzzyaaaa4,1)=(xyzzyaaah4*xyzzyaaar4*(-2*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaabe4+xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4+xyzzyaaah4*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabf4)*xyzzyaaat1
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=(-6.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4+2.d0*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabe4+xyzzyaaas1(3,xyzzyaaab4))*xyzzyaaa&
+&h4*xyzzyaaaj4*xyzzyaabf4*xyzzyaaat1
+else
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaat1*xyzzyaaah4*xyzzyaaaj4*((2.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*(xyzzyaaak4-3.d0*(xyzzyaaan4+xyzzyaaar4)))*xyzz&
+&yaabj4+(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4+xyzzyaaas1(2,x&
+&yzzyaaab4)*(-2.d0*xyzzyaaak4+3.d0*(xyzzyaaan4+xyzzyaaar4)))*xyzzyaabi&
+&4)
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaat1*xyzzyaaah4*xyzzyaaaj4*((-2.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*(xyzzyaaak4-3.d0*xyzzyaaan4+xyzzyaaar4))*xyzzy&
+&aabj4+(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4+xyzzyaaas1(2,xy&
+&zzyaaab4)*(xyzzyaaak4-4.d0*xyzzyaaan4+xyzzyaaar4))*xyzzyaabi4)
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaat1*xyzzyaaah4*xyzzyaaaj4*((2.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*(-3.d0*(xyzzyaaak4+xyzzyaaan4)+xyzzyaaar4))*xyz&
+&zyaabj4+(xyzzyaaas1(2,xyzzyaaab4)*(3.d0*(xyzzyaaak4+xyzzyaaan4)-2.d0*&
+&xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4)*xyzzyaabi&
+&4)
+orbsderivs(4,xyzzyaaaa4,1)=(xyzzyaaat1*(xyzzyaaas1(2,xyzzyaaab4)*xyzzy&
+&aaax4*(xyzzyaaaw4-5.d0*xyzzyaaak4)-2.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyz&
+&zyaaaw4-4.d0*xyzzyaaak4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaa&
+&k4)*xyzzyaaai4*xyzzyaaaj4)*xyzzyaabj4
+orbsderivs(5,xyzzyaaaa4,1)=(xyzzyaaat1*(xyzzyaaas1(1,xyzzyaaab4)*(xyzz&
+&yaabo4+8.d0*xyzzyaaak4*xyzzyaaar4-2.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaa&
+&ar4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*xyzz&
+&yaaar4+xyzzyaaas1(2,xyzzyaaab4)*(-5.d0*xyzzyaaak4*xyzzyaaar4+xyzzyaaa&
+&w4*(xyzzyaaak4+xyzzyaaar4)))))*xyzzyaabj4
+orbsderivs(6,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*xyzzyaaai4*(xyzzyaaa&
+&s1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4-5.d0*xyzzyaaar4)-2.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4-4.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab&
+&4)*xyzzyaaaw4*xyzzyaaar4))*xyzzyaabj4
+endif
+elseif(xyzzyaaae4==-1)then
+orbgrad(1,xyzzyaaaa4,1)=(-2.d0*xyzzyaaai4*xyzzyaaaj4*xyzzyaaah4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabe4+xyzzyaaai4*xyzzyaaaj4*xyzzyaaah4*xyzzya&
+&aas1(2,xyzzyaaab4))*xyzzyaabg4*xyzzyaaat1
+orbgrad(2,xyzzyaaaa4,1)=(xyzzyaaan4*xyzzyaaaj4*(-2*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaabe4+xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4+xyzzyaaaj4*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabf4)*xyzzyaaat1
+orbgrad(3,xyzzyaaaa4,1)=(xyzzyaaai4*xyzzyaaar4*(-2*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaabe4+xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4+xyzzyaaai4*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabf4)*xyzzyaaat1
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=(-6.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabf4+2.d0*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabe4+xyzzyaaas1(3,xyzzyaaab4))*xyzzyaaa&
+&i4*xyzzyaaaj4*xyzzyaabf4*xyzzyaaat1
+else
+orbsderivs(1,xyzzyaaaa4,1)=(xyzzyaaat1*(xyzzyaaas1(2,xyzzyaaab4)*xyzzy&
+&aaax4*(xyzzyaaaw4-5.d0*xyzzyaaak4)-2.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyz&
+&zyaaaw4-4.d0*xyzzyaaak4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaa&
+&k4)*xyzzyaaai4*xyzzyaaaj4)*xyzzyaabj4
+orbsderivs(2,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaai4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaaw4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0&
+&*xyzzyaaaw4-5.d0*xyzzyaaan4)+xyzzyaaas1(1,xyzzyaaab4)*(-6.d0*xyzzyaaa&
+&w4+8.d0*xyzzyaaan4))*xyzzyaaaj4)*xyzzyaabj4
+orbsderivs(3,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaai4*xyzzyaaaj4*(xyzzyaaa&
+&s1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*xyzzy&
+&aaax4*(3.d0*xyzzyaaaw4-5.d0*xyzzyaaar4)+xyzzyaaas1(1,xyzzyaaab4)*(-6.&
+&d0*xyzzyaaaw4+8.d0*xyzzyaaar4)))*xyzzyaabj4
+orbsderivs(4,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*(xyzzyaaas1(2,xyzzya&
+&aab4)*xyzzyaaax4*(xyzzyaaaw4-5.d0*xyzzyaaan4)-2.d0*xyzzyaaas1(1,xyzzy&
+&aaab4)*(xyzzyaaaw4-4.d0*xyzzyaaan4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaa&
+&w4*xyzzyaaan4)*xyzzyaaaj4)*xyzzyaabj4
+orbsderivs(5,xyzzyaaaa4,1)=(xyzzyaaat1*xyzzyaaah4*xyzzyaaai4*(xyzzyaaa&
+&s1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4-5.d0*xyzzyaaar4)-2.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4-4.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab&
+&4)*xyzzyaaaw4*xyzzyaaar4))*xyzzyaabj4
+orbsderivs(6,xyzzyaaaa4,1)=(xyzzyaaat1*(xyzzyaaas1(1,xyzzyaaab4)*(xyzz&
+&yaabo4+8.d0*xyzzyaaan4*xyzzyaaar4-2.d0*xyzzyaaaw4*(xyzzyaaan4+xyzzyaa&
+&ar4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*xyzz&
+&yaaar4+xyzzyaaas1(2,xyzzyaaab4)*(-5.d0*xyzzyaaan4*xyzzyaaar4+xyzzyaaa&
+&w4*(xyzzyaaan4+xyzzyaaar4)))))*xyzzyaabj4
+endif
+elseif(xyzzyaaae4==0)then
+orbgrad(1,xyzzyaaaa4,1)=((2.d0*xyzzyaaak4*xyzzyaaah4+2.d0*xyzzyaaah4*x&
+&yzzyaaan4-4.d0*xyzzyaaah4*xyzzyaaar4-2.d0*xyzzyaaah4*xyzzyaaaw4)*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabe4+(-xyzzyaaak4*xyzzyaaah4-xyzzyaaah4*xy&
+&zzyaaan4+2.d0*xyzzyaaah4*xyzzyaaar4)*xyzzyaaas1(2,xyzzyaaab4))*xyzzya&
+&abg4*0.5d0*xyzzyaaaw1
+orbgrad(2,xyzzyaaaa4,1)=((2.d0*xyzzyaaak4*xyzzyaaai4+2.d0*xyzzyaaan4*x&
+&yzzyaaai4-4.d0*xyzzyaaai4*xyzzyaaar4-2.d0*xyzzyaaai4*xyzzyaaaw4)*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabe4+(-xyzzyaaak4*xyzzyaaai4-xyzzyaaan4*xy&
+&zzyaaai4+2.d0*xyzzyaaai4*xyzzyaaar4)*xyzzyaaas1(2,xyzzyaaab4))*xyzzya&
+&abg4*0.5d0*xyzzyaaaw1
+orbgrad(3,xyzzyaaaa4,1)=((2.d0*xyzzyaaak4*xyzzyaaaj4+2.d0*xyzzyaaan4*x&
+&yzzyaaaj4-4.d0*xyzzyaaar4*xyzzyaaaj4+4.d0*xyzzyaaaj4*xyzzyaaaw4)*xyzz&
+&yaaas1(1,xyzzyaaab4)*xyzzyaabe4+(-xyzzyaaak4*xyzzyaaaj4-xyzzyaaan4*xy&
+&zzyaaaj4+2.d0*xyzzyaaar4*xyzzyaaaj4)*xyzzyaaas1(2,xyzzyaaab4))*xyzzya&
+&abg4*0.5d0*xyzzyaaaw1
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=((6.d0*(xyzzyaaak4+xyzzyaaan4-2d0*xyzzyaaar4))*xy&
+&zzyaaas1(1,xyzzyaaab4)+(5.d0*(xyzzyaaak4*xyzzyaaak4+2.d0*xyzzyaaak4*x&
+&yzzyaaan4-xyzzyaaak4*xyzzyaaar4+xyzzyaaan4*xyzzyaaan4-xyzzyaaan4*xyzz&
+&yaaar4-2.d0*xyzzyaaar4*xyzzyaaar4)+7.d0*(2.d0*xyzzyaaar4-xyzzyaaak4-x&
+&yzzyaaan4)*xyzzyaaaw4)*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabe4+(2.d0*xyzz&
+&yaaar4*xyzzyaaar4-xyzzyaaak4*xyzzyaaak4-xyzzyaaan4*xyzzyaaan4-2.d0*xy&
+&zzyaaak4*xyzzyaaan4+xyzzyaaak4*xyzzyaaar4+xyzzyaaan4*xyzzyaaar4)*xyzz&
+&yaaas1(3,xyzzyaaab4))*xyzzyaabh4*0.5d0*xyzzyaaaw1
+else
+xyzzyaaby4=xyzzyaaaw1*0.5d0*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*(-6.d0*xyzzyaaas1(1,xyzzyaaab4)*&
+&xyzzyaaax4*xyzzyaaar4*(-3.d0*xyzzyaaak4+xyzzyaaan4+xyzzyaaar4)-xyzzya&
+&aaw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4+xyzz&
+&yaaan4-2.d0*xyzzyaaar4)+xyzzyaaas1(2,xyzzyaaab4)*((xyzzyaaan4-2.d0*xy&
+&zzyaaar4)*(xyzzyaaan4+xyzzyaaar4)+xyzzyaaak4*(xyzzyaaan4+13.d0*xyzzya&
+&aar4))))
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*(-6.d0*xyzzyaaas1(1,xyzzyaaab4)*&
+&xyzzyaaax4*xyzzyaaar4*(xyzzyaaak4-3.d0*xyzzyaaan4+xyzzyaaar4)-xyzzyaa&
+&aw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*(xyzzyaaak4+xyzzy&
+&aaan4-2.d0*xyzzyaaar4)+ xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaal4-2.d0*xyz&
+&zyaaat4+xyzzyaaak4*(xyzzyaaai4-xyzzyaaaj4)*(xyzzyaaai4+xyzzyaaaj4)+13&
+&.d0*xyzzyaaan4*xyzzyaaar4)))
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(6.d0*xyzzyaaas1(1,xyzzyaaab4)*x&
+&yzzyaaax4*(xyzzyaaak4+xyzzyaaan4)*(xyzzyaaak4+xyzzyaaan4-3.d0*xyzzyaa&
+&ar4)-xyzzyaaaw4*(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaak4+xyzzyaaan4)*(xy&
+&zzyaaak4+xyzzyaaan4-14.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzya&
+&aax4*(xyzzyaaak4+xyzzyaaan4-2.d0*xyzzyaaar4)*xyzzyaaar4))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*xyzzyaaai4*(xyzzyaaa&
+&w4*(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaak4+xyzzyaaan4-14.d0*xyzzyaaar4)&
+&-xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan4-2.d0*xyzz&
+&yaaar4))+ 24.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4))
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaaw1*0.5d0*xyzzyaaah4*xyzzyaaaj4*((xy&
+&zzyaaas1(2,xyzzyaaab4)*(7.d0*(xyzzyaaak4+xyzzyaaan4)-8.d0*xyzzyaaar4)&
+&-xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan4-2.d0*xyzz&
+&yaaar4))*xyzzyaabi4-(12.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaak4+xyzzy&
+&aaan4-xyzzyaaar4))*xyzzyaabj4)
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaaw1*0.5d0*xyzzyaaai4*xyzzyaaaj4*((xy&
+&zzyaaas1(2,xyzzyaaab4)*(7.d0*(xyzzyaaak4+xyzzyaaan4)-8.d0*xyzzyaaar4)&
+&-xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan4-2.d0*xyzz&
+&yaaar4))*xyzzyaabi4-(12.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaak4+xyzzy&
+&aaan4-xyzzyaaar4))*xyzzyaabj4)
+endif
+else
+orbgrad(1,xyzzyaaaa4,1)=((-2.d0*xyzzyaaak4*xyzzyaaah4+2*xyzzyaaah4*xyz&
+&zyaaan4+2.d0*xyzzyaaah4*xyzzyaaaw4)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaab&
+&e4+(xyzzyaaak4*xyzzyaaah4-xyzzyaaah4*xyzzyaaan4)*xyzzyaaas1(2,xyzzyaa&
+&ab4))*xyzzyaabg4*xyzzyaaau1
+orbgrad(2,xyzzyaaaa4,1)=((-2.d0*xyzzyaaak4*xyzzyaaai4+2.d0*xyzzyaaan4*&
+&xyzzyaaai4-2.d0*xyzzyaaai4*xyzzyaaaw4)*xyzzyaaas1(1,xyzzyaaab4)*xyzzy&
+&aabe4+(xyzzyaaak4*xyzzyaaai4-xyzzyaaai4*xyzzyaaan4)*xyzzyaaas1(2,xyzz&
+&yaaab4))*xyzzyaabg4*xyzzyaaau1
+orbgrad(3,xyzzyaaaa4,1)=((-2.d0*xyzzyaaak4*xyzzyaaaj4+2.d0*xyzzyaaan4*&
+&xyzzyaaaj4)*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabe4+(xyzzyaaak4*xyzzyaaaj&
+&4-xyzzyaaaj4*xyzzyaaan4)*xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabg4*xyzzyaa&
+&au1
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=((-6.d0*(xyzzyaaak4-xyzzyaaan4))*xyzzyaaas1(1,xyz&
+&zyaaab4)+(-5.d0*xyzzyaaak4*xyzzyaaak4+5.d0*xyzzyaaan4*xyzzyaaan4-5.d0&
+&*xyzzyaaak4*xyzzyaaar4+5.d0*xyzzyaaan4*xyzzyaaar4+7.d0*xyzzyaaak4*xyz&
+&zyaaaw4-7.d0*xyzzyaaan4*xyzzyaaaw4)*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaab&
+&e4+(xyzzyaaak4*xyzzyaaak4-xyzzyaaan4*xyzzyaaan4+xyzzyaaak4*xyzzyaaar4&
+&-xyzzyaaan4*xyzzyaaar4)*xyzzyaaas1(3,xyzzyaaab4))*xyzzyaabh4*xyzzyaaa&
+&u1
+else
+xyzzyaaby4=xyzzyaaau1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*(-2.d0*xyzzyaaas1(1,xyzzyaaab4)*&
+&xyzzyaaax4*(3.d0*xyzzyaaak4-xyzzyaaan4-xyzzyaaar4)*(2.d0*xyzzyaaan4+x&
+&yzzyaaar4)+xyzzyaaaw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4&
+&*(xyzzyaaah4-xyzzyaaai4)*(xyzzyaaah4+xyzzyaaai4)+xyzzyaaas1(2,xyzzyaa&
+&ab4)*(-(xyzzyaaan4*(xyzzyaaan4+xyzzyaaar4))+xyzzyaaak4*(9.d0*xyzzyaaa&
+&n4+ 5.d0*xyzzyaaar4))))
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*(-2.d0*xyzzyaaas1(1,xyzzyaaab4)*&
+&xyzzyaaax4*(2.d0*xyzzyaaak4+xyzzyaaar4)*(xyzzyaaak4-3.d0*xyzzyaaan4+x&
+&yzzyaaar4)+xyzzyaaaw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak&
+&4-xyzzyaaan4)*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaal4-5.d0*xy&
+&zzyaaan4*xyzzyaaar4+xyzzyaaak4*(-9.d0*xyzzyaaan4+xyzzyaaar4))))
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaau1*(xyzzyaaak4-xyzzyaaan4)*((-2.d0*&
+&xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaak4+xyzzyaaan4-3.d0*xyzzyaaar4))*xyz&
+&zyaabj4+(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaa&
+&ar4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4)*xyzzyaabi4)
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaau1*((8.d0*xyzzyaaas1(1,xyzzyaaab4))&
+&*xyzzyaabj4-(5.d0*xyzzyaaas1(2,xyzzyaaab4))*xyzzyaabi4+xyzzyaaas1(3,x&
+&yzzyaaab4)*xyzzyaabh4)*xyzzyaaah4*xyzzyaaai4*(xyzzyaaak4-xyzzyaaan4)
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaau1*xyzzyaaah4*xyzzyaaaj4*((4.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*(xyzzyaaak4-3.d0*xyzzyaaan4-xyzzyaaar4))*xyzzya&
+&abj4+(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4-xyzzyaaan4)+xyz&
+&zyaaas1(2,xyzzyaaab4)*(-3.d0*xyzzyaaak4+7.d0*xyzzyaaan4+2.d0*xyzzyaaa&
+&r4))*xyzzyaabi4)
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaau1*xyzzyaaai4*xyzzyaaaj4*((xyzzyaaa&
+&s1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaas1(2,xyzz&
+&yaaab4)*(-7.d0*xyzzyaaak4+3.d0*xyzzyaaan4-2.d0*xyzzyaaar4))*xyzzyaabi&
+&4+(4.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaak4-xyzzyaaan4+xyzzyaaa&
+&r4))*xyzzyaabj4)
+endif
+endif
+elseif(xyzzyaaad4==3)then
+if(xyzzyaaae4==3)then
+xyzzyaaaz4=xyzzyaaak4-3.d0*xyzzyaaan4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaba1*(-3.d0*xyzzyaaak4*xyzzyaaaz4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabi4+2.d0*xyzzyaaak4*xyzzyaaas1(1,xyzzyaaab4&
+&)*xyzzyaabg4+xyzzyaaaz4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaak&
+&4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaba1*(-3.d0*xyzzyaaah4*xyzzyaaai4*xyzzya&
+&aaz4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4-6.d0*xyzzyaaah4*xyzzyaaai4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaah4*xyzzyaaai4*xyzzyaaaz4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaba1*(-3.d0*xyzzyaaah4*xyzzyaaaz4*xyzzya&
+&aaj4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaaz4*xyzzya&
+&aaj4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaba1*(-12.d0*xyzzyaaah4*xyzzyaaaz4*xyzzyaaa&
+&s1(1,xyzzyaaab4)*xyzzyaabi4+2.d0*xyzzyaaah4*xyzzyaaaz4*xyzzyaaas1(2,x&
+&yzzyaaab4)*xyzzyaabh4+xyzzyaaah4*xyzzyaaaz4*xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaba1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(xyzzyaaax4*(xyzzyaa&
+&as1(2,xyzzyaaab4)*(xyzzyaaaw4*(4.d0*xyzzyaaak4+3.d0*xyzzyaaak4-9.d0*x&
+&yzzyaaan4)-7.d0*xyzzyaaak4*xyzzyaaaz4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzy&
+&aaax4*xyzzyaaak4*xyzzyaaaz4)+3.d0*xyzzyaaas1(1,xyzzyaaab4)*(2.d0*xyzz&
+&yaabo4+5.d0*xyzzyaaak4*xyzzyaaaz4+xyzzyaaaw4*(-4.d0*xyzzyaaak4-3.d0*x&
+&yzzyaaak4+9.d0*xyzzyaaan4))))
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(3.d0*xyzzyaaas1(1,x&
+&yzzyaaab4)*(-(xyzzyaaaw4*(2.d0*xyzzyaaaw4+xyzzyaaak4))+5.d0*(3.d0*xyz&
+&zyaaaw4+xyzzyaaak4)*xyzzyaaan4-15.d0*xyzzyaaap4)+xyzzyaaax4*(xyzzyaaa&
+&s1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzya&
+&aab4)*(xyzzyaaaw4*xyzzyaaak4-15.d0*xyzzyaaaw4*xyzzyaaan4-7.d0*xyzzyaa&
+&ak4*xyzzyaaan4+21.d0*xyzzyaaap4))))
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*xyzzyaaaz4*(xyzzyaaa&
+&s1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4-7.d0*xyzzyaaar4)-3.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4-5.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab&
+&4)*xyzzyaaaw4*xyzzyaaar4))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaai4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(-6.d0*xyzzyaabo4+15.d0*xyzzyaaak4*(xyzzyaaak4-3.d0*xyzzyaaan4)&
+&+9.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xy&
+&zzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4-3.d0*xyzzyaaan4)-xyzzyaaa&
+&s1(2,xyzzyaaab4)*(7.d0*xyzzyaaak4*(xyzzyaaak4-3.d0*xyzzyaaan4)+3.d0*x&
+&yzzyaaaw4*(xyzzyaaak4+xyzzyaaan4)))))
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*((xyzzyaaak4*(xyzzyaaas1(2,xyzzy&
+&aaab4)*xyzzyaaax4*(3.d0*xyzzyaaaw4-7.d0*xyzzyaaak4)+xyzzyaaas1(3,xyzz&
+&yaaab4)*xyzzyaaaw4*xyzzyaaak4+xyzzyaaas1(1,xyzzyaaab4)*(-9.d0*xyzzyaa&
+&aw4+15.d0*xyzzyaaak4))-3.d0*(xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(xyz&
+&zyaaaw4-7.d0*xyzzyaaak4)-3.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4-5.&
+&d0*xyzzyaaak4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaak4)*xyzzya&
+&aan4)*xyzzyaaaj4)
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*xyzzyaaai4*(3*xyzzya&
+&aas1(1,xyzzyaaab4)*(6.d0*xyzzyaaaw4+5.d0*xyzzyaaaz4)+xyzzyaaas1(3,xyz&
+&zyaaab4)*xyzzyaaaw4*xyzzyaaaz4+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(-&
+&6.d0*xyzzyaaaw4-7.d0*xyzzyaaak4+21.d0*xyzzyaaan4))*xyzzyaaaj4)
+endif
+elseif(xyzzyaaae4==2)then
+xyzzyaaaz4=xyzzyaaak4-xyzzyaaan4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaaz1*(-3.d0*xyzzyaaah4*xyzzyaaaz4*xyzzya&
+&aaj4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+2.d0*xyzzyaaah4*xyzzyaaaj4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaah4*xyzzyaaaz4*xyzzyaaaj4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaaz1*(-3.d0*xyzzyaaai4*xyzzyaaaz4*xyzzya&
+&aaj4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4-2.d0*xyzzyaaai4*xyzzyaaaj4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaai4*xyzzyaaaz4*xyzzyaaaj4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaaz1*(-3.d0*xyzzyaaaz4*xyzzyaaar4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaaz4*xyzzyaaas1(1,xyzzyaaab4)*xyz&
+&zyaabg4+xyzzyaaaz4*xyzzyaaar4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaaz1*(-12.d0*xyzzyaaaj4*xyzzyaaaz4*xyzzyaaa&
+&s1(1,xyzzyaaab4)*xyzzyaabi4+2.d0*xyzzyaaaj4*xyzzyaaaz4*xyzzyaaas1(2,x&
+&yzzyaaab4)*xyzzyaabh4+xyzzyaaaj4*xyzzyaaaz4*xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaaz1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*((xyzzyaaas1(1,xyzzyaaab4)*(2.d0&
+&*xyzzyaabo4+15.d0*xyzzyaaaz4*xyzzyaaak4-3.d0*xyzzyaaaw4*(xyzzyaaaz4+4&
+&.d0*xyzzyaaak4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzz&
+&yaaaz4*xyzzyaaak4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzzyaaaz4+4.d&
+&0*xyzzyaaaw4*xyzzyaaak4-7.d0*xyzzyaaaz4*xyzzyaaak4)))*xyzzyaaaj4)
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*((xyzzyaaas1(1,xyzzyaaab4)*(-2.d&
+&0*xyzzyaabo4-3.d0*xyzzyaaaw4*(xyzzyaaaz4-4.d0*xyzzyaaan4)+15.d0*xyzzy&
+&aaaz4*xyzzyaaan4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyz&
+&zyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzzyaaaz4-4.&
+&d0*xyzzyaaaw4*xyzzyaaan4-7.d0*xyzzyaaaz4*xyzzyaaan4)))*xyzzyaaaj4)
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaaz4*xyzzyaaaj4*(xyzzyaaa&
+&s1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*xyzzy&
+&aaax4*(3.d0*xyzzyaaaw4-7.d0*xyzzyaaar4)+xyzzyaaas1(1,xyzzyaaab4)*(-9.&
+&d0*xyzzyaaaw4+15.d0*xyzzyaaar4)))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*((15.d0*xyzzyaaas1(1,xyzzyaaab4)&
+&-7.d0*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4+xyzzyaaas1(3,xyzzyaaab4)*xy&
+&zzyaaaw4)*xyzzyaaaz4*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4)
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(2.d0*xyzzyaabo4+15.d0*xyzzyaaaz4*xyzzyaaar4-3.d0*xyzzyaaaw4*(x&
+&yzzyaaaz4+2*xyzzyaaar4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaa&
+&ax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzzya&
+&aaz4+2.d0*xyzzyaaaw4*xyzzyaaar4-7.d0*xyzzyaaaz4*xyzzyaaar4))))
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaai4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(-2.d0*xyzzyaabo4-3.d0*xyzzyaaaw4*xyzzyaaaz4+6.d0*xyzzyaaaw4*xy&
+&zzyaaar4+15.d0*xyzzyaaaz4*xyzzyaaar4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(xyzz&
+&yaaaw4*xyzzyaaaz4-2.d0*xyzzyaaaw4*xyzzyaaar4-7.d0*xyzzyaaaz4*xyzzyaaa&
+&r4))))
+endif
+elseif(xyzzyaaae4==1)then
+xyzzyaaaz4=5.d0*xyzzyaaar4-xyzzyaaaw4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaay1*(-2.d0*xyzzyaaak4*xyzzyaaas1(1,xyzz&
+&yaaab4)*xyzzyaabg4-3.d0*xyzzyaaak4*xyzzyaaaz4*xyzzyaaas1(1,xyzzyaaab4&
+&)*xyzzyaabi4+xyzzyaaaz4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaak&
+&4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaay1*(-2.d0*xyzzyaaah4*xyzzyaaai4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabg4-3.d0*xyzzyaaah4*xyzzyaaai4*xyzzyaaaz4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaai4*xyzzyaaaz4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaay1*(8.d0*xyzzyaaah4*xyzzyaaaj4*xyzzyaa&
+&as1(1,xyzzyaaab4)*xyzzyaabg4-3.d0*xyzzyaaah4*xyzzyaaaj4*xyzzyaaaz4*xy&
+&zzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaaj4*xyzzyaaaz4*xy&
+&zzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaay1*(-12.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzy&
+&aaah4*xyzzyaaaz4*xyzzyaabi4+2.d0*xyzzyaaah4*xyzzyaaaz4*xyzzyaaas1(2,x&
+&yzzyaaab4)*xyzzyaabh4+xyzzyaaaz4*xyzzyaaah4*xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaay1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaah4*(3.d0*xyzzyaaas1(1,&
+&xyzzyaaab4)*(2.d0*xyzzyaabo4-xyzzyaaaw4*(4.d0*xyzzyaaak4+3.d0*(xyzzya&
+&aak4+xyzzyaaan4-4.d0*xyzzyaaar4))+5.d0*xyzzyaaak4*(xyzzyaaak4+xyzzyaa&
+&an4-4.d0*xyzzyaaar4))+xyzzyaaax4*(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw&
+&4*(4.d0*xyzzyaaak4+3.d0*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))-7.d0&
+&*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))+xyzzyaaas1(3,xyz&
+&zyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4&
+&))))
+orbsderivs(2,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaah4*(xyzzyaaax4*(xyzzya&
+&aas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzz&
+&yaaar4)+xyzzyaaaw4*(xyzzyaaak4+5.d0*xyzzyaaan4-4.d0*xyzzyaaar4))+xyzz&
+&yaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4.d&
+&0*xyzzyaaar4))+xyzzyaaas1(1,xyzzyaaab4)*(2.d0*xyzzyaabo4+15.d0*xyzzya&
+&aan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)-3.d0*xyzzyaaaw4*(xyzzyaa&
+&ak4+5.d0*xyzzyaaan4-4.d0*xyzzyaaar4))))
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(8.d0*xyzzyaabo4+3.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan4-20.d0*x&
+&yzzyaaar4)-15.d0*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)*xyzzyaaar4)-&
+&xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan&
+&4-4.d0*xyzzyaaar4)*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(x&
+&yzzyaaak4+xyzzyaaan4-20.d0*xyzzyaaar4)-7.d0*(xyzzyaaak4+xyzzyaaan4-4.&
+&d0*xyzzyaaar4)*xyzzyaaar4))))
+orbsderivs(4,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaai4*(xyzzyaaax4*(xyzzya&
+&aas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzz&
+&yaaar4)+xyzzyaaaw4*(5.d0*xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))+xyzz&
+&yaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d&
+&0*xyzzyaaar4))+xyzzyaaas1(1,xyzzyaaab4)*(2.d0*xyzzyaabo4+15.d0*xyzzya&
+&aak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)-3.d0*xyzzyaaaw4*(5.d0*xy&
+&zzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))))
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaaj4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(8.d0*xyzzyaabo4-15.d0*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d0*x&
+&yzzyaaar4)-3.d0*xyzzyaaaw4*(5.d0*xyzzyaaak4-xyzzyaaan4+4.d0*xyzzyaaar&
+&4))+xyzzyaaax4*(-(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyz&
+&zyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))+xyzzyaaas1(2,xyzzyaaab4)*(7.d0*x&
+&yzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)+xyzzyaaaw4*(5.d0*xy&
+&zzyaaak4-xyzzyaaan4+4.d0*xyzzyaaar4)))))
+orbsderivs(6,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaah4*xyzzyaaai4*xyzzyaaa&
+&j4*(3.d0*xyzzyaaas1(1,xyzzyaaab4)*(6.d0*xyzzyaaaw4+5.d0*(xyzzyaaak4+x&
+&yzzyaaan4-4.d0*xyzzyaaar4))+xyzzyaaax4*(-(xyzzyaaas1(2,xyzzyaaab4)*(6&
+&.d0*xyzzyaaaw4+7.d0*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)))+xyzzyaa&
+&as1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))&
+&))
+endif
+elseif(xyzzyaaae4==0)then
+xyzzyaaaz4=5.d0*xyzzyaaar4-3.d0*xyzzyaaaw4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaax1*(-6.d0*xyzzyaaah4*xyzzyaaaj4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabg4-3.d0*xyzzyaaah4*xyzzyaaaj4*xyzzyaaaz4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaaj4*xyzzyaaaz4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaax1*(-6.d0*xyzzyaaai4*xyzzyaaaj4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabg4-3.d0*xyzzyaaai4*xyzzyaaaj4*xyzzyaaaz4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaai4*xyzzyaaaj4*xyzzyaaaz4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaax1*(4.d0*xyzzyaaar4*xyzzyaaas1(1,xyzzy&
+&aaab4)*xyzzyaabg4-3.d0*xyzzyaaar4*xyzzyaaaz4*xyzzyaaas1(1,xyzzyaaab4)&
+&*xyzzyaabi4+xyzzyaaaz4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaar4&
+&*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaax1*(-12.d0*xyzzyaaaj4*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaaaz4*xyzzyaabi4+2.d0*xyzzyaaaj4*xyzzyaaas1(2,xyzzyaaab4)*&
+&xyzzyaaaz4*xyzzyaabh4+xyzzyaaaj4*xyzzyaaaz4*xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaax1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*(-3.d0*xyzzyaaaw4*(-(xyzzyaaas1(&
+&1,xyzzyaaab4)*(xyzzyaaaw4-3.d0*xyzzyaaak4))+xyzzyaaas1(2,xyzzyaaab4)*&
+&xyzzyaaax4*(xyzzyaaaw4-3.d0*xyzzyaaak4)+xyzzyaaas1(3,xyzzyaaab4)*xyzz&
+&yaaaw4*xyzzyaaak4)*xyzzyaaaj4+5.d0*(xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaa&
+&x4*(xyzzyaaaw4-7.d0*xyzzyaaak4)-3.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzya&
+&aaw4-5.d0*xyzzyaaak4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaak4)&
+&*xyzzyaaas4)
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*(-3.d0*xyzzyaaaw4*(-(xyzzyaaas1(&
+&1,xyzzyaaab4)*(xyzzyaaaw4-3.d0*xyzzyaaan4))+xyzzyaaas1(2,xyzzyaaab4)*&
+&xyzzyaaax4*(xyzzyaaaw4-3.d0*xyzzyaaan4)+xyzzyaaas1(3,xyzzyaaab4)*xyzz&
+&yaaaw4*xyzzyaaan4)*xyzzyaaaj4+5.d0*(xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaa&
+&x4*(xyzzyaaaw4-7.d0*xyzzyaaan4)-3.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzya&
+&aaw4-5.d0*xyzzyaaan4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaan4)&
+&*xyzzyaaas4)
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaaj4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(39.d0*xyzzyaabo4-69.d0*xyzzyaaaw4*xyzzyaaar4-45.d0*xyzzyaaaw4*&
+&xyzzyaaar4+75.d0*xyzzyaaat4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyz&
+&zyaaax4*xyzzyaaar4*(-3.d0*xyzzyaaaw4+5.d0*xyzzyaaar4)+xyzzyaaas1(2,xy&
+&zzyaaab4)*(-9.d0*xyzzyaabo4+29.d0*xyzzyaaaw4*xyzzyaaar4+15.d0*xyzzyaa&
+&aw4*xyzzyaaar4-35.d0*xyzzyaaat4))))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*xyzzyaaai4*xyzzyaaaj&
+&4*(xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(9.d0*xyzzyaaaw4-35.d0*xyzzyaa&
+&ar4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*(-3.d0*xyzzyaaaw4+5.d0*xyzzy&
+&aaar4)+xyzzyaaas1(1,xyzzyaaab4)*(-9.d0*xyzzyaaaw4+75.d0*xyzzyaaar4)))
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaaw4*xyzzyaaar4*(-3.d0*xyzzyaaaw4+5.d0*xyzzyaaar4)+xyzzya&
+&aas1(2,xyzzyaaab4)*xyzzyaaax4*(-3.d0*xyzzyaabo4+24.d0*xyzzyaaaw4*xyzz&
+&yaaar4-35.d0*xyzzyaaat4)+3.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaabo4-18&
+&.d0*xyzzyaaaw4*xyzzyaaar4+25.d0*xyzzyaaat4)))
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaai4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaaw4*xyzzyaaar4*(-3.d0*xyzzyaaaw4+5.d0*xyzzyaaar4)+xyzzya&
+&aas1(2,xyzzyaaab4)*xyzzyaaax4*(-3.d0*xyzzyaabo4+24.d0*xyzzyaaaw4*xyzz&
+&yaaar4-35.d0*xyzzyaaat4)+3.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaabo4-18&
+&.d0*xyzzyaaaw4*xyzzyaaar4+25.d0*xyzzyaaat4)))
+endif
+elseif(xyzzyaaae4==-1)then
+xyzzyaaaz4=5.d0*xyzzyaaar4-xyzzyaaaw4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaay1*(-2.d0*xyzzyaaah4*xyzzyaaai4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabg4-3.d0*xyzzyaaah4*xyzzyaaai4*xyzzyaaaz4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaai4*xyzzyaaaz4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaay1*(xyzzyaaas1(1,xyzzyaaab4)*(-2.d0*xy&
+&zzyaaan4+xyzzyaaaz4)*xyzzyaabg4-3.d0*xyzzyaaan4*xyzzyaaaz4*xyzzyaaas1&
+&(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaan4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaa&
+&b4)*xyzzyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaay1*(8.d0*xyzzyaaai4*xyzzyaaaj4*xyzzyaa&
+&as1(1,xyzzyaaab4)*xyzzyaabg4-3.d0*xyzzyaaai4*xyzzyaaaj4*xyzzyaaaz4*xy&
+&zzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaai4*xyzzyaaaj4*xyzzyaaaz4*xy&
+&zzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaay1*(-12.d0*xyzzyaaai4*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaaaz4*xyzzyaabi4+2.d0*xyzzyaaai4*xyzzyaaaz4*xyzzyaaas1(2,x&
+&yzzyaaab4)*xyzzyaabh4+xyzzyaaai4*xyzzyaaaz4*xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaay1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaai4*(xyzzyaaax4*(xyzzya&
+&aas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzz&
+&yaaar4)+xyzzyaaaw4*(5.d0*xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))+xyzz&
+&yaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4+xyzzyaaan4-4.d&
+&0*xyzzyaaar4))+xyzzyaaas1(1,xyzzyaaab4)*(2.d0*xyzzyaabo4+15.d0*xyzzya&
+&aak4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)-3.d0*xyzzyaaaw4*(5.d0*xy&
+&zzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))))
+orbsderivs(2,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaai4*(3.d0*xyzzyaaas1(1,&
+&xyzzyaaab4)*(2.d0*xyzzyaabo4-xyzzyaaaw4*(3.d0*xyzzyaaak4+7.d0*xyzzyaa&
+&an4-12.d0*xyzzyaaar4)+5.d0*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyz&
+&zyaaar4))+xyzzyaaax4*(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(3.d0*xyzz&
+&yaaak4+7.d0*xyzzyaaan4-12.d0*xyzzyaaar4)-7.d0*xyzzyaaan4*(xyzzyaaak4+&
+&xyzzyaaan4-4.d0*xyzzyaaar4))+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzz&
+&yaaan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))))
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaai4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(8.d0*xyzzyaabo4+3.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan4-20.d0*x&
+&yzzyaaar4)-15.d0*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)*xyzzyaaar4)-&
+&xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan&
+&4-4.d0*xyzzyaaar4)*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(x&
+&yzzyaaak4+xyzzyaaan4-20.d0*xyzzyaaar4)-7.d0*(xyzzyaaak4+xyzzyaaan4-4.&
+&d0*xyzzyaaar4)*xyzzyaaar4))))
+orbsderivs(4,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaah4*(xyzzyaaax4*(xyzzya&
+&aas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzz&
+&yaaar4)+xyzzyaaaw4*(xyzzyaaak4+5.d0*xyzzyaaan4-4.d0*xyzzyaaar4))+xyzz&
+&yaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4.d&
+&0*xyzzyaaar4))+xyzzyaaas1(1,xyzzyaaab4)*(2.d0*xyzzyaabo4+15.d0*xyzzya&
+&aan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)-3.d0*xyzzyaaaw4*(xyzzyaa&
+&ak4+5.d0*xyzzyaaan4-4.d0*xyzzyaaar4))))
+orbsderivs(5,xyzzyaaaa4,1)=-xyzzyaaby4*(xyzzyaaah4*xyzzyaaai4*xyzzyaaa&
+&j4*(3.d0*xyzzyaaas1(1,xyzzyaaab4)*(6.d0*xyzzyaaaw4+5.d0*(xyzzyaaak4+x&
+&yzzyaaan4-4.d0*xyzzyaaar4))+xyzzyaaax4*(-(xyzzyaaas1(2,xyzzyaaab4)*(6&
+&.d0*xyzzyaaaw4+7.d0*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4)))+xyzzyaa&
+&as1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))&
+&))
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaaj4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(8.d0*xyzzyaabo4+3.d0*xyzzyaaaw4*(xyzzyaaak4-5.d0*xyzzyaaan4-4.&
+&d0*xyzzyaaar4)-15.d0*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4.d0*xyzzyaaar&
+&4))-xyzzyaaax4*(xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(xyzzyaaak4-5.d0&
+&*xyzzyaaan4-4.d0*xyzzyaaar4)-7.d0*xyzzyaaan4*(xyzzyaaak4+xyzzyaaan4-4&
+&.d0*xyzzyaaar4))+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*(xyzz&
+&yaaak4+xyzzyaaan4-4.d0*xyzzyaaar4))))
+endif
+elseif(xyzzyaaae4==-2)then
+xyzzyaaaz4=xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaaz1*(-3.d0*xyzzyaaah4*xyzzyaaaz4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaai4*xyzzyaaaj4*xyzzyaaas1(1,xyzz&
+&yaaab4)*xyzzyaabg4+xyzzyaaah4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaaz1*(-3.d0*xyzzyaaai4*xyzzyaaaz4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaaj4*xyzzyaaas1(1,xyzz&
+&yaaab4)*xyzzyaabg4+xyzzyaaai4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaaz1*(-3.d0*xyzzyaaaj4*xyzzyaaaz4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaah4*xyzzyaaai4*xyzzyaaas1(1,xyzz&
+&yaaab4)*xyzzyaabg4+xyzzyaaaj4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaaz1*(-12.d0*xyzzyaaaz4*xyzzyaaas1(1,xyzzya&
+&aab4)*xyzzyaabi4+2.d0*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4+&
+&xyzzyaaaz4*xyzzyaaas1(3,xyzzyaaab4)*xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaaz1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*xyzzyaaaz4*(xyzzyaaas1(3,xyzzyaa&
+&ab4)*xyzzyaaaw4*xyzzyaaak4+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*&
+&xyzzyaaaw4-7.d0*xyzzyaaak4)+xyzzyaaas1(1,xyzzyaaab4)*(-9.d0*xyzzyaaaw&
+&4+15.d0*xyzzyaaak4))
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*xyzzyaaaz4*(xyzzyaaas1(3,xyzzyaa&
+&ab4)*xyzzyaaaw4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*&
+&xyzzyaaaw4-7.d0*xyzzyaaan4)+xyzzyaaas1(1,xyzzyaaab4)*(-9.d0*xyzzyaaaw&
+&4+15.d0*xyzzyaaan4))
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*xyzzyaaaz4*(xyzzyaaas1(3,xyzzyaa&
+&ab4)*xyzzyaaaw4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*&
+&xyzzyaaaw4-7.d0*xyzzyaaar4)+xyzzyaaas1(1,xyzzyaaab4)*(-9.d0*xyzzyaaaw&
+&4+15.d0*xyzzyaaar4))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*((xyzzyaaas1(1,xyzzyaaab4)*(xyzz&
+&yaabo4+15.d0*xyzzyaaak4*xyzzyaaan4-3.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzya&
+&aan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*xyz&
+&zyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaak4*xyzzyaaan4+xyzzyaa&
+&aw4*(xyzzyaaak4+xyzzyaaan4))))*xyzzyaaaj4)
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaai4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(xyzzyaabo4+15.d0*xyzzyaaak4*xyzzyaaar4-3.d0*xyzzyaaaw4*(xyzzya&
+&aak4+xyzzyaaar4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyz&
+&zyaaak4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaak4*xyzzyaa&
+&ar4+xyzzyaaaw4*(xyzzyaaak4+xyzzyaaar4)))))
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(xyzzyaabo4+15.d0*xyzzyaaan4*xyzzyaaar4-3.d0*xyzzyaaaw4*(xyzzya&
+&aan4+xyzzyaaar4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyz&
+&zyaaan4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(-7.d0*xyzzyaaan4*xyzzyaa&
+&ar4+xyzzyaaaw4*(xyzzyaaan4+xyzzyaaar4)))))
+endif
+else
+xyzzyaaaz4=3.d0*xyzzyaaak4-xyzzyaaan4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaaba1*(-3.d0*xyzzyaaah4*xyzzyaaai4*xyzzya&
+&aaz4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+6.d0*xyzzyaaah4*xyzzyaaai4*x&
+&yzzyaaas1(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaah4*xyzzyaaai4*xyzzyaaaz4*x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaaba1*(-3.d0*xyzzyaaan4*xyzzyaaaz4*xyzzya&
+&aas1(1,xyzzyaaab4)*xyzzyaabi4-(2.d0*xyzzyaaan4-xyzzyaaaz4)*xyzzyaaas1&
+&(1,xyzzyaaab4)*xyzzyaabg4+xyzzyaaan4*xyzzyaaaz4*xyzzyaaas1(2,xyzzyaaa&
+&b4)*xyzzyaabh4)
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaaba1*(-3.d0*xyzzyaaai4*xyzzyaaaz4*xyzzya&
+&aaj4*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaabi4+xyzzyaaai4*xyzzyaaaz4*xyzzya&
+&aaj4*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaabh4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaaba1*(-12.d0*xyzzyaaai4*xyzzyaaaz4*xyzzyaaa&
+&s1(1,xyzzyaaab4)*xyzzyaabi4+2.d0*xyzzyaaai4*xyzzyaaaz4*xyzzyaaas1(2,x&
+&yzzyaaab4)*xyzzyaabh4+xyzzyaaai4*xyzzyaaaz4*xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaabg4)
+else
+xyzzyaaby4=xyzzyaaba1*xyzzyaabk4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaaby4*((3.d0*xyzzyaaas1(1,xyzzyaaab4)*&
+&(2*xyzzyaabo4+5.d0*xyzzyaaaz4*xyzzyaaak4-xyzzyaaaw4*(xyzzyaaaz4+12.d0&
+&*xyzzyaaak4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaa&
+&az4*xyzzyaaak4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzzyaaaz4+12.d0*&
+&xyzzyaaaw4*xyzzyaaak4-7.d0*xyzzyaaaz4*xyzzyaaak4)))*xyzzyaaai4)
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaaby4*(-3.d0*xyzzyaaaw4*(2.d0*xyzzyaaa&
+&s1(1,xyzzyaaab4)*xyzzyaaaw4+3.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaaz4-&
+&xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4)*xyzzyaaai4+(xyzzyaaas&
+&1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaaz4+3.d0*xyzzyaaas1(1,xyzzyaaab4)*(&
+&4.d0*xyzzyaaaw4+5.d0*xyzzyaaaz4)-xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*&
+&(4.d0*xyzzyaaaw4+7.d0*xyzzyaaaz4))*xyzzyaaao4)
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaaz4*xyzzyaaai4*(xyzzyaaa&
+&s1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4-7.d0*xyzzyaaar4)-3.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4-5.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab&
+&4)*xyzzyaaaw4*xyzzyaaar4))
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaaby4*(xyzzyaaah4*(3.d0*xyzzyaaas1(1,x&
+&yzzyaaab4)*(2.d0*xyzzyaabo4+5.d0*xyzzyaaaz4*xyzzyaaan4-xyzzyaaaw4*(xy&
+&zzyaaaz4+4.d0*xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzy&
+&aaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzz&
+&yaaaz4+4.d0*xyzzyaaaw4*xyzzyaaan4-7.d0*xyzzyaaaz4*xyzzyaaan4))))
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaaby4*((xyzzyaaas1(2,xyzzyaaab4)*xyzzy&
+&aaax4*(6.d0*xyzzyaaaw4-7.d0*xyzzyaaaz4)-3.d0*xyzzyaaas1(1,xyzzyaaab4)&
+&*(6.d0*xyzzyaaaw4-5.d0*xyzzyaaaz4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw&
+&4*xyzzyaaaz4)*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4)
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaaby4*((xyzzyaaas1(1,xyzzyaaab4)*(-3.d&
+&0*xyzzyaaaw4*xyzzyaaaz4+6.d0*xyzzyaaaw4*xyzzyaaan4+15.d0*xyzzyaaaz4*x&
+&yzzyaaan4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4&
+&*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzzyaaaz4-2.d0*xyzz&
+&yaaaw4*xyzzyaaan4-7.d0*xyzzyaaaz4*xyzzyaaan4)))*xyzzyaaaj4)
+endif
+endif
+elseif(xyzzyaaad4==4)then
+if(xyzzyaaae4==4)then
+xyzzyaaaz4=xyzzyaaal4-6.d0*xyzzyaaak4*xyzzyaaan4+xyzzyaaap4
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(xyzzyaaah4*(xyzzyaaas1(&
+&2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4-4.d0*xyzzyaaas1(1,xyzzyaaab4)*(xy&
+&zzyaaaz4-xyzzyaaaw4*xyzzyaaak4+3.d0*xyzzyaaaw4*xyzzyaaan4)))*xyzzyaab&
+&j4
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(xyzzyaaai4*(xyzzyaaas1(&
+&2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4-4.d0*xyzzyaaas1(1,xyzzyaaab4)*(xy&
+&zzyaaaz4+3.d0*xyzzyaaaw4*xyzzyaaak4-xyzzyaaaw4*xyzzyaaan4)))*xyzzyaab&
+&j4
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*((-4.d0*xyzzyaaas1(1,xyz&
+&zyaaab4)+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4)*xyzzyaaaz4*xyzzyaaaj4)*&
+&xyzzyaabj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(-4.d0*xyzzyaaas1(1,xyzzyaa&
+&ab4)*(xyzzyaaaw4*(11.d0*xyzzyaaal4+11.d0*xyzzyaaap4-24.d0*xyzzyaaak4*&
+&xyzzyaaan4-6.d0*xyzzyaaak4*(4.d0*xyzzyaaan4+3.d0*xyzzyaaan4))-6.d0*(x&
+&yzzyaaal4+xyzzyaaap4-6.d0*xyzzyaaak4*xyzzyaaan4)*xyzzyaaaw4)+xyzzyaaa&
+&x4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaal4+xyzzyaaap4-6.d0*x&
+&yzzyaaak4*xyzzyaaan4)*xyzzyaaaw4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4&
+&*(11.d0*xyzzyaaal4+11.d0*xyzzyaaap4-24.d0*xyzzyaaak4*xyzzyaaan4-6.d0*&
+&xyzzyaaak4*(4.d0*xyzzyaaan4+3.d0*xyzzyaaan4))-9.d0*(xyzzyaaal4+xyzzya&
+&aap4-6.d0*xyzzyaaak4*xyzzyaaan4)*(xyzzyaaak4+xyzzyaaan4+xyzzyaaar4)))&
+&)*xyzzyaabl4
+else
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(4.d0*xyzzyaaas1(1,xy&
+&zzyaaab4)*(6.d0*xyzzyaaaz4*xyzzyaaak4+3.d0*xyzzyaabo4*(xyzzyaaak4-xyz&
+&zyaaan4)-xyzzyaaaw4*(xyzzyaaaz4+8.d0*xyzzyaaal4-24.d0*xyzzyaaak4*xyzz&
+&yaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*x&
+&yzzyaaak4+xyzzyaaas1(2,xyzzyaaab4)*(-9.d0*xyzzyaaaz4*xyzzyaaak4+xyzzy&
+&aaaw4*(xyzzyaaaz4+8.d0*xyzzyaaal4-24.d0*xyzzyaaak4*xyzzyaaan4))))*xyz&
+&zyaabl4
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(-4.d0*xyzzyaaas1(1,x&
+&yzzyaaab4)*(xyzzyaaaw4*(xyzzyaaaz4-24.d0*xyzzyaaak4*xyzzyaaan4+8.d0*x&
+&yzzyaaap4)+3.d0*xyzzyaabo4*(xyzzyaaak4-xyzzyaaan4)-6.d0*xyzzyaaaz4*xy&
+&zzyaaan4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*&
+&xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(xyzzyaaaz4-24.d0*xyz&
+&zyaaak4*xyzzyaaan4+8.d0*xyzzyaaap4)-9.d0*xyzzyaaaz4*xyzzyaaan4)))*xyz&
+&zyaabl4
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(xyzzyaaaz4*(xyzzyaaa&
+&s1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4-9.d0*xyzzyaaar4)-4.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4-6.d0*xyzzyaaar4)+xyzzyaaas1(3,xyzzyaaab&
+&4)*xyzzyaaaw4*xyzzyaaar4))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(xyzzyaaah4*xyzzyaaai&
+&4*(xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4+xyzzyaa&
+&as1(2,xyzzyaaab4)*(-9.d0*xyzzyaaaz4+4.d0*xyzzyaaaw4*(-2.d0*xyzzyaaak4&
+&-2.d0*xyzzyaaan4)))-8.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4-3.&
+&d0*xyzzyaaaz4+2.d0*xyzzyaaaw4*(xyzzyaaak4-3.d0*xyzzyaaak4+xyzzyaaan4-&
+&3.d0*xyzzyaaan4))))*xyzzyaabl4
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(xyzzyaaah4*(xyzzyaaa&
+&x4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4+xyzzyaaas1(2,xyzzy&
+&aaab4)*(-9.d0*xyzzyaaaz4+4.d0*xyzzyaaaw4*(xyzzyaaak4-3.d0*xyzzyaaan4)&
+&))+8.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaz4-2.d0*xyzzyaaaw4*xyz&
+&zyaaak4+6.d0*xyzzyaaaw4*xyzzyaaan4))*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaabc1*xyzzyaabd1*(xyzzyaaai4*(8.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaz4+6.d0*xyzzyaaaw4*xyzzyaaak4-2.d&
+&0*xyzzyaaaw4*xyzzyaaan4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaa&
+&ax4*xyzzyaaaz4+xyzzyaaas1(2,xyzzyaaab4)*(-9.d0*xyzzyaaaz4+4.d0*xyzzya&
+&aaw4*(-3.d0*xyzzyaaak4+xyzzyaaan4))))*xyzzyaaaj4)*xyzzyaabl4
+endif
+elseif(xyzzyaaae4==3)then
+xyzzyaaaz4=xyzzyaaak4+xyzzyaaan4
+orbgrad(1,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*((xyzzyaaas1(1,xyzzyaaab4)*(4.&
+&d0*xyzzyaaak4*(xyzzyaaak4-3.d0*xyzzyaaan4)-3.d0*xyzzyaaaw4*(xyzzyaaak&
+&4-xyzzyaaan4))-xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzya&
+&aak4-3.d0*xyzzyaaan4))*xyzzyaaaj4)*xyzzyaabj4
+orbgrad(2,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaah4*xyzzyaaai4*(2.d0*x&
+&yzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaw4+2.d0*xyzzyaaak4-6.d0*xyzzyaa&
+&an4)-xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4-3.d0*xyzzyaaan4)&
+&)*xyzzyaaaj4)*xyzzyaabj4
+orbgrad(3,xyzzyaaaa4,1)=-3.d0*xyzzyaaba1*((xyzzyaaah4*(xyzzyaaak4-3.d0&
+&*xyzzyaaan4)*(xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4-4.d0*xyzzyaaar4)+x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4))*xyzzyaabj4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaah4*xyzzyaaaj4*(4.d0*xyzz&
+&yaaas1(1,xyzzyaaab4)*(xyzzyaaaw4*(4.d0*xyzzyaaak4+7.d0*xyzzyaaak4-33.&
+&d0*xyzzyaaan4)-6.d0*(xyzzyaaak4-3.d0*xyzzyaaan4)*xyzzyaaaw4)+xyzzyaaa&
+&x4*(-(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4-3.d0*xyzzyaaan4&
+&)*xyzzyaaaw4)+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(-4.d0*xyzzyaaak4-&
+&7.d0*xyzzyaaak4+33.d0*xyzzyaaan4)+9.d0*(xyzzyaaak4-3.d0*xyzzyaaan4)*x&
+&yzzyaaaw4))))*xyzzyaabl4
+else
+orbsderivs(1,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*xyzzyaaah4*xyzzyaaaj4*((-2.&
+&d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaal4+3.d0*(xyzzyaaan4+xyzzyaaar4)*&
+&(7.d0*xyzzyaaan4+xyzzyaaar4)-2.d0*xyzzyaaak4*(13.d0*xyzzyaaan4+4.d0*x&
+&yzzyaaar4)))*xyzzyaabl4+(-(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzya&
+&aak4*(xyzzyaaak4-3.d0*xyzzyaaan4))+xyzzyaaas1(2,xyzzyaaab4)*(2.d0*xyz&
+&zyaaal4+9.d0*xyzzyaaan4*(xyzzyaaan4+xyzzyaaar4)-xyzzyaaak4*(25.d0*xyz&
+&zyaaan4+7.d0*xyzzyaaar4)))*xyzzyaabk4)
+orbsderivs(2,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaah4*xyzzyaaaj4*(-(x&
+&yzzyaaaw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4-3.d0*xyzzy&
+&aaan4)*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaal4-23.d0*xyzzyaaa&
+&k4*xyzzyaaan4+12.d0*xyzzyaaap4+(xyzzyaaak4-15.d0*xyzzyaaan4)*xyzzyaaa&
+&r4)))+2.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(5.d0*xyzzyaaal4-34.d0&
+&*xyzzyaaak4*xyzzyaaan4+9.d0*xyzzyaaap4+8.d0*(xyzzyaaak4-3.d0*xyzzyaaa&
+&n4)*xyzzyaaar4+3.d0*xyzzyaaat4)))*xyzzyaabm4
+orbsderivs(3,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*xyzzyaaah4*(xyzzyaaak4-3.d0&
+&*xyzzyaaan4)*xyzzyaaaj4*((12.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaaz4-&
+&xyzzyaaar4))*xyzzyaabl4+(-3.d0*xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaz4-2&
+&.d0*xyzzyaaar4)-xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4)*xyzzy&
+&aabk4)
+orbsderivs(4,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaai4*xyzzyaaaj4*(xyz&
+&zyaaaw4*(-(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4&
+&-3.d0*xyzzyaaan4))+3.d0*xyzzyaaas1(2,xyzzyaaab4)*(4.d0*xyzzyaaal4-7.d&
+&0*xyzzyaaak4*xyzzyaaan4+xyzzyaaap4+xyzzyaaaz4*xyzzyaaar4))-6.d0*xyzzy&
+&aaas1(1,xyzzyaaab4)*xyzzyaaax4*(5.d0*xyzzyaaal4-10.d0*xyzzyaaak4*xyzz&
+&yaaan4+xyzzyaaap4-xyzzyaaat4)))*xyzzyaabm4
+orbsderivs(5,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(-(xyzzyaaaw4*(xyzzyaaas1(3&
+&,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4-3.d0*xyzzyaaan4)*xyzzy&
+&aaar4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaam4-3.d0*xyzzyaaan4*xyzzyaaar4&
+&*(xyzzyaaan4+xyzzyaaar4)-xyzzyaaal4*(2.d0*xyzzyaaan4+5.d0*xyzzyaaar4)&
+&-3.d0*xyzzyaaak4*(xyzzyaaap4-8.d0*xyzzyaaan4*xyzzyaaar4-xyzzyaaat4)))&
+&)+xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaam4+3.d0*xyzzyaaaq4-11.&
+&d0*xyzzyaaal4*xyzzyaaan4-9.d0*xyzzyaaak4*xyzzyaaap4-2.d0*(7.d0*xyzzya&
+&aal4-30.d0*xyzzyaaak4*xyzzyaaan4+3.d0*xyzzyaaap4)*xyzzyaaar4+9.d0*(xy&
+&zzyaaah4-xyzzyaaai4)*(xyzzyaaah4+xyzzyaaai4)*xyzzyaaat4))*xyzzyaabm4
+orbsderivs(6,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*xyzzyaaah4*xyzzyaaai4*((2.d&
+&0*xyzzyaaas1(1,xyzzyaaab4)*(5.d0*xyzzyaaal4+2.d0*xyzzyaaak4*(xyzzyaaa&
+&n4-8.d0*xyzzyaaar4)-3.d0*(xyzzyaaap4-8.d0*xyzzyaaan4*xyzzyaaar4+3.d0*&
+&xyzzyaaat4)))*xyzzyaabl4+(-(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzz&
+&yaaak4-3.d0*xyzzyaaan4)*xyzzyaaar4)+xyzzyaaas1(2,xyzzyaaab4)*(-xyzzya&
+&aal4+2.d0*xyzzyaaak4*(xyzzyaaan4+7.d0*xyzzyaaar4)+3.d0*(xyzzyaaap4-6.&
+&d0*xyzzyaaan4*xyzzyaaar4+2.d0*xyzzyaaat4)))*xyzzyaabk4)
+endif
+elseif(xyzzyaaae4==2)then
+xyzzyaaaz4=xyzzyaaak4+xyzzyaaan4-6.d0*xyzzyaaar4
+orbgrad(1,xyzzyaaaa4,1)=-0.75d0*xyzzyaaaw1*((xyzzyaaah4*(4.d0*xyzzyaaa&
+&s1(1,xyzzyaaab4)*(-((xyzzyaaak4-xyzzyaaan4)*xyzzyaaaz4)+xyzzyaaaw4*(x&
+&yzzyaaak4-3.d0*xyzzyaaar4))+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(xyzz&
+&yaaak4-xyzzyaaan4)*xyzzyaaaz4))*xyzzyaabj4)
+orbgrad(2,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*(xyzzyaaai4*(xyzzyaaas1(2,xy&
+&zzyaaab4)*xyzzyaaax4*xyzzyaaaz4*(-xyzzyaaak4+xyzzyaaan4)+2.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(2.d0*xyzzyaaaz4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaaw4&
+&*(xyzzyaaaz4-xyzzyaaak4+xyzzyaaan4))))*xyzzyaabj4
+orbgrad(3,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*((xyzzyaaak4-xyzzyaaan4)*xyz&
+&zyaaaj4*(-(xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4)+4.d0*xyzzy&
+&aaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaw4+xyzzyaaak4+xyzzyaaan4-6.d0*xyzzy&
+&aaar4)))*xyzzyaabj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*((xyzzyaaak4-xyzzyaaan4)*(4.d0*&
+&xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4*(7.d0*xyzzyaaaz4+4.d0*xyzzyaaaz4&
+&)-6.d0*xyzzyaaaz4*xyzzyaaaw4)-xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xy&
+&zzyaaax4*xyzzyaaaz4*xyzzyaaaw4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(&
+&7.d0*xyzzyaaaz4+4.d0*xyzzyaaaz4)-9.d0*xyzzyaaaz4*xyzzyaaaw4))))*xyzzy&
+&aabl4
+else
+xyzzyaaaz4=xyzzyaaak4+xyzzyaaan4-6.d0*xyzzyaaar4
+orbsderivs(1,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*(-2.d0*xyzzyaaas1(1,xyzzy&
+&aaab4)*(12.d0*xyzzyaaaz4*xyzzyaaak4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaabo&
+&4*(xyzzyaaaz4+5.d0*xyzzyaaak4-xyzzyaaan4)+xyzzyaaaw4*(2.d0*xyzzyaaaz4&
+&*(-5.d0*xyzzyaaak4+xyzzyaaan4)+8.d0*xyzzyaaak4*(-xyzzyaaak4+xyzzyaaan&
+&4)))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzy&
+&aaak4*(-xyzzyaaak4+xyzzyaaan4)+xyzzyaaas1(2,xyzzyaaab4)*(9.d0*xyzzyaa&
+&az4*xyzzyaaak4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaaw4*(xyzzyaaaz4*(-5.d0*&
+&xyzzyaaak4+xyzzyaaan4)+4.d0*xyzzyaaak4*(-xyzzyaaak4+xyzzyaaan4)))))*x&
+&yzzyaabl4
+orbsderivs(2,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*(2.d0*xyzzyaaas1(1,xyzzya&
+&aab4)*(12.d0*xyzzyaaaz4*xyzzyaaan4*(-xyzzyaaak4+xyzzyaaan4)+xyzzyaabo&
+&4*(xyzzyaaaz4-xyzzyaaak4+5.d0*xyzzyaaan4)+2.d0*xyzzyaaaw4*(xyzzyaaaz4&
+&*(xyzzyaaak4-5.d0*xyzzyaaan4)+4.d0*(xyzzyaaak4-xyzzyaaan4)*xyzzyaaan4&
+&))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaa&
+&an4*(-xyzzyaaak4+xyzzyaaan4)+xyzzyaaas1(2,xyzzyaaab4)*(9.d0*xyzzyaaaz&
+&4*(xyzzyaaak4-xyzzyaaan4)*xyzzyaaan4+xyzzyaaaw4*(-(xyzzyaaaz4*xyzzyaa&
+&ak4)+5.d0*xyzzyaaaz4*xyzzyaaan4-4.d0*xyzzyaaak4*xyzzyaaan4+4.d0*xyzzy&
+&aaap4))))*xyzzyaabl4
+orbsderivs(3,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*((xyzzyaaak4-xyzzyaaan4)*&
+&(4.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+xyzzyaaaw4*(xyzzyaaaz&
+&4-24.d0*xyzzyaaar4)-6.d0*xyzzyaaaz4*xyzzyaaar4)-xyzzyaaax4*(xyzzyaaas&
+&1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaa&
+&ab4)*(xyzzyaaaw4*xyzzyaaaz4-24.d0*xyzzyaaaw4*xyzzyaaar4-9.d0*xyzzyaaa&
+&z4*xyzzyaaar4))))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*((8.d0*xyzzyaaas1(1,xyzzy&
+&aaab4)*(2.d0*xyzzyaaaw4-3.d0*xyzzyaaaz4)-xyzzyaaas1(3,xyzzyaaab4)*xyz&
+&zyaaaw4*xyzzyaaaz4+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(-4.d0*xyzzyaa&
+&aw4+9.d0*xyzzyaaaz4))*xyzzyaaah4*xyzzyaaai4*(xyzzyaaak4-xyzzyaaan4))*&
+&xyzzyaabl4
+orbsderivs(5,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*(xyzzyaaah4*(8.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+3.d0*xyzzyaaaz4*(-xyzzyaaak4+xyzzy&
+&aaan4)+xyzzyaaaw4*(xyzzyaaaz4-5.d0*xyzzyaaak4+5.d0*xyzzyaaan4))+xyzzy&
+&aaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*(-xyzzyaaak4+xy&
+&zzyaaan4)+xyzzyaaas1(2,xyzzyaaab4)*(9.d0*xyzzyaaaz4*(xyzzyaaak4-xyzzy&
+&aaan4)-2.d0*xyzzyaaaw4*(xyzzyaaaz4-5.d0*xyzzyaaak4+5.d0*xyzzyaaan4)))&
+&)*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(6,xyzzyaaaa4,1)=0.75d0*xyzzyaaaw1*(xyzzyaaai4*(-8.d0*xyzzya&
+&aas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+xyzzyaaaw4*(xyzzyaaaz4+5.d0*xyzzy&
+&aaak4-5.d0*xyzzyaaan4)+3.d0*xyzzyaaaz4*(xyzzyaaak4-xyzzyaaan4))+xyzzy&
+&aaax4*(xyzzyaaas1(2,xyzzyaaab4)*(2.d0*xyzzyaaaw4*(xyzzyaaaz4+5.d0*xyz&
+&zyaaak4-5.d0*xyzzyaaan4)+9.d0*xyzzyaaaz4*(xyzzyaaak4-xyzzyaaan4))+xyz&
+&zyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*(-xyzzyaaak4+xyzzyaaan4))&
+&)*xyzzyaaaj4)*xyzzyaabl4
+endif
+elseif(xyzzyaaae4==1)then
+xyzzyaaaz4=xyzzyaaak4+xyzzyaaan4
+orbgrad(1,xyzzyaaaa4,1)=-xyzzyaabb1*(xyzzyaaaj4*(xyzzyaaas1(1,xyzzyaaa&
+&b4)*xyzzyaaax4*(3.d0*xyzzyaaal4-3.d0*xyzzyaaap4-21.d0*xyzzyaaak4*xyzz&
+&yaaar4+xyzzyaaan4*xyzzyaaar4+4.d0*xyzzyaaat4)+xyzzyaaas1(2,xyzzyaaab4&
+&)*xyzzyaaak4*(-3.d0*xyzzyaaaz4*xyzzyaaaz4+xyzzyaaaz4*xyzzyaaar4+4.d0*&
+&xyzzyaaat4)))*xyzzyaabk4
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4*(&
+&-2.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(3.d0*xyzzyaaaz4-11.d0*xyzz&
+&yaaar4)+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaaw4*(3.d0*xyzzyaaaz4-4.d0*xyz&
+&zyaaar4)))*xyzzyaabk4
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*(xyzzyaaas1(1,xyzzyaaab&
+&4)*xyzzyaaax4*(3.d0*xyzzyaaaz4*xyzzyaaaz4-21.d0*xyzzyaaaz4*xyzzyaaar4&
+&+4.d0*xyzzyaaat4)-xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaar4*(-3.d0*xyzzyaaa&
+&z4*xyzzyaaaz4+xyzzyaaaz4*xyzzyaaar4+4.d0*xyzzyaaat4)))*xyzzyaabk4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaaj4*(-4.d0*xyzzyaaa&
+&s1(1,xyzzyaaab4)*(21.d0*xyzzyaabo4-xyzzyaaaw4*(6.d0*xyzzyaaak4+6.d0*x&
+&yzzyaaan4+27.d0*xyzzyaaar4+56.d0*xyzzyaaar4)+14.d0*(2.d0*xyzzyaaaz4*x&
+&yzzyaaar4+xyzzyaaat4+(xyzzyaaak4+xyzzyaaan4+2.d0*xyzzyaaar4)*xyzzyaaa&
+&r4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaabn4*(3.d0*xyzzyaaaw4&
+&-7.d0*xyzzyaaar4)+xyzzyaaas1(2,xyzzyaaab4)*(21.d0*xyzzyaabo4+28.d0*(x&
+&yzzyaaak4+xyzzyaaan4)*xyzzyaaar4-15.d0*xyzzyaabo4-77.d0*xyzzyaaaw4*xy&
+&zzyaaar4+7.d0*(5.d0*xyzzyaaaz4+9.d0*xyzzyaaar4)*xyzzyaaar4))))*xyzzya&
+&abl4
+else
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaaj4*(6.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaal4-3.d0*xyzzyaaap4+8.d0*xyz&
+&zyaaan4*xyzzyaaar4-2.d0*xyzzyaaak4*(xyzzyaaan4+8.d0*xyzzyaaar4)+11.d0&
+&*xyzzyaaat4)-xyzzyaaaw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaa&
+&k4*(-3.d0*xyzzyaaaz4+4.d0*xyzzyaaar4)+3.d0*xyzzyaaas1(2,xyzzyaaab4)*(&
+&2.d0*xyzzyaaal4-3.d0*xyzzyaaap4+xyzzyaaan4*xyzzyaaar4-xyzzyaaak4*(xyz&
+&zyaaan4+15.d0*xyzzyaaar4)+4.d0*xyzzyaaat4))))*xyzzyaabm4
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaaj4*(xyzzyaaa&
+&w4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*(3.d0*xyzzyaaaz4-4&
+&.d0*xyzzyaaar4)+xyzzyaaas1(2,xyzzyaaab4)*(3.d0*xyzzyaaal4-12.d0*xyzzy&
+&aaap4+47.d0*xyzzyaaan4*xyzzyaaar4-xyzzyaaak4*(9.d0*xyzzyaaan4+xyzzyaa&
+&ar4)-4.d0*xyzzyaaat4))-2.d0*xyzzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(3.d0&
+&*xyzzyaaaz4*(xyzzyaaak4-3.d0*xyzzyaaan4)-8.d0*(xyzzyaaak4-8.d0*xyzzya&
+&aan4)*xyzzyaaar4-11.d0*xyzzyaaat4)))*xyzzyaabm4
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaaj4*(-4.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(15.d0*xyzzyaaaz4*xyzzyaaaz4-25.d0*&
+&xyzzyaaaz4*xyzzyaaar4+2.d0*xyzzyaaat4)+xyzzyaaaw4*(xyzzyaaas1(3,xyzzy&
+&aaab4)*xyzzyaaax4*(3.d0*xyzzyaaaz4-4.d0*xyzzyaaar4)*xyzzyaaar4+xyzzya&
+&aas1(2,xyzzyaaab4)*(9.d0*xyzzyaaaz4*xyzzyaaaz4-46.d0*xyzzyaaaz4*xyzzy&
+&aaar4+8.d0*xyzzyaaat4))))*xyzzyaabm4
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaai4*xyzzyaaaj4*(2.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(9.d0*xyzzyaaal4-3.d0*xyzzyaaap4+xyz&
+&zyaaak4*(6.d0*xyzzyaaan4-64.d0*xyzzyaaar4)+8.d0*xyzzyaaan4*xyzzyaaar4&
+&+11.d0*xyzzyaaat4)-xyzzyaaaw4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xy&
+&zzyaaak4*(-3.d0*xyzzyaaaz4+4.d0*xyzzyaaar4)+xyzzyaaas1(2,xyzzyaaab4)*&
+&(12.d0*xyzzyaaal4-3.d0*xyzzyaaap4+xyzzyaaak4*(9.d0*xyzzyaaan4-47.d0*x&
+&yzzyaaar4)+xyzzyaaan4*xyzzyaaar4+4.d0*xyzzyaaat4))))*xyzzyaabm4
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaaw4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaax4*xyzzyaaak4*(3.d0*xyzzyaaaz4-4.d0*xyzzyaaar4)*xyzzyaa&
+&ar4+xyzzyaaas1(2,xyzzyaaab4)*(3.d0*xyzzyaaaz4*xyzzyaaaz4*xyzzyaaak4-3&
+&.d0*(9.d0*xyzzyaaal4+8.d0*xyzzyaaak4*xyzzyaaan4-xyzzyaaap4)*xyzzyaaar&
+&4+(29.d0*xyzzyaaak4-xyzzyaaan4)*xyzzyaaat4-4.d0*xyzzyaaav4))+xyzzyaaa&
+&s1(1,xyzzyaaab4)*xyzzyaaax4*(-3.d0*xyzzyaaaz4*xyzzyaaaz4*(xyzzyaaah4-&
+&xyzzyaaai4)*(xyzzyaaah4+xyzzyaaai4)+6.d0*xyzzyaaaz4*(13.d0*xyzzyaaak4&
+&-3.d0*xyzzyaaan4)*xyzzyaaar4-(83.d0*xyzzyaaak4+17.d0*xyzzyaaan4)*xyzz&
+&yaaat4+4.d0*xyzzyaaav4))*xyzzyaabm4
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaai4*(-6.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaz4*xyzzyaaaz4-16.d0*xyzzya&
+&aaz4*xyzzyaaar4+11.d0*xyzzyaaat4)+xyzzyaaaw4*(xyzzyaaas1(3,xyzzyaaab4&
+&)*xyzzyaaax4*(3.d0*xyzzyaaaz4-4.d0*xyzzyaaar4)*xyzzyaaar4+3.d0*xyzzya&
+&aas1(2,xyzzyaaab4)*(xyzzyaaaz4*xyzzyaaaz4-10.d0*xyzzyaaaz4*xyzzyaaar4&
+&+10.d0*xyzzyaaat4))))*xyzzyaabm4
+endif
+elseif(xyzzyaaae4==0)then
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaah4*(20.d0*xyzzyaaas1(1,xyz&
+&zyaaab4)*(3.d0*xyzzyaaaw4*xyzzyaaar4-7.d0*xyzzyaaat4)+xyzzyaaas1(2,xy&
+&zzyaaab4)*xyzzyaaax4*(3.d0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaaar4+35.&
+&d0*xyzzyaaat4)))*xyzzyaabj4
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaai4*(20.d0*xyzzyaaas1(1,xyz&
+&zyaaab4)*(3.d0*xyzzyaaaw4*xyzzyaaar4-7.d0*xyzzyaaat4)+xyzzyaaas1(2,xy&
+&zzyaaab4)*xyzzyaaax4*(3.d0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaaar4+35.&
+&d0*xyzzyaaat4)))*xyzzyaabj4
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaaj4*(-20.d0*xyzzyaaas1(1,xy&
+&zzyaaab4)*(3.d0*xyzzyaabo4-10.d0*xyzzyaaaw4*xyzzyaaar4+7.d0*xyzzyaaat&
+&4)+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*xyzzyaabo4-30.d0*xyzzyaa&
+&aw4*xyzzyaaar4+35.d0*xyzzyaaat4)))*xyzzyaabj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaabc1*(-20.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0&
+&*xyzzyaabq4-42.d0*xyzzyaaat4*xyzzyaaaw4-42.d0*xyzzyaabo4*xyzzyaaar4+x&
+&yzzyaaaw4*(89.d0*xyzzyaaat4+12.d0*(xyzzyaaak4+xyzzyaaan4)*xyzzyaaar4)&
+&)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4+xyzzyaa&
+&an4+xyzzyaaar4)*(3.d0*xyzzyaabo4+35.d0*xyzzyaaat4-30.d0*xyzzyaaaw4*xy&
+&zzyaaar4)+xyzzyaaas1(2,xyzzyaaab4)*(9.d0*xyzzyaabq4-35.d0*xyzzyaaat4*&
+&9.d0*xyzzyaaaw4-3.d0*xyzzyaabo4*(xyzzyaaak4+xyzzyaaan4+71.d0*xyzzyaaa&
+&r4)+5.d0*xyzzyaaaw4*(101.d0*xyzzyaaat4+6.d0*xyzzyaaar4*(5.d0*xyzzyaaa&
+&k4+5.d0*xyzzyaaan4+xyzzyaaar4)))))*xyzzyaabl4
+else
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaas1(3,xyzzyaaab4)*xyzzya&
+&aaw4*xyzzyaaak4*(3.d0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaaar4+35.d0*xy&
+&zzyaaat4)+20.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4*xyzzyaaar4-&
+&12.d0*xyzzyaaaw4*xyzzyaaak4*xyzzyaaar4-7.d0*xyzzyaaaw4*xyzzyaaat4+42.&
+&d0*xyzzyaaak4*xyzzyaaat4)+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*x&
+&yzzyaabq4-3.d0*xyzzyaabo4*(xyzzyaaak4+10.d0*xyzzyaaar4)-35.d0*(8.d0*x&
+&yzzyaaak4+xyzzyaaak4)*xyzzyaaat4+5.d0*xyzzyaaaw4*(24.d0*xyzzyaaak4*xy&
+&zzyaaar4+6.d0*xyzzyaaak4*xyzzyaaar4+7.d0*xyzzyaaat4)))*xyzzyaabl4
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaas1(3,xyzzyaaab4)*xyzzya&
+&aaw4*xyzzyaaan4*(3.d0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaaar4+35.d0*xy&
+&zzyaaat4)+20.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4*xyzzyaaar4-&
+&12.d0*xyzzyaaaw4*xyzzyaaan4*xyzzyaaar4-7.d0*xyzzyaaaw4*xyzzyaaat4+42.&
+&d0*xyzzyaaan4*xyzzyaaat4)+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*x&
+&yzzyaabq4-3.d0*xyzzyaabo4*(xyzzyaaan4+10.d0*xyzzyaaar4)-35.d0*9.d0*xy&
+&zzyaaan4*xyzzyaaat4+5.d0*xyzzyaaaw4*(24.d0*xyzzyaaan4*xyzzyaaar4+6.d0&
+&*xyzzyaaan4*xyzzyaaar4+7.d0*xyzzyaaat4)))*xyzzyaabl4
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaax4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaax4*xyzzyaaar4*(3.d0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaa&
+&ar4+35.d0*xyzzyaaat4)+xyzzyaaas1(2,xyzzyaaab4)*(3.d0*xyzzyaabq4-3.d0*&
+&xyzzyaabo4*(40.d0*xyzzyaaar4+11.d0*xyzzyaaar4)+5.d0*xyzzyaaaw4*93.d0*&
+&xyzzyaaat4-35.d0*(8.d0*xyzzyaaav4+xyzzyaaar4*xyzzyaaat4)))-60.d0*xyzz&
+&yaaas1(1,xyzzyaaab4)*(xyzzyaabq4-12.d0*xyzzyaabo4*xyzzyaaar4+25.d0*xy&
+&zzyaaaw4*xyzzyaaat4-14.d0*xyzzyaaav4))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaah4*xyzzyaaai4*(120.d0*x&
+&yzzyaaas1(1,xyzzyaaab4)*(-2.d0*xyzzyaaaw4*xyzzyaaar4+7.d0*xyzzyaaat4)&
+&+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*(3.d0*xyzzyaabo4-30.d0*xyzzyaaaw&
+&4*xyzzyaaar4+35.d0*xyzzyaaat4)-3.d0*xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaa&
+&x4*(xyzzyaabo4-50.d0*xyzzyaaaw4*xyzzyaaar4+105.d0*xyzzyaaat4)))*xyzzy&
+&aabl4
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaah4*xyzzyaaaj4*(40.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4-20.d0*xyzzyaaaw4*xyzzyaaar4+2&
+&1.d0*xyzzyaaat4)+xyzzyaaax4*(xyzzyaaas1(2,xyzzyaaab4)*(-63.d0*xyzzyaa&
+&bo4+200.d0*xyzzyaaaw4*xyzzyaaar4-140.d0*xyzzyaaat4+90.d0*xyzzyaaaw4*x&
+&yzzyaaar4-175.d0*xyzzyaaat4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(3.d&
+&0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaaar4+35.d0*xyzzyaaat4))))*xyzzyaa&
+&bl4
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaabc1*(xyzzyaaai4*xyzzyaaaj4*(40.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4-20.d0*xyzzyaaaw4*xyzzyaaar4+2&
+&1.d0*xyzzyaaat4)+xyzzyaaax4*(xyzzyaaas1(2,xyzzyaaab4)*(-63.d0*xyzzyaa&
+&bo4+200.d0*xyzzyaaaw4*xyzzyaaar4-140.d0*xyzzyaaat4+90.d0*xyzzyaaaw4*x&
+&yzzyaaar4-175.d0*xyzzyaaat4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(3.d&
+&0*xyzzyaabo4-30.d0*xyzzyaaaw4*xyzzyaaar4+35.d0*xyzzyaaat4))))*xyzzyaa&
+&bl4
+endif
+elseif(xyzzyaaae4==-1)then
+orbgrad(1,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4*(&
+&xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(3.d0*xyzzyaaak4+3.d0*xyzzyaaan4-&
+&4.d0*xyzzyaaar4)+2.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaw4-6.d0*&
+&xyzzyaaak4-6.d0*xyzzyaaan4+8.d0*xyzzyaaar4)))*xyzzyaabj4
+orbgrad(2,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaaj4*(xyzzyaaas1(1,xyzzyaaab&
+&4)*(-4.d0*xyzzyaaan4*(3.d0*xyzzyaaak4+3.d0*xyzzyaaan4-4.d0*xyzzyaaar4&
+&)+xyzzyaaaw4*(3.d0*xyzzyaaak4+9.d0*xyzzyaaan4-4.d0*xyzzyaaar4))+xyzzy&
+&aaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan4*(3.d0*xyzzyaaak4+3.d0*xyzzy&
+&aaan4-4.d0*xyzzyaaar4)))*xyzzyaabj4
+orbgrad(3,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaai4*(xyzzyaaas1(2,xyzzyaaab&
+&4)*xyzzyaaax4*(3.d0*xyzzyaaak4+3.d0*xyzzyaaan4-4.d0*xyzzyaaar4)*xyzzy&
+&aaar4+xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan&
+&4-4.d0*xyzzyaaar4)-4.d0*(3.d0*xyzzyaaak4+3.d0*xyzzyaaan4-4.d0*xyzzyaa&
+&ar4)*xyzzyaaar4)))*xyzzyaabj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaai4*xyzzyaaaj4*(xyzzyaaas1(1,x&
+&yzzyaaab4)*(-4.d0*xyzzyaaaw4*(33.d0*xyzzyaaak4+12.d0*xyzzyaaan4+21.d0&
+&*xyzzyaaan4-16.d0*xyzzyaaar4-28.d0*xyzzyaaar4)+24.d0*xyzzyaaaw4*(3.d0&
+&*(xyzzyaaak4+xyzzyaaan4)-4.d0*xyzzyaaar4))+xyzzyaaax4*(xyzzyaaas1(3,x&
+&yzzyaaab4)*xyzzyaabn4*(3.d0*(xyzzyaaak4+xyzzyaaan4)-4.d0*xyzzyaaar4)+&
+&xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(33.d0*xyzzyaaak4+33.d0*xyzzyaaa&
+&n4-44.d0*xyzzyaaar4)+9.d0*xyzzyaaaw4*(-3.d0*(xyzzyaaak4+xyzzyaaan4)+4&
+&.d0*xyzzyaaar4)))))*xyzzyaabl4
+else
+xyzzyaaaz4=3.d0*xyzzyaaak4+3.d0*xyzzyaaan4-4.d0*xyzzyaaar4
+orbsderivs(1,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaai4*xyzzyaaaj4*(xyzzyaaa&
+&x4*(xyzzyaaas1(2,xyzzyaaab4)*(-9.d0*xyzzyaaak4*xyzzyaaaz4+xyzzyaaaw4*&
+&(15.d0*xyzzyaaak4+3.d0*xyzzyaaan4-4.d0*xyzzyaaar4))+xyzzyaaas1(3,xyzz&
+&yaaab4)*xyzzyaaax4*xyzzyaaak4*xyzzyaaaz4)+2.d0*xyzzyaaas1(1,xyzzyaaab&
+&4)*(3.d0*xyzzyaabo4+12.d0*xyzzyaaak4*xyzzyaaaz4+xyzzyaaaw4*(-30.d0*xy&
+&zzyaaak4-6.d0*xyzzyaaan4+8.d0*xyzzyaaar4))))*xyzzyaabl4
+orbsderivs(2,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaai4*(6.d0*xyzzyaaas1(1,x&
+&yzzyaaab4)*(3.d0*xyzzyaabo4+4.d0*xyzzyaaaz4*xyzzyaaan4-2.d0*xyzzyaaaw&
+&4*(xyzzyaaaz4+4.d0*xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+3.d0*xyzzyaaas1(2,xyzzyaaab4)*(xyzzy&
+&aaaw4*xyzzyaaaz4+4.d0*xyzzyaaaw4*xyzzyaaan4-3.d0*xyzzyaaaz4*xyzzyaaan&
+&4)))*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(3,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaai4*xyzzyaaaj4*(-4.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*(6.d0*xyzzyaabo4+3.d0*xyzzyaaaw4*xyzzyaaaz4-16&
+&.d0*xyzzyaaaw4*xyzzyaaar4-6.d0*xyzzyaaaz4*xyzzyaaar4)+xyzzyaaax4*(xyz&
+&zyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,x&
+&yzzyaaab4)*(3.d0*xyzzyaaaw4*xyzzyaaaz4-16.d0*xyzzyaaaw4*xyzzyaaar4-9.&
+&d0*xyzzyaaaz4*xyzzyaaar4))))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*(xyzzyaaas1(1,xyzzya&
+&aab4)*(6.d0*xyzzyaabo4+24.d0*xyzzyaaaz4*xyzzyaaan4-4.d0*xyzzyaaaw4*(x&
+&yzzyaaaz4+12.d0*xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyz&
+&zyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xy&
+&zzyaaaz4+12.d0*xyzzyaaaw4*xyzzyaaan4-9.d0*xyzzyaaaz4*xyzzyaaan4)))*xy&
+&zzyaaaj4)*xyzzyaabl4
+orbsderivs(5,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaah4*xyzzyaaai4*(xyzzyaaa&
+&s1(1,xyzzyaaab4)*(6.d0*xyzzyaabo4-4.d0*xyzzyaaaw4*xyzzyaaaz4+8.d0*xyz&
+&zyaaaw4*xyzzyaaar4+24.d0*xyzzyaaaz4*xyzzyaaar4)+xyzzyaaax4*(xyzzyaaas&
+&1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaa&
+&ab4)*(xyzzyaaaw4*xyzzyaaaz4-2.d0*xyzzyaaaw4*xyzzyaaar4-9.d0*xyzzyaaaz&
+&4*xyzzyaaar4))))*xyzzyaabl4
+orbsderivs(6,xyzzyaaaa4,1)=xyzzyaabb1*(xyzzyaaas1(1,xyzzyaaab4)*(xyzzy&
+&aabo4*(xyzzyaaaz4+6.d0*xyzzyaaan4-8.d0*xyzzyaaar4)+24.d0*xyzzyaaaz4*x&
+&yzzyaaan4*xyzzyaaar4-4.d0*xyzzyaaaw4*(-2.d0*xyzzyaaan4*xyzzyaaar4+xyz&
+&zyaaaz4*(xyzzyaaan4+xyzzyaaar4)))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4&
+&)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4&
+&)*(-9.d0*xyzzyaaaz4*xyzzyaaan4*xyzzyaaar4+xyzzyaaaw4*(-2.d0*xyzzyaaan&
+&4*xyzzyaaar4+xyzzyaaaz4*(xyzzyaaan4+xyzzyaaar4)))))*xyzzyaabl4
+endif
+elseif(xyzzyaaae4==-2)then
+xyzzyaaaz4=xyzzyaaak4+xyzzyaaan4-6.d0*xyzzyaaar4
+orbgrad(1,xyzzyaaaa4,1)=-1.5d0*xyzzyaaaw1*(((xyzzyaaas1(2,xyzzyaaab4)*&
+&xyzzyaaax4*xyzzyaaaz4*xyzzyaaak4+xyzzyaaas1(1,xyzzyaaab4)*(-4.d0*xyzz&
+&yaaaz4*xyzzyaaak4+xyzzyaaaw4*(xyzzyaaaz4+2.d0*xyzzyaaak4)))*xyzzyaaai&
+&4)*xyzzyaabj4)
+orbgrad(2,xyzzyaaaa4,1)=-1.5d0*xyzzyaaaw1*((xyzzyaaah4*(xyzzyaaas1(2,x&
+&yzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(1,xyzzyaaab4)*&
+&(-4.d0*xyzzyaaaz4*xyzzyaaan4+xyzzyaaaw4*(xyzzyaaaz4+2.d0*xyzzyaaan4))&
+&))*xyzzyaabj4)
+orbgrad(3,xyzzyaaaa4,1)=1.5d0*xyzzyaaaw1*((-(xyzzyaaas1(2,xyzzyaaab4)*&
+&xyzzyaaax4*xyzzyaaaz4)+4.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaw4&
+&+xyzzyaaaz4))*xyzzyaaah4*xyzzyaaai4*xyzzyaaaj4)*xyzzyaabj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=1.5d0*xyzzyaaaw1*(xyzzyaaah4*xyzzyaaai4*(4.d0*xyz&
+&zyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4*(7.d0*xyzzyaaaz4+4.d0*xyzzyaaaz4)-6&
+&.d0*xyzzyaaaz4*xyzzyaaaw4)-xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzy&
+&aabn4*xyzzyaaaz4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(7.d0*xyzzyaaaz&
+&4+4.d0*xyzzyaaaz4)-9.d0*xyzzyaaaz4*xyzzyaaaw4))))*xyzzyaabl4
+else
+orbsderivs(1,xyzzyaaaa4,1)=-1.5d0*xyzzyaaaw1*((xyzzyaaah4*(2.d0*xyzzya&
+&aas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4-6.d0*xyzzyaaaw4*xyzzyaaaz4-8.d0*x&
+&yzzyaaaw4*xyzzyaaak4+12.d0*xyzzyaaaz4*xyzzyaaak4)+xyzzyaaax4*(xyzzyaa&
+&as1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaak4+xyzzyaaas1(2,xyzzy&
+&aaab4)*(3.d0*xyzzyaaaw4*xyzzyaaaz4+4.d0*xyzzyaaaw4*xyzzyaaak4-9.d0*xy&
+&zzyaaaz4*xyzzyaaak4)))*xyzzyaaai4)*xyzzyaabl4)
+orbsderivs(2,xyzzyaaaa4,1)=-1.5d0*xyzzyaaaw1*((xyzzyaaah4*xyzzyaaai4*(&
+&2.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4-6.d0*xyzzyaaaw4*xyzzya&
+&aaz4-8.d0*xyzzyaaaw4*xyzzyaaan4+12.d0*xyzzyaaaz4*xyzzyaaan4)+xyzzyaaa&
+&x4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaa&
+&as1(2,xyzzyaaab4)*(3.d0*xyzzyaaaw4*xyzzyaaaz4+4.d0*xyzzyaaaw4*xyzzyaa&
+&an4-9.d0*xyzzyaaaz4*xyzzyaaan4))))*xyzzyaabl4)
+orbsderivs(3,xyzzyaaaa4,1)=1.5d0*xyzzyaaaw1*(xyzzyaaah4*xyzzyaaai4*(4.&
+&d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+xyzzyaaaw4*(xyzzyaaaz4-2&
+&4.d0*xyzzyaaar4)-6.d0*xyzzyaaaz4*xyzzyaaar4)-xyzzyaaax4*(xyzzyaaas1(3&
+&,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4&
+&)*(xyzzyaaaw4*xyzzyaaaz4-24.d0*xyzzyaaaw4*xyzzyaaar4-9.d0*xyzzyaaaz4*&
+&xyzzyaaar4))))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=-1.5d0*xyzzyaaaw1*((xyzzyaaas1(1,xyzzyaaab4&
+&)*(24.d0*xyzzyaaaz4*xyzzyaaak4*xyzzyaaan4+xyzzyaabo4*(xyzzyaaaz4+2.d0&
+&*(xyzzyaaak4+xyzzyaaan4))-4.d0*xyzzyaaaw4*(4.d0*xyzzyaaak4*xyzzyaaan4&
+&+xyzzyaaaz4*(xyzzyaaak4+xyzzyaaan4)))+xyzzyaaax4*(xyzzyaaas1(3,xyzzya&
+&aab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaak4*xyzzyaaan4+xyzzyaaas1(2,xyzzya&
+&aab4)*(-9.d0*xyzzyaaaz4*xyzzyaaak4*xyzzyaaan4+xyzzyaaaw4*(4.d0*xyzzya&
+&aak4*xyzzyaaan4+xyzzyaaaz4*(xyzzyaaak4+xyzzyaaan4)))))*xyzzyaabl4)
+orbsderivs(5,xyzzyaaaa4,1)=1.5d0*xyzzyaaaw1*((4.d0*xyzzyaaas1(1,xyzzya&
+&aab4)*(3.d0*xyzzyaabo4+xyzzyaaaw4*(xyzzyaaaz4-10.d0*xyzzyaaak4)-6.d0*&
+&xyzzyaaaz4*xyzzyaaak4)-xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax&
+&4*xyzzyaaaz4*xyzzyaaak4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*xyzzyaaa&
+&z4-10.d0*xyzzyaaaw4*xyzzyaaak4-9.d0*xyzzyaaaz4*xyzzyaaak4)))*xyzzyaaa&
+&i4*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(6,xyzzyaaaa4,1)=1.5d0*xyzzyaaaw1*(xyzzyaaah4*(4.d0*xyzzyaaa&
+&s1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+xyzzyaaaw4*(xyzzyaaaz4-10.d0*xyzzya&
+&aan4)-6.d0*xyzzyaaaz4*xyzzyaaan4)-xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4&
+&)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaa&
+&w4*xyzzyaaaz4-10.d0*xyzzyaaaw4*xyzzyaaan4-9.d0*xyzzyaaaz4*xyzzyaaan4)&
+&))*xyzzyaaaj4)*xyzzyaabl4
+endif
+elseif(xyzzyaaae4==-3)then
+orbgrad(1,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaah4*xyzzyaaai4*(xyzzya&
+&aas1(2,xyzzyaaab4)*xyzzyaaax4*(-3.d0*xyzzyaaak4+xyzzyaaan4)-2.d0*xyzz&
+&yaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaaaw4-6.d0*xyzzyaaak4+2.d0*xyzzyaaan4&
+&))*xyzzyaaaj4)*xyzzyaabj4
+orbgrad(2,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*((xyzzyaaas1(2,xyzzyaaab4)*xyz&
+&zyaaax4*xyzzyaaan4*(-3.d0*xyzzyaaak4+xyzzyaaan4)+xyzzyaaas1(1,xyzzyaa&
+&ab4)*(-3.d0*xyzzyaaaw4*xyzzyaaak4+3.d0*(xyzzyaaaw4+4.d0*xyzzyaaak4)*x&
+&yzzyaaan4-4.d0*xyzzyaaap4))*xyzzyaaaj4)*xyzzyaabj4
+orbgrad(3,xyzzyaaaa4,1)=-3.d0*xyzzyaaba1*((xyzzyaaai4*(3.d0*xyzzyaaak4&
+&-xyzzyaaan4)*(xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4-4.d0*xyzzyaaar4)+x&
+&yzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*xyzzyaaar4))*xyzzyaabj4)
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaai4*xyzzyaaaj4*(4.d0*xyzz&
+&yaaas1(1,xyzzyaaab4)*(xyzzyaaaw4*(33.d0*xyzzyaaak4-4.d0*xyzzyaaan4-7.&
+&d0*xyzzyaaan4)-6.d0*(3.d0*xyzzyaaak4-xyzzyaaan4)*xyzzyaaaw4)+xyzzyaaa&
+&x4*(-(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(3.d0*xyzzyaaak4-xyzzyaaan4&
+&)*xyzzyaaaw4)+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(-33.d0*xyzzyaaak4&
+&+4.d0*xyzzyaaan4+7.d0*xyzzyaaan4)+9.d0*(3.d0*xyzzyaaak4-xyzzyaaan4)*x&
+&yzzyaaaw4))))*xyzzyaabl4
+else
+xyzzyaaaz4=-3.d0*xyzzyaaak4+xyzzyaaan4
+orbsderivs(1,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaai4*(xyzzyaaas1(1,x&
+&yzzyaaab4)*(-6.d0*xyzzyaabo4+xyzzyaaaw4*(60.d0*xyzzyaaak4-4.d0*xyzzya&
+&aan4)+24.d0*xyzzyaaak4*xyzzyaaaz4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab&
+&4)*xyzzyaaax4*xyzzyaaak4*xyzzyaaaz4+xyzzyaaas1(2,xyzzyaaab4)*(-15.d0*&
+&xyzzyaaaw4*xyzzyaaak4+27.d0*xyzzyaaal4+xyzzyaaaw4*xyzzyaaan4-9.d0*xyz&
+&zyaaak4*xyzzyaaan4)))*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(2,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaai4*(2.d0*xyzzyaaas&
+&1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4-6.d0*xyzzyaaaw4*xyzzyaaaz4-8.d0*xyzz&
+&yaaaw4*xyzzyaaan4+12.d0*xyzzyaaaz4*xyzzyaaan4)+xyzzyaaax4*(xyzzyaaas1&
+&(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaa&
+&b4)*(3.d0*xyzzyaaaw4*xyzzyaaaz4+4.d0*xyzzyaaaw4*xyzzyaaan4-9.d0*xyzzy&
+&aaaz4*xyzzyaaan4)))*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(3,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaaz4*xyzzyaaai4*xyzz&
+&yaaaj4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaar4+3.d0*xyzzyaaas&
+&1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4-3.d0*xyzzyaaar4)-12.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4-2.d0*xyzzyaaar4)))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaah4*(xyzzyaaas1(1,x&
+&yzzyaaab4)*(-6.d0*xyzzyaabo4-4.d0*xyzzyaaaw4*(xyzzyaaaz4-4.d0*xyzzyaa&
+&an4)+24.d0*xyzzyaaaz4*xyzzyaaan4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4&
+&)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaa&
+&w4*xyzzyaaaz4-4.d0*xyzzyaaaw4*xyzzyaaan4-9.d0*xyzzyaaaz4*xyzzyaaan4))&
+&)*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(5,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaah4*xyzzyaaai4*(xyz&
+&zyaaas1(1,xyzzyaaab4)*(-6.d0*xyzzyaabo4-4.d0*xyzzyaaaw4*(xyzzyaaaz4-6&
+&.d0*xyzzyaaar4)+24.d0*xyzzyaaaz4*xyzzyaaar4)+xyzzyaaax4*(xyzzyaaas1(3&
+&,xyzzyaaab4)*xyzzyaaax4*xyzzyaaaz4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4&
+&)*(xyzzyaaaw4*xyzzyaaaz4-6.d0*xyzzyaaaw4*xyzzyaaar4-9.d0*xyzzyaaaz4*x&
+&yzzyaaar4))))*xyzzyaabl4
+orbsderivs(6,xyzzyaaaa4,1)=3.d0*xyzzyaaba1*(xyzzyaaas1(1,xyzzyaaab4)*(&
+&xyzzyaabo4*(xyzzyaaaz4+2.d0*xyzzyaaan4)+24.d0*xyzzyaaaz4*xyzzyaaan4*x&
+&yzzyaaar4-4.d0*xyzzyaaaw4*(2.d0*xyzzyaaan4*xyzzyaaar4+xyzzyaaaz4*(xyz&
+&zyaaan4+xyzzyaaar4)))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4&
+&*xyzzyaaaz4*xyzzyaaan4*xyzzyaaar4+xyzzyaaas1(2,xyzzyaaab4)*(-9.d0*xyz&
+&zyaaaz4*xyzzyaaan4*xyzzyaaar4+xyzzyaaaw4*(2.d0*xyzzyaaan4*xyzzyaaar4+&
+&xyzzyaaaz4*(xyzzyaaan4+xyzzyaaar4)))))*xyzzyaabl4
+endif
+else
+orbgrad(1,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaai4*(xyzzyaaas1(2,xyz&
+&zyaaab4)*xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaas1(1,x&
+&yzzyaaab4)*(xyzzyaaaw4*(3.d0*xyzzyaaak4-xyzzyaaan4)+4.d0*xyzzyaaak4*(&
+&-xyzzyaaak4+xyzzyaaan4))))*xyzzyaabj4
+orbgrad(2,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaah4*(xyzzyaaas1(2,xyz&
+&zyaaab4)*xyzzyaaax4*(xyzzyaaak4-xyzzyaaan4)*xyzzyaaan4+xyzzyaaas1(1,x&
+&yzzyaaab4)*(xyzzyaaaw4*(xyzzyaaak4-3.d0*xyzzyaaan4)+4.d0*xyzzyaaan4*(&
+&-xyzzyaaak4+xyzzyaaan4))))*xyzzyaabj4
+orbgrad(3,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*((-4.d0*xyzzyaaas1(1,xyzzyaaa&
+&b4)+xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4)*xyzzyaaah4*xyzzyaaai4*(xyzzy&
+&aaak4-xyzzyaaan4)*xyzzyaaaj4)*xyzzyaabj4
+if(.not.present(orbsderivs))then
+orblap(xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaah4*xyzzyaaai4*(-4.d0*xy&
+&zzyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4*(4.d0*xyzzyaaak4+7.d0*xyzzyaaak4-4&
+&.d0*xyzzyaaan4-7.d0*xyzzyaaan4)-6.d0*(xyzzyaaak4-xyzzyaaan4)*xyzzyaaa&
+&w4)+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaak4-xyzzy&
+&aaan4)*xyzzyaaaw4+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(4.d0*xyzzyaaa&
+&k4+7.d0*xyzzyaaak4-4.d0*xyzzyaaan4-7.d0*xyzzyaaan4)-9.d0*(xyzzyaaak4-&
+&xyzzyaaan4)*xyzzyaaaw4))))*xyzzyaabl4
+else
+orbsderivs(1,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaah4*xyzzyaaai4*(2.&
+&d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+12.d0*xyzzyaaak4*(xyzzya&
+&aak4-xyzzyaaan4)+xyzzyaaaw4*(-8.d0*xyzzyaaak4-6.d0*xyzzyaaak4+6.d0*xy&
+&zzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaak4&
+&*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(4.d0*x&
+&yzzyaaak4+3.d0*xyzzyaaak4-3.d0*xyzzyaaan4)+9.d0*xyzzyaaak4*(-xyzzyaaa&
+&k4+xyzzyaaan4)))))*xyzzyaabl4
+orbsderivs(2,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaah4*xyzzyaaai4*(-2&
+&.d0*xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+xyzzyaaaw4*(6.d0*xyzzya&
+&aak4-8.d0*xyzzyaaan4-6.d0*xyzzyaaan4)+12.d0*xyzzyaaan4*(-xyzzyaaak4+x&
+&yzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaax4*xyzzyaaan&
+&4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaas1(2,xyzzyaaab4)*(xyzzyaaaw4*(3.d0*&
+&xyzzyaaak4-4.d0*xyzzyaaan4-3.d0*xyzzyaaan4)+9.d0*xyzzyaaan4*(-xyzzyaa&
+&ak4+xyzzyaaan4)))))*xyzzyaabl4
+orbsderivs(3,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaah4*xyzzyaaai4*(xy&
+&zzyaaak4-xyzzyaaan4)*(xyzzyaaas1(2,xyzzyaaab4)*xyzzyaaax4*(xyzzyaaaw4&
+&-9.d0*xyzzyaaar4)-4.d0*xyzzyaaas1(1,xyzzyaaab4)*(xyzzyaaaw4-6.d0*xyzz&
+&yaaar4)+xyzzyaaas1(3,xyzzyaaab4)*xyzzyaaaw4*xyzzyaaar4))*xyzzyaabl4
+orbsderivs(4,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*((xyzzyaaak4-xyzzyaaan4)*(&
+&xyzzyaaas1(1,xyzzyaaab4)*(3.d0*xyzzyaabo4+24.d0*xyzzyaaak4*xyzzyaaan4&
+&-4.d0*xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xy&
+&zzyaaab4)*xyzzyaaax4*xyzzyaaak4*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4)*(&
+&-9.d0*xyzzyaaak4*xyzzyaaan4+xyzzyaaaw4*(xyzzyaaak4+xyzzyaaan4)))))*xy&
+&zzyaabl4
+orbsderivs(5,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaai4*(-4.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4*(3.d0*xyzzyaaak4-xyzzyaaan4)+6.d0*xyzzy&
+&aaak4*(-xyzzyaaak4+xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaaax4*xyzzyaaak4*(xyzzyaaak4-xyzzyaaan4)+xyzzyaaas1(2,xyzzyaaab4&
+&)*(3.d0*xyzzyaaaw4*xyzzyaaak4-9.d0*xyzzyaaal4-xyzzyaaaw4*xyzzyaaan4+9&
+&.d0*xyzzyaaak4*xyzzyaaan4)))*xyzzyaaaj4)*xyzzyaabl4
+orbsderivs(6,xyzzyaaaa4,1)=1.5d0*xyzzyaabd1*(xyzzyaaah4*(-4.d0*xyzzyaa&
+&as1(1,xyzzyaaab4)*(xyzzyaaaw4*(xyzzyaaak4-3.d0*xyzzyaaan4)+6.d0*xyzzy&
+&aaan4*(-xyzzyaaak4+xyzzyaaan4))+xyzzyaaax4*(xyzzyaaas1(3,xyzzyaaab4)*&
+&xyzzyaaax4*(xyzzyaaak4-xyzzyaaan4)*xyzzyaaan4+xyzzyaaas1(2,xyzzyaaab4&
+&)*(xyzzyaaaw4*(xyzzyaaak4-3.d0*xyzzyaaan4)+9.d0*xyzzyaaan4*(-xyzzyaaa&
+&k4+xyzzyaaan4))))*xyzzyaaaj4)*xyzzyaabl4
+endif
+endif
+endif
+endif
+enddo
+if(complex_wf)then
+if(val)orbval(:,2)=0.d0
+if(fsd)then
+orbgrad(:,:,2)=0.d0
+if(.not.present(orbsderivs))then
+orblap(:,2)=0.d0
+else
+orbsderivs(:,:,2)=0.d0
+endif
+endif
+endif
+else
+if(val)orbval(:,:)=0.d0
+if(fsd)then
+orbgrad(:,:,:)=0.d0
+if(.not.present(orbsderivs))then
+orblap(:,:)=0.d0
+else
+orbsderivs(:,:,:)=0.d0
+endif
+endif
+endif
+end subroutine atomic_orb_eval
+subroutine get_awfdet_orbmap(row_offset,norb,orbmap)
+use store, only : nemax,nspin,ndet,nuc_nele
+implicit none
+integer,intent(inout) :: row_offset(nspin),norb,orbmap(nemax,nspin,nde&
+&t)
+integer xyzzyaaaa5
+do xyzzyaaaa5=1,nspin
+orbmap(row_offset(xyzzyaaaa5)+1:row_offset(xyzzyaaaa5)+nuc_nele(xyzzya&
+&aaa5),xyzzyaaaa5,:)=xyzzyaaaj1(1:nuc_nele(xyzzyaaaa5),xyzzyaaaa5,:)
+row_offset(xyzzyaaaa5)=row_offset(xyzzyaaaa5)+nuc_nele(xyzzyaaaa5)
+enddo
+norb=norb+xyzzyaaad1
+end subroutine get_awfdet_orbmap
+subroutine get_awfdet_ndesc(ndesc_int,ndesc_dp)
+implicit none
+integer,intent(inout) :: ndesc_int,ndesc_dp
+ndesc_int=xyzzyaaak1
+ndesc_dp=xyzzyaaal1
+end subroutine get_awfdet_ndesc
+subroutine get_awfdet_orbdesc(norb,ndesc_int,ndesc_dp,orbdesc_int,orbd&
+&esc_dp)
+implicit none
+integer,intent(in) :: norb,ndesc_int,ndesc_dp
+integer,intent(inout) :: orbdesc_int(ndesc_int,norb)
+real(dp),intent(inout) :: orbdesc_dp(ndesc_dp,norb)
+orbdesc_int(1:xyzzyaaak1,1:xyzzyaaad1)=xyzzyaaam1(1:xyzzyaaak1,1:xyzzy&
+&aaad1)
+end subroutine get_awfdet_orbdesc
+real(dp) function get_awfdet_rmax()
+implicit none
+integer xyzzyaaaa8,xyzzyaaab8
+real(dp) xyzzyaaac8
+xyzzyaaac8=0.d0
+do xyzzyaaaa8=1,xyzzyaaac1
+do xyzzyaaab8=xyzzyaaae1,1,-1
+if(xyzzyaaar1(xyzzyaaab8,xyzzyaaaa8)/=0.d0)then
+if(xyzzyaaaq1(xyzzyaaab8)>xyzzyaaac8)xyzzyaaac8=xyzzyaaaq1(xyzzyaaab8)
+exit
+endif
+enddo
+enddo
+get_awfdet_rmax=xyzzyaaac8
+end function get_awfdet_rmax
+end module slaarnaac

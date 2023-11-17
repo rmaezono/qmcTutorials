@@ -1,0 +1,93 @@
+ABINIT
+======
+
+This directory contains the main routine to allow the ABINIT plane-wave
+DFT program to generate CASINO pwfn.data wave function files.  The
+routines were written by Mike Towler and Nick Hine. It is hoped that this
+routine will be incorporated directly into the ABINIT package in the very
+near future.
+
+Note that CASINO/utils/pseudo_converters also contains abinit_pp.f90 - a
+program to convert ABINIT pseudopotentials, as long as they are in
+grid-based formats, ie pspcod=1 or pspcod=6, to CASINO x_pp.data format.
+The utility does not currently work for the non-grid-based or outdated
+pseudopotential formats (2,3,4,5).
+
+See www.abinit.org for more details about the ABINIT package.
+
+MDT/NDMH 11.2004
+
+Producing a pwfn.data wave function with Abinit
+-----------------------------------------------
+
+To produce a wave function suitable for use as a CASINO trial wave
+function, certain ABINIT parameters must be set correctly. Primarily,
+CASINO (and QMC methods generally) can only take advantage of
+time-reversal symmetry, and not the full set of symmetries of the crystal
+structure. Therefore, ABINIT must be instructed to generate k-points not
+just in the Irreducible Brillouin Zone, but in a full half of the
+Brillouin Zone (using time-reversal symmetry to generate the other half).
+Additionally, unless instructed otherwise, Abinit avoids the need for
+internal storage of many of the coefficients of its wave functions for
+k-points that have the property 2k=G_latt, where G_latt is a reciprocal
+lattice vector, by making use of the property that
+c_k(G)=c^*_k(-G-G_latt). Abinit must be instructed not to do this in order
+to output the full set of coefficients for use in CASINO. See the ABINIT
+theoretical background documents ABINIT/Infos/Theory/geometry.pdf and
+ABINIT/Infos/Theory/1WF.pdf for more information.
+
+The first of these requirements is met by setting the ABINIT input
+variable kptopt to 2 (see ABINIT/Infos/varbas.html#kptopt) and the second
+by setting istwfk to 1 for all the k points (see
+ABINIT/Infos/vardev.html#istwfk). Since CASINO is typically run with
+relatively small numbers of k-points, this is easily done by defining an
+array of 1's in the input file.
+
+For example, for the 8 k-points generated with ngkpt 2 2 2, we add the
+following lines to the input file:
+
+# Turn off special storage mode for time-reversal k-points
+istwfk 1 1 1 1 1 1 1 1
+# Use only time reversal symmetry, not full set of symmetries.
+kptopt 2
+
+Other useful input variables of relevance to the plane waves ABINIT will
+produce include ecut, nshiftk, shiftk, nband, occopt, occ, spinat and
+nsppol (see relevant input variable documents in ABINIT/Infos/). If ABINIT
+is run in multiple dataset mode, the different wave functions for the
+various datasets are exported as pwfn1.data, pwfn2.data, ..., pwfnn.data
+where the numbers are the contents of the contents of the input array
+jdtset (defaults to 1,2,...,ndtset).
+
+Once the routine is incorporated into the ABINIT package it is anticipated
+that there will be an input variable to control whether or not a CASINO
+pwfn.data file is written.
+
+Other Issues
+------------
+
+The exporter does not currently work when ABINIT is used in parallel mode
+(ie with 'abinip') on multiple processors if k-point parallelism is
+chosen. ABINIT does not store the full wave function on each processor but
+rather splits the k-points between the processors, so no one processor
+could write out the whole file. Clearly this could be fixed but we haven't
+done it yet. The sort of plane wave DFT calculations usually required to
+generate QMC trial wave functions execute very rapidly anyway and will
+generally not require a parallel machines. The outqmc routine currently
+bails out with an error if this combination of modes is selected - this
+will hopefully be fixed later.
+
+There has not been very extensive testing of less common situations such
+as different numbers of bands for different k-points, and more complicated
+spin polarized systems, so care should be taken when using the output in
+these circumstances.
+
+If there is any doubt about the output of this routine, the first place to
+look is the log file produced by ABINIT: if there are any warnings about
+incorrectly normalized orbitals or non-integer occupation numbers there is
+probably something set wrong in the input file.
+
+
+NDMH 11.2004
+
+

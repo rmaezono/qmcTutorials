@@ -1,0 +1,10 @@
+MPR
+---
+
+Script which can be used to produce nice pretty printed fortran with small
+type to save trees. See the header to the script for options.
+
+[local note: Doesn't work on TCM alphas since Rutter refuses to set them
+ up correctly.. :-) Use the PCs.]
+
+MDT 2.2002

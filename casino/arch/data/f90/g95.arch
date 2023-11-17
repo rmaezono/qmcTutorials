@@ -1,0 +1,31 @@
+#-! DESCRIPTION: G95 Fortran compiler
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 8.2005
+#-! F90_VERSION: >= 0.90
+#-! COMMAND_CHECK_F90_VERSION:
+#-!  {
+#-!   while read a line ; do
+#-!    if [ "$a" = G95 ] ; then
+#-!     line="${line#*(g95}" ; set -- ${line%%)*} ; echo ${1%!} ; break
+#-!    fi
+#-!   done
+#-!  } < <(&F90& --version < /dev/null 2>&1)
+#-! COMMAND_CHECK_F90:
+#-!  if &F90& --version < /dev/null >& /dev/null ; then
+#-!   {
+#-!    while read a line ; do
+#-!     if [ "$a" = G95 ] ; then
+#-!      echo 1 ; break
+#-!     fi
+#-!    done
+#-!   } < <(&F90& --version < /dev/null 2>&1)
+#-!  fi
+
+# Compiler name
+F90 = g95
+
+# Compiler flags
+FFLAGS_opt   = -O3
+FFLAGS_debug = -Wall -Wextra -Wno=102,136,146,147,157 -fimplicit-none \
+ -O0 -fbounds-check -ftrace=full -g -pg -pedantic
+FFLAGS_prof  = -pg

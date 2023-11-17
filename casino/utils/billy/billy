@@ -1,0 +1,1203 @@
+#!/bin/csh -f
+##############################################################################
+#                                                                            #
+#      ######    ###   #       #       #     #                               #
+#      #     #    #    #       #        #   #                                #
+#      #     #    #    #       #         # #                                 #
+#      ######     #    #       #          #       2014                       #
+#      #     #    #    #       #          #                                  #
+#      #     #    #    #       #          #                                  #
+#      ######    ###   ####### #######    #                                  #
+#                                                                            #
+#  Dopey automatic basis set/geometry optimization using the                 #
+#  CRYSTAL95/98/03/06/09/14 software                                         #
+#                                                                            #
+#          Special edition packed with the CASINO distribution..             #
+#                                                                            #
+#  Note: this script has been superseded by 'opt_crystal' for most purposes  #
+#  though note that billy will essentially always work, whereas opt_crystal  #
+#  can very easily fail completely (in which case billy is a good backup).   #
+#  For getting a quasi-optimized basis set relatively quickly (which is      #
+#  often all you want) then billy is usually faster than opt_crystal.        #
+#                                                                            #
+#                                                                            #
+#                            Mike Towler                                     #
+#                       Cavendish Laboratory                                 #
+#                      University of Cambridge                               #
+#                            Version 5.0                                     #
+#                                                                            #
+#                              Usage:                                        #
+#   billy [-f] [-95/-98/-03/-06/-09] [-guess] [-n <nruns>] [-np <ncores>]    #
+#             <input file> <%scan range>                                     #
+#                                                                            #
+#   We implicitly assume that your run script will run CRYSTAL14 by default. #
+#                                                                            #
+#   Stick a star (*) immediately before every parameter in the CRYSTAL input #
+#   deck that you want to optimize. To optimize a set of parameters          #
+#   that are constrained to be equal to each other, precede each parameter   #
+#   in the set with an ampersand (&).                                        #
+#                                                                            #
+#   The percentage scan range specifies the amount the parameter is varied   #
+#   when hunting for minima. For multiple iteration runs ($nruns > 1) the    #
+#   scan range is halved after each iteration.                               #
+#                                                                            #
+#   It can be a good idea to use the CRYSTAL GUESSP/GUESSF options to        #
+#   speed up SCF convergence. Billy will automatically do this for you       #
+#   if you specify the -guess flag.                                          #
+#                                                                            #
+#   -f        : optimize each parameter in turn from the first to the last.  #
+#               (default behaviour is to go backwards)                       #
+#   -n <nruns>: Do the whole optimization process nruns times.               #
+#   -np <ncore>: Run in parallel on ncore cores.                             #
+#   -guess    : Turn on automatic GUESSP restarts                            #
+#   -95       : Allows you to use CRYSTAL95 executables which have different #
+#               format output files. You also need to set up the 'runcrystal'#
+#               script so that calling that with 'runcrystal -95' will point #
+#               to the relevant C95 executables.                             #
+#   -98       : Allows you to use CRYSTAL98 executables which have different #
+#               format output files. You also need to set up the 'runcrystal'#
+#               script so that calling that with 'runcrystal -98' will point #
+#               to the relevant C95 executables.                             #
+#   -03         Allows you to run CRYSTAL03 executables. You will also need  #
+#               to set up the 'runcrystal' script so that calling that with  #
+#               'runcrystal -03' will point to the relevant C03 executables. #
+#   -06         Allows you to run CRYSTAL06 executables. You will also need  #
+#               to set up the 'runcrystal' script so that calling that with  #
+#               'runcrystal -06' will point to the relevant C06 executables. #
+#   -09         Allows you to run CRYSTAL09 executables. You will also need  #
+#               to set up the 'runcrystal' script so that calling that with  #
+#               'runcrystal -09' will point to the relevant C09 executables. #
+#   -small,   : C95/C98 only - allows use of different binary sizes compiled #
+#   -big,       with different parameterized array dimensions.               #
+#   -huge,                                                                   #
+#   -enormous                                                                #
+#                                                                            #
+#   NB:  billy assumes you have my script called 'runcrystal' set up which   #
+#        runs CRYSTAL and performs all the necessary error checking.         #
+#                                                                            #
+#   NB2: billy should recognise automatically whether you are doing a HF or  #
+#        DFT calculation, and act accordingly.                               #
+#                                                                            #
+#   NB3: Other required auxiliary programs : helpbilly,helpbilly2,dfit       #
+#                                                                            #
+#   NB4: This version works on a DEC Alpha workstation and Linux PC clusters.#
+#        It should work on most other Unix workstations. If you have         #
+#        problems it is probably the syntax of the 'sort' command. If not    #
+#        mail mdt26 at cam.ac.uk .                                           #
+#                                                                            #
+# Original version:                                                          #
+# MDT University of Bristol, May 1992.                                       #
+# This updated version:                                                      #
+# MDT, Feb 1998.                                                             #
+# Minor Revisions:                                                           #
+# MDT Jun 2000.                                                              #
+# Increased robustness, C95 and C98 in same script, other minor revisions.   #
+# MDT, Jun 2002.                                                             #
+# CRYSTAL03 support.                                                         #
+# MDT, Aug 2003.                                                             #
+# CRYSTAL06 support.                                                         #
+# MDT, Sep 2008.                                                             #
+# CRYSTAL09 support.                                                         #
+# MDT, Jan 2011.                                                             #
+#                                                                            #
+##############################################################################
+#
+
+# Setup the environment variables.
+
+# Get CASINO_ARCH from old QMC_ARCH and QMC_ID
+if (! $?CASINO_ARCH ) then
+ if ($?QMC_ARCH) then
+  if ($?QMC_ID) then
+   set CASINO_ARCH = $QMC_ARCH.$QMC_ID
+  else
+   set CASINO_ARCH = $QMC_ARCH
+  endif
+ endif
+endif
+
+#location of auxiliary programs
+if ($?CASINO_ARCH) then
+ set helpbilly = $HOME/CASINO/bin_qmc/utils/$CASINO_ARCH/helpbilly
+ set helpbilly2 = $HOME/CASINO/bin_qmc/utils/$CASINO_ARCH/helpbilly2
+ set dfit = $HOME/CASINO/bin_qmc/utils/$CASINO_ARCH/dfit
+else
+ echo "CASINO_ARCH environment variable not set. What machine am I using?"
+ exit
+endif
+
+set run = "`which runcrystal`"
+
+# name of fortran 20 unit on your machine (i.e. fort.20 ftn20 etc.)
+set fort20 = fort.20
+
+# order of polynomial fit through energy points (3 probably best)
+set order_of_fit = 3
+
+#
+######################################################################
+#
+
+# You should not need to change this file below here
+#set MACHINE = `hostname -s`
+set MACHINE = `hostname`
+set nruns = 1
+set numit = 1
+set tempdir = billy_tempdir
+onintr intr
+
+# Check all auxiliary programs and scripts are present
+
+if ( ! -e $helpbilly ) then
+ echo "No helpbilly binary: "$helpbilly
+ set die
+endif
+if ( ! -e $helpbilly2 ) then
+ echo "No helpbilly2 binary: "$helpbilly2
+ set die
+endif
+if ( ! -e $dfit ) then
+ echo "No dfit binary: "$dfit
+ set die
+endif
+if ( ! -e $run ) then
+ echo "No 'runcrystal' script available in path."
+ set die
+endif
+
+if ($?die) then
+ echo "Quitting.."
+ exit
+endif
+
+#
+# Parse the argument list
+#
+
+# First the optional parameters
+
+set mode = F
+while ( $#argv > 0 )
+ switch ( $mode$argv[1] )
+ case [F]-f:
+  set forwards ; shift ; breaksw
+ case [F]-n:
+  set mode = r ; shift ; breaksw
+ case [F]-np:
+  set isparallel ; set mode = p ; shift ; breaksw
+ case [F]-guess:
+  set guess ; shift ; breaksw
+ case [F]-95:
+  set crystal95 ; shift ; breaksw
+ case [F]-98:
+  set crystal98 ; shift ; breaksw
+ case [F]-03:
+  set crystal03 ; shift ; breaksw
+ case [F]-06:
+  set crystal06 ; shift ; breaksw
+ case [F]-09:
+  set crystal09 ; shift ; breaksw
+ case [F]-small:
+  set small ; shift ; breaksw
+ case [F]-big:
+  set big ; shift ; breaksw
+ case [F]-huge:
+  set huge ; shift ; breaksw
+ case [F]-enormous:
+  set enormous ; shift ; breaksw
+ case [F]-*:
+  echo "Illegal flag $argv[1]"
+  echo "Usage: billy [-f] [-95/-98/-03/-06/-09] [-guess] [-n <nruns>] [-np <ncores>] <input file> <% scan range>"
+  exit 1
+ case [r]-*:
+  echo "Missing argument for -n flag"
+  echo "Usage: billy [-f] [-95/-98/-03/-06/-09] [-guess] [-n <nruns>] [-np <ncores] <input file> <% scan range>"
+  exit 1
+ case r*:
+  set nruns = $argv[1] ; set mode = F ; shift ; breaksw
+ case [p]-*:
+  echo "Missing argument for -np flag"
+  echo "Usage: billy [-f] [-95/-98/-03/-06/-09] [-guess] [-n <nruns>] [-np <ncores] <input file> <% scan range>"
+  exit 1
+ case p*:
+  set ncores = $argv[1] ; set run = "$run -np $ncores " ; set mode = F ; shift ; breaksw
+ default:
+  break
+ endsw
+end
+
+if ($?crystal95) set run = "$run -95"
+if ($?crystal98) set run = "$run -98"
+if ($?crystal03) set run = "$run -03"
+if ($?crystal06) set run = "$run -06"
+if ($?crystal09) set run = "$run -09"
+if ($?crystal95 && $?crystal98) then
+ echo "The -95 and -98 flags are incompatible"
+ exit
+endif
+if ($?crystal95 && $?crystal03) then
+ echo "The -95 and -03 flags are incompatible"
+ exit
+endif
+if ($?crystal95 && $?crystal06) then
+ echo "The -95 and -06 flags are incompatible"
+ exit
+endif
+if ($?crystal95 && $?crystal09) then
+ echo "The -95 and -09 flags are incompatible"
+ exit
+endif
+if ($?crystal98 && $?crystal03) then
+ echo "The -98 and -03 flags are incompatible"
+ exit
+endif
+if ($?crystal98 && $?crystal06) then
+ echo "The -98 and -06 flags are incompatible"
+ exit
+endif
+if ($?crystal98 && $?crystal09) then
+ echo "The -98 and -09 flags are incompatible"
+ exit
+endif
+if ($?crystal03 && $?crystal06) then
+ echo "The -03 and -06 flags are incompatible"
+ exit
+endif
+if ($?crystal03 && $?crystal09) then
+ echo "The -03 and -09 flags are incompatible"
+ exit
+endif
+if ($?crystal06 && $?crystal09) then
+ echo "The -06 and -09 flags are incompatible"
+ exit
+endif
+if (! $?crystal95 && ! $?crystal98 && ! $?crystal03 && ! $?crystal06 && ! $?crystal09 ) set crystal14
+
+# Now the main arguments
+
+if ( $#argv != 2 ) then
+ echo "Usage: billy [-f] [-95/-98/-03/-06/-09] [-guess] [-n <nruns>] [-np <ncores>] <input file> <% scan range>"
+ exit 2
+endif
+
+set file = $argv[1]
+set logfile = $file.log
+set percent = $argv[2]
+
+#
+# Error checking
+#
+
+if ( ! -e $file ) then
+ echo "CRYSTAL input deck $file does not exist."
+ exit 3
+endif
+
+if ( `grep -c '\*' $file` == 0 && `grep -c '\&' $file` == 0 ) then
+ echo "The CRYSTAL input deck $file does not contain any asterisks or ampersands."
+ exit 4
+endif
+
+if ($?crystal03 || $?crystal06 || $?crystal09) then
+
+ if ($?small || $?big || $?huge || $?enormous) then
+  echo "The -small/-big/-huge/-enormous flags are not required for CRYSTAL03 onwards."
+  exit
+ endif
+
+else
+
+ if ( $?small && $?big ) then
+  echo "The -small and -big options are incompatible."
+  exit
+ endif
+
+ if ( $?small && $?huge ) then
+  echo "The -small and -huge options are incompatible."
+  exit
+ endif
+
+ if ( $?small && $?enormous ) then
+  echo "The -small and -enormous options are incompatible."
+  exit
+ endif
+
+ if ( $?big && $?enormous ) then
+  echo "The -big and -enormous options are incompatible."
+  exit
+ endif
+
+ if ( $?big && $?huge ) then
+  echo "The -big and -huge options are incompatible."
+  exit
+ endif
+
+ if ( $?enormous && $?huge ) then
+  echo "The -enormous and -huge options are incompatible."
+  exit
+ endif
+
+ if ($?small) set run = $run" -small"
+ if ($?big) set run = $run" -big"
+ if ($?huge) set run = $run" -huge"
+ if ($?enormous) set run = $run" -enormous"
+
+endif
+
+if (-e $logfile) mv $logfile $logfile.old
+
+touch $logfile
+mkdir -p $tempdir
+cd $tempdir
+cp ../$file .
+ln -s ../$logfile .
+if ( -e ../$fort20 ) ln -s ../$fort20 .
+
+while ($numit <= $nruns)
+
+if ($numit == 1) then
+ echo "BILLY LOG FILE FOR $file" >> $logfile
+ set title = `awk 'NR==1 {print}' $file`
+ if ($?crystal95) then
+  echo CRYSTAL95 "running on "$MACHINE"." >> $logfile
+ else if ($?crystal98) then
+  echo CRYSTAL98 "running on "$MACHINE"." >> $logfile
+ else if ($?crystal03) then
+  echo CRYSTAL03 "running on "$MACHINE"." >> $logfile
+ else if ($?crystal06) then
+  echo CRYSTAL06 "running on "$MACHINE"." >> $logfile
+ else if ($?crystal09) then
+  echo CRYSTAL09 "running on "$MACHINE"." >> $logfile
+ else
+  echo CRYSTAL14 "running on "$MACHINE"." >> $logfile
+ endif
+ echo $title >> $logfile
+ echo "Total no. of iterations: $nruns" >> $logfile
+
+ if ( $?guess ) then
+  echo "GUESSP restarts will be used." >> $logfile
+ else
+  echo "GUESSP restart deactivated." >> $logfile
+ endif
+
+# Add the GUESSP keyword for restarts. Flag its removal before the initial
+# run if the given input file does not already contain it.
+
+ if (`grep -c 'GUESSP' $file` == 1 || `grep -c 'GUESSF' $file` == 1 ) then
+  if ( ! -e $fort20 ) then
+   echo "Your input deck has GUESSP flagged but there is no $fort20 file."
+   rm $logfile
+   exit
+  endif
+ else
+  set file2 = $file.temp
+  set line = `awk 'END{print NR}' $file`
+  if ($?guess) then
+   awk 'BEGIN{ofile = "'$file2'"}\
+              {if ( NR != '$line' )\
+                {print >> ofile }\
+               else\
+               { print "GUESSP" >> ofile  ; print "END" >> ofile}\
+              }' $file
+   set removeguessp
+   mv $file.temp $file
+  endif
+ endif
+
+ date >> $logfile
+ echo "OPTIMIZATION CYCLE $numit" >> $logfile
+ echo "Optimized at $percent% scan range." >> $logfile
+ if ( `grep -c 'DFT' $file` == 1 ) set dft
+ cp $file $file.start
+ set minnotfound = 0
+else
+ @ percent = ($percent / 2)
+ echo "OPTIMIZATION CYCLE $numit" >> $logfile
+ echo "Optimized at $percent% scan range." >> $logfile
+ rm -f $file
+ rm -f ../$file.opt
+ mv -f ../$file.opt_ast $file
+endif
+
+# Test for presence of any parameters preceded by ampersands (&) which
+# indicates they are to be optimized concurrently (as in atomic co-ordinates).
+# If so, write their position in the input to a file:
+
+if (`grep -c '\&' $file` != 0) then
+ awk '/\&/{print NR}' $file > amplinefile
+ set numamplin = `awk 'END{print NR}' amplinefile`
+ awk '/\&.+\&/{print NR}' $file >> amplinefile
+ awk '/\&.+\&.+\&/{print NR}' $file >> amplinefile
+ set numamp = `awk 'END{print NR}' amplinefile`
+ if ($numamp == 1) then
+  echo "More than one ampersand required for concurrent optimization."
+  rm amplinefile $logfile
+  exit
+ endif
+ set a = 1
+ while ($a <= $numamplin)
+  set line = `awk 'NR=='$a' {print $1}' amplinefile`
+  awk 'NR=='$line' {for (i=1 ; i <= NF ; i++)\
+                  {if ((index ($i,"&")) == 1)\
+                   {print i >> "ampfieldfile"}\
+                  }\
+                }' $file
+  @ a = ($a + 1)
+ end
+ sort -n amplinefile -o amplinefile
+endif
+
+#
+# Using coordinates of special parameters, create a subset of new input files
+# in which only one parameter is asterisked.
+#
+
+# Write lines on which asterisks occur to linefile:
+
+if (`grep -c '\*' $file` != 0) then
+ awk '/\*/{print NR}' $file > linefile
+ set numlin = `awk 'END{print NR}' linefile`
+ awk '/\*.+\*/{print NR}' $file >> linefile
+ awk '/\*.+\*.+\*/{print NR}' $file >> linefile
+ set a = 1
+
+# Write fields in which asterisks occur to fieldfile:
+
+ while ($a <= $numlin)
+  set line = `awk 'NR=='$a' {print $1}' linefile`
+  awk 'NR=='$line' {for (i=1 ; i <= NF ; i++)\
+                  {if ((index ($i,"*")) == 1)\
+                   {print i >> "fieldfile"}\
+                  }\
+                }' $file
+  @ a = ($a + 1)
+ end
+ set numast = `awk 'END{print NR}' linefile`
+ set numast_check = `awk 'END{print NR}' fieldfile`
+ if ($numast_check != $numast) then
+  echo "Different number of lines in fieldfile and linefile."
+  echo "Check that your parameters have been asterisked correctly."
+  echo "Otherwise this may be a bug in the billy script."
+  exit
+ endif
+
+# Sort linefile so all lines match with the appropriate field in fieldfile:
+
+ sort -n linefile -o linefile
+else
+ set numast = 0
+ set numlin = 0
+endif
+
+# Add amplinefile to end of linefile for future reference (and fieldfiles):
+
+if (-e amplinefile && -e linefile) then
+ pr -t linefile amplinefile > linefile2
+ rm linefile
+ mv linefile2 linefile
+ pr -t fieldfile ampfieldfile > fieldfile2
+ rm fieldfile
+ mv fieldfile2 fieldfile
+endif
+if !(-e linefile) then
+ cp amplinefile linefile
+ cp ampfieldfile fieldfile
+endif
+set numparam = `awk 'END{print NR}' linefile`
+
+#
+# Create one-asterisk file subset using co-ordinates in line and fieldfiles:
+#
+
+sed -e 's/*/ /g' $file > $file.init2
+sed -e 's/&/ /g' $file.init2 > $file.init
+rm $file.init2
+
+if ( $?forwards ) then
+
+ set b = 1
+ while ($b <= $numparam)
+  set line = `awk 'NR=='$b' {print $1}' linefile`
+  set field = `awk 'NR=='$b' {print $1}' fieldfile`
+  awk 'BEGIN{ofile = "'$b$file'"}\
+             {if (NR != '$line')\
+               {print >> ofile}\
+              else\
+               {\
+                {for (i=1 ; i <= NF ; i++)\
+                 {if (i != '$field')\
+                   {x[i] = $i}\
+                  else\
+                   {x[i] = "*"$i}\
+                 }\
+                }\
+              {for (i=1 ; i <= NF ; i++)\
+               printf "%-8s","  "x[i] >> ofile }\
+              print" " >> ofile\
+               }\
+             }' $file.init
+ @ b = ($b + 1)
+ end
+
+else
+
+ set b = $numparam
+ set l = 1
+ while ($b >= 1)
+  set line = `awk 'NR=='$l' {print $1}' linefile`
+  set field = `awk 'NR=='$l' {print $1}' fieldfile`
+  awk 'BEGIN{ofile = "'$b$file'"}\
+             {if (NR != '$line')\
+               {print >> ofile}\
+              else\
+               {\
+                {for (i=1 ; i <= NF ; i++)\
+                 {if (i != '$field')\
+                   {x[i] = $i}\
+                  else\
+                   {x[i] = "*"$i}\
+                 }\
+                }\
+              {for (i=1 ; i <= NF ; i++)\
+               printf "%-8s","  "x[i] >> ofile }\
+              print" " >> ofile\
+               }\
+             }' $file.init
+ @ b = ($b - 1)
+ @ l = ($l + 1)
+ end
+
+endif
+
+#
+# Find initial energy before optimization:
+#
+
+if ($numit == 1) then
+
+ if ( $?removeguessp ) then
+  awk '$1!~/GUESSP/ ' $file.init > $file.temp
+  mv $file.temp $file.init
+ endif
+ $run $file.init
+ if (`grep -c 'SCF ENDED - CONVERGENCE ON' $file.init.o` == 1 || `grep -c 'SCF ENDED -CONVERGENCE ON' $file.init.o` == 1) then
+  if ($?dft) then
+   if ($?crystal95) then
+    awk '/DFT ENERGY/{print $(NF) >> "eNer"}' $file.init.o
+   else if ($?crystal98) then
+    awk '/DFT ENERGY/{getline ; print $(NF) >> "eNer"}' $file.init.o
+   else
+    if (`grep -c 'C R Y S T A L   200Y' $file.init.o` > 0) then
+     awk '/TOTAL ENERGY\(DFT\)\(AU\)/{print $5 >> "eNer"}' $file.init.o
+    else
+     awk '/SCF ENDED - CONVERGENCE ON ENERGY/{print $9 >> "eNer"}' $file.init.o
+    endif
+   endif
+  else
+   awk '/::: TOTAL   ENERGY/{print $4 >> "eNer"}' $file.init.o
+  endif
+ else
+  echo "The initial CRYSTAL run failed to converge. " >> $logfile
+  mv $file.init.o ../$file.o_ERROR
+  exit
+ endif
+ if ($?guess) then
+  if (-e $file.init.w) then
+   mv $file.init.w $fort20
+  else
+   echo "No .w file for GUESSP restart." >> $logfile
+   exit
+  endif
+ else
+  rm $file.init.w >& /dev/null
+ endif
+ set emin0 = `head -1 eNer`
+ set enstart = $emin0
+ set emin = $emin0
+ rm eNer
+ rm $file.init.o
+
+endif
+
+rm $file.init
+if ( $numit > 1 ) then
+ echo "Energy before this cycle is "$emin0 >> $logfile
+else
+ echo "Energy of unoptimized system is "$emin0 >> $logfile
+endif
+
+#
+# Initialize variables in preparation for minimisation:
+#
+
+set c = 1
+@ p = ( $numparam + 1)
+set retry = 0
+set param = 0
+cp $numparam$file $p$file
+set x = 0
+# again is the goto marker to loop over each one asterisk file.
+again:
+echo "Processing parameter "$c >> $logfile
+
+#
+# Determine if the parameter we are dealing with was asterisked or ampersanded.
+# Take appropriate action:
+#
+
+if (-e amplinefile && $c > $numast) then
+  set x = 1
+endif
+
+#
+# Create a series of temporary files scanning around each asterisked parameter.
+# Also used to create a new set of temporary files based around an extremity
+# of the previous scan range if minimum not found.
+#
+
+set count = 1
+Retry:
+set line = `sed -n '/*/=' $c$file`
+set j = 0
+while ($j < 7)
+ if (-e $c$file$j.o) rm $c$file$j.o
+
+ awk 'BEGIN{line = '$line'}\
+  { file = "'$c$file$j'"  }\
+  { if (NR != line )\
+   {print >> file }\
+  else\
+   {for (i=1 ; i <= NF ; i++)\
+    { if ((index ($i,"*")) != 1)\
+     {x[i] = $i}\
+    else\
+     {print i > "Ffile"\
+     {if ('$retry' == 1)\
+       {low = ('$param' - ('$param' * ('$percent' / 100)))\
+       high = ('$param' + ('$param' * ('$percent' / 100)))}\
+     else\
+      {\
+      {if ('$j' == 1)\
+      {print "Initial value: "substr($i,2) >> "'$logfile'"}\
+      }\
+       {low =  (substr($i,2) - (substr($i,2) * ('$percent' / 100)))\
+       high = (substr($i,2) + (substr($i,2) * ('$percent' / 100)))}\
+     }\
+    }\
+    x[i] = (low + ('$j' * ((high - low)/6.0)))\
+   }\
+  }\
+  {for (i=1 ; i <= NF ; i++)\
+   printf "%-8s","  "x[i] >> file   }\
+   print" " >> file\
+  }\
+ }' $c$file
+
+ @ j = ($j + 1)
+end
+
+if (-e EE) rm EE
+if (-e PP) rm PP
+set field = `head -1 Ffile`
+
+#
+# Run CRYSTAL for each temporary file.
+# Write parameters to PP and corresponding energies to EE:
+#
+
+set line = `sed -n '/*/=' $c$file`
+set n = 0
+while ($n != 7)
+# If we are now optimizing an ampersanded parameter in the input file
+# then set all other ampersanded parameters to the same optimized value:
+if ($x == 1) then
+ if ( $?forwards ) then
+  set ampline = `head -1 amplinefile`
+  set ampfield = `head -1 ampfieldfile`
+  set ampparam = `awk 'NR=='$ampline' {print $'$ampfield'}' $c$file$n`
+  set z = 2
+  while ($z <= $numamp)
+   set ampline = `awk 'NR=='$z' {print $1}' amplinefile`
+   set ampfield = `awk 'NR=='$z' {print $1}' ampfieldfile`
+   awk '      BEGIN{line ='$ampline'}\
+         { file = "'$c$file$n.temp'"  }\
+         { if (NR != line )\
+             {print >> file }\
+           else\
+            {\
+             {for (i=1 ; i <= NF ; i++)\
+                   {x[i] = $i}\
+             }\
+               {x['$ampfield'] = '$ampparam'}\
+              {for (i=1 ; i <= NF ; i++)\
+              printf "%-8s","  "x[i] >> file   }\
+              print" " >> file\
+            }\
+         }' $c$file$n
+       rm $c$file$n
+       mv $c$file$n.temp $c$file$n
+   @ z = ($z + 1)
+  end
+ else
+  set ampline = `tail -1 amplinefile`
+  set ampfield = `tail -1 ampfieldfile`
+  set ampparam = `awk 'NR=='$ampline' {print $'$ampfield'}' $c$file$n`
+  @ z = ($numamp - 1)
+  while ($z >= 1)
+   set ampline = `awk 'NR=='$z' {print $1}' amplinefile`
+   set ampfield = `awk 'NR=='$z' {print $1}' ampfieldfile`
+   awk '      BEGIN{line ='$ampline'}\
+         { file = "'$c$file$n.temp'"  }\
+         { if (NR != line )\
+             {print >> file }\
+           else\
+            {\
+             {for (i=1 ; i <= NF ; i++)\
+                   {x[i] = $i}\
+             }\
+               {x['$ampfield'] = '$ampparam'}\
+              {for (i=1 ; i <= NF ; i++)\
+              printf "%-8s","  "x[i] >> file   }\
+              print" " >> file\
+            }\
+         }' $c$file$n
+       rm $c$file$n
+       mv $c$file$n.temp $c$file$n
+   @ z = ($z - 1)
+  end
+ endif
+endif
+
+# Run CRYSTAL and test for convergence:
+
+$run $c$file$n
+if (`grep -c 'SCF ENDED - CONVERGENCE ON' $c$file$n.o` == 1 || `grep -c 'SCF ENDED -CONVERGENCE ON' $c$file$n.o` == 1) then
+  if ($?dft) then
+   if ($?crystal95) then
+    awk '/DFT ENERGY/{print $(NF) >> "EE"}' $c$file$n.o
+   else if ($?crystal98) then
+    awk '/DFT ENERGY/{getline ; print $(NF) >> "EE"}' $c$file$n.o
+   else
+    if (`grep -c 'C R Y S T A L   200Y' $c$file$n.o` > 0) then
+     awk '/TOTAL ENERGY\(DFT\)\(AU\)/{print $5 >> "EE"}' $c$file$n.o
+    else
+     awk '/SCF ENDED - CONVERGENCE ON ENERGY/{print $9 >> "EE"}' $c$file$n.o
+    endif
+   endif
+  else
+   awk '/::: TOTAL   ENERGY/{print $4 >> "EE"}' $c$file$n.o
+  endif
+  awk 'NR=='$line' {print $'$field' >> "PP" }' $c$file$n
+  rm $c$file$n
+  if ($?guess) then
+   if ( -e $c$file$n.w ) then
+    rm $fort20 >& /dev/null
+    mv $c$file$n.w $fort20
+   else
+    echo "No .w file for GUESSP restart." >> $logfile
+    exit
+   endif
+  else
+   rm $c$file$n.w
+  endif
+else
+      echo $c$file$n" did not converge." >> $logfile
+endif
+      @ n = ($n + 1)
+end
+
+#
+# Analyse output from CRYSTAL:
+#
+
+echo $order_of_fit > dFit.input
+paste PP EE >> dFit.input
+
+set dflength = `awk 'END{print NR}' dFit.input`
+@ dflength = ($dflength - 1)
+if ($dflength < 5) then
+ echo "Not enough runs converged for data analysis." >> $logfile
+ echo "Skipping this parameter." >> $logfile
+ @ minnotfound = ($minnotfound + 1)
+ @ c = ($c + 1)
+ rm dFit.input Ffile
+ set retry = 0
+ goto parameterskip
+endif
+
+echo "Data analysis: " >> $logfile
+if (-e opt) rm opt
+$dfit < dFit.input >& opt
+$dfit < dFit.input >& tempxxx
+
+#
+# Modify tempxxx to make it easier to read.
+#
+
+ sed -e /X,Y=/d tempxxx > tempxxx2
+ sed -e /LENGTH/d tempxxx2 > tempxxx3
+ sed -e /POWERS/d tempxxx3 > tempxxx4
+ sed -e /COEFFICIENTS/d tempxxx4 > tempxxx5
+ awk '{if(NF != 0 && NF != 1)       \
+        {print >> "tempxxx6"}  \
+        }' tempxxx5
+ cat tempxxx6 >> ../$logfile
+ rm tempxxx*
+
+#
+# Check if minimum falls within scan range.
+# If not, repeat temporary file creation procedure with the varied parameter
+# centred on an extremity of the previous scan range. Repeat (4 times max.)
+# until secure minimum is found:
+#
+# helpbilly2 program used to determine which of the seven energies is smallest.
+# Outputs position in list of energies to marker2 and value of parameter
+# to marker3.
+#
+
+$helpbilly2
+set num = `head -1 marker2`
+set param = `head -1 marker3`
+rm marker2
+rm marker3
+rm dFit.input
+
+#
+# Test for all energies being the same:
+#
+
+#if (`grep -c 'NaNQ' opt` != 0 || `grep -c 'error' opt` != 0) then
+if ($num == 999) then
+ @ c = ($c + 1)
+ @ minnotfound = ($minnotfound + 1)
+ echo "Flat energy well. " >> $logfile
+ echo "Skipping this parameter." >> $logfile
+ rm Ffile
+ goto parameterskip
+endif
+
+#
+# Reset param to four decimal places:
+#
+
+echo $param > paramfile
+awk '{printf "%.4f\n",$1 > "paramfile2"}' paramfile
+set param = `head -1 paramfile2`
+rm paramfile* >& /dev/null
+
+#
+# If minimum energy parameter wasn't the first or the last in the list then
+# minimum has been located:
+#
+
+if ($num == 1 || $num == $dflength) then
+ @ count = ($count + 1)
+ if ($count < 10) then
+  echo "Minimum not within scan range" >> $logfile
+  echo "Retry. Adjusting scan range." >> $logfile
+  set retry = 1
+  goto Retry
+ else
+  echo "Maximum 10 retries allowed." >> $logfile
+  echo "Minimum not found. Continuing..." >> $logfile
+  awk 'NR=='$num' {print $1 >> "newguess" }' PP
+  set minv = `head -1 newguess`
+  rm newguess
+  @ minnotfound = ($minnotfound + 1)
+  set improved
+  goto jump
+ endif
+endif
+jump:
+set retry = 0
+
+#
+# Set optimized parameter to variable 'minv':
+#
+
+awk '/MINIMUM AT X=/{print $4 > "mIn"}' opt
+
+if ( `grep -c 'SINGULAR' opt` == 1 ) then
+ echo "Singular matrix! Perhaps the energy is independent of this parameter." >> $logfile
+ echo "Skipping to next one." >> $logfile
+ @ minnotfound = ($minnotfound + 1)
+ @ c = ($c + 1)
+ goto parameterskip
+endif
+
+set minv = `head -1 mIn`
+if ($?improved) then
+ echo "Proposed improved value = "$minv >> $logfile
+ unset improved
+else
+ echo "Proposed optimum value = "$minv >> $logfile
+endif
+rm Ffile
+rm mIn
+
+#
+# Reset minv to four decimal places:
+#
+
+echo $minv > minvfile
+awk '{printf "%.4f\n",$1 > "minvfile2"}' minvfile
+set minv = `sed -e '/[0-9]/q' minvfile2`
+rm minvfile*
+
+#
+# Adds the optimized parameter from the present input file to all the
+# following input files.
+#
+
+@ c = ($c + 1)
+set b = $c
+while ($b <= $p)
+awk '   BEGIN{line = '$line'                 \
+              ofile = "'$b$file'.test"}      \
+       { if (NR != line )                    \
+           {print >> ofile}                  \
+        else                                 \
+        {                                    \
+            {for (i=1 ; i <= NF ; i++)       \
+             {if (i != '$field')             \
+               {x[i] = $i}                   \
+              else                           \
+               {x[i] = '$minv'}              \
+             }                               \
+            }                                \
+             {for (i=1 ; i <= NF ; i++)      \
+              printf "%-8s","  "x[i] >> ofile\
+             }                               \
+             print " " >> ofile              \
+        }                                    \
+       }' $b$file
+
+# If the optimized character was ampersanded then replace all the other
+# ampersanded parameters with the same value.
+
+if ( $x == 1 && $?forwards ) then
+ set z = 2
+ while ($z <= $numamp)
+  mv $b$file.test $b$file.test1
+  set ampline = `awk 'NR=='$z' {print $1}' amplinefile`
+  set ampfield = `awk 'NR=='$z' {print $1}' ampfieldfile`
+  awk '      BEGIN{line ='$ampline'}\
+        { file = "'$b$file.test'"  }\
+        { if (NR != line )\
+            {print >> file }\
+          else\
+           {\
+            {for (i=1 ; i <= NF ; i++)\
+                  {x[i] = $i}\
+            }\
+              {x['$ampfield'] = '$minv'}\
+             {for (i=1 ; i <= NF ; i++)\
+             printf "%-8s","  "x[i] >> file   }\
+             print" " >> file\
+           }\
+        }' $b$file.test1
+      rm $b$file.test1
+  @ z = ($z + 1)
+ end
+else if ( $x == 1 && ! $?forwards ) then
+ @ z = ($numamp - 1)
+ while ($z >= 1)
+  mv $b$file.test $b$file.test1
+  set ampline = `awk 'NR=='$z' {print $1}' amplinefile`
+  set ampfield = `awk 'NR=='$z' {print $1}' ampfieldfile`
+  awk '      BEGIN{line ='$ampline'}\
+       { file = "'$b$file.test'"  }\
+       { if (NR != line )\
+           {print >> file }\
+         else\
+          {\
+           {for (i=1 ; i <= NF ; i++)\
+                 {x[i] = $i}\
+           }\
+             {x['$ampfield'] = '$minv'}\
+            {for (i=1 ; i <= NF ; i++)\
+            printf "%-8s","  "x[i] >> file   }\
+            print" " >> file\
+          }\
+       }' $b$file.test1
+  rm $b$file.test1
+  @ z = ($z - 1)
+ end
+endif
+@ b = ($b + 1)
+end
+
+#
+# Calculate the energy using the optimized parameter. Is this energy lower
+# than before? If it is, substitute the new optimized input files for the
+# old ones:
+#
+
+ sed -e 's/*/ /g' $c$file.test > $c$file.tEmp
+ $run $c$file.tEmp
+ if (`grep -c 'SCF ENDED - CONVERGENCE ON' $c$file".tEmp".o` == 1 || `grep -c 'SCF ENDED -CONVERGENCE ON' $c$file".tEmp".o` == 1) then
+  if ($?dft) then
+   if ($?crystal95) then
+    awk '/DFT ENERGY/{print $(NF) >> "eNer"}' $c$file".tEmp".o
+   else if ($?crystal98) then
+    awk '/DFT ENERGY/{getline ; print $(NF) >> "eNer"}' $c$file".tEmp".o
+   else
+    if (`grep -c 'C R Y S T A L   200Y' $c$file".tEmp".o` > 0) then
+     awk '/TOTAL ENERGY\(DFT\)\(AU\)/{print $5 >> "eNer"}' $c$file".tEmp".o
+    else
+     awk '/SCF ENDED - CONVERGENCE ON ENERGY/{print $9 >> "eNer"}' $c$file".tEmp".o
+    endif
+   endif
+  else
+   awk '/::: TOTAL   ENERGY/{print $4 >> "eNer"}' $c$file".tEmp".o
+  endif
+  set emin = `head -1 eNer`
+  echo "Previous energy was "$emin0 >> $logfile
+  echo "      New energy is "$emin >> $logfile
+  echo $emin > eTemp
+  echo $emin0 >> eTemp
+  if ($?guess) then
+   if ( -e $c$file".tEmp".w ) then
+    if ( -e $fort20 ) rm $fort20 >& /dev/null
+    mv $c$file".tEmp".w $fort20
+   else
+    echo "No .w file for GUESSP restart." >> $logfile
+    exit
+   endif
+  endif
+ else
+  echo "CRYSTAL run for billy $c$file.tEmp did not converge" >> $logfile
+  exit
+ endif
+
+# The fortran program helpbilly compares the two real number energies and
+# determines which is smaller. Writes a code to marker to report its result.
+
+ $helpbilly
+ rm eNer
+ rm eTemp
+ rm *.tEmp*
+ set b = $c
+ set mark = `sed -e '/[^.$]/q' marker`
+ rm marker
+ if ($mark == 1) then
+  echo "New parameter therefore lowers the energy." >> $logfile
+  echo "Inserting the value in remaining input files." >> $logfile
+  while ($b <= $p)
+   rm $b$file
+   mv $b$file.test $b$file
+   @ b = ($b + 1)
+  end
+ set emin0 = $emin
+ else
+  echo "Minimum already found to good accuracy." >> $logfile
+  echo "Skipping insertion procedure." >> $logfile
+  while ($b <= $p)
+   rm $b$file.test
+   @ b = ($b + 1)
+  end
+ endif
+
+parameterskip:
+if (-e EE) rm EE
+if (-e PP) rm PP
+
+#
+# Check if all input files processed. If not, return to beginning.
+# If so, create final report files and exit.
+#
+
+if ($c == $p || $x == 1) then
+ if (-e ../$file.opt)rm ../$file.opt
+ sed -e 's/*/ /g' $p$file > ../$file.opt
+ rm $p$file
+ if ($numit != $nruns) then
+  echo "Summary for cycle $numit" >> $logfile
+  if ($numit == 1) then
+   echo "Initial energy              :  "$enstart >> $logfile
+  else
+   echo "Energy before this cycle    :  "$emin_previous >> $logfile
+  endif
+  echo "Energy after this cycle     :  "$emin0 >> $logfile
+  set emin_previous = $emin0
+ endif
+ rm [0-9]*$file *.w >& /dev/null
+
+#
+# Create copy of optimized file with asterisks in the right places for a
+# further optimization cycle.
+#
+
+ cp ../$file.opt $file.opt_1
+ set d = 1
+ if (-e ../$file.opt_ast)rm ../$file.opt_ast
+ while ($d <= $numparam)
+  set line = `awk 'NR=='$d' {print $1}' linefile`
+  set field = `awk 'NR=='$d' {print $1}' fieldfile`
+  awk 'BEGIN{ofile = "'$file'.opt_2"}              \
+   {if (NR != '$line')\
+     {print >> ofile}\
+    else\
+     {\
+      {for (i=1 ; i <= NF ; i++)\
+       {if (i != '$field')\
+         {x[i] = $i}\
+        else\
+         {if ('$d' > '$numast')\
+          {x[i] = "&"$i}\
+         else\
+          {x[i] = "*"$i}\
+         }\
+       }\
+      }\
+    {for (i=1 ; i <= NF ; i++)\
+     printf "%-8s","  "x[i] >> ofile }\
+    print" " >> ofile \
+     }\
+   }' $file.opt_1
+  rm $file.opt_1
+  mv $file.opt_2 $file.opt_1
+  @ d = ( $d + 1 )
+ end
+ mv $file.opt_1 ../$file.opt_ast
+ rm -f opt linefile fieldfile
+ if (-e ampfieldfile) rm ampfieldfile
+ if (-e amplinefile) rm amplinefile
+else
+ goto again
+endif
+
+@ numit++
+end
+echo "SUMMARY" >> $logfile
+echo "=======" >> $logfile
+echo "No. of minima not found                  :   "$minnotfound >> $logfile
+echo "Initial energy                           :  "$enstart >> $logfile
+if ($nruns > 1) then
+ echo "Final energy after $nruns optimization cycles :  "$emin0 >> $logfile
+else
+ echo "Final energy                             :  "$emin0 >> $logfile
+endif
+echo "Optimized input file:  "$file.opt >> $logfile
+echo "Optimized input file with asterisks: "$file".opt_ast" >> $logfile
+date >> $logfile
+echo "BILLY STOP." >> $logfile
+
+cd ..
+rm -rf $tempdir
+
+exit 0
+
+#
+# Delete temporary files on interrupt
+#
+
+intr:
+ echo " "
+ echo "Interrupt detected; aborted."
+ echo "Deleting temporary files."
+ echo "STOP"
+ exit
+ cd ..
+ rm -rf $tempdir
+ exit

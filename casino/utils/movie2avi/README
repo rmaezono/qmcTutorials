@@ -1,0 +1,122 @@
+MOVIE2AVI
+=========
+Generate an AVI file from a CASINO movie.out file.  Requires povray and
+ffmpeg or avconv to be installed.
+
+PLR 01.2015
+
+
+Usage
+-----
+movie2avi [<optional-arguments>]
+
+Before attempting to generate an animation, try running:
+
+  movie2avi -qn1
+
+to render a low-quality version of the first frame as a PNG, and use that as
+a starting point to adjust the parameters below.  If the first PNG looks
+like a grey background with nothing on it, you may need to increase the
+particle radius.
+
+Command-line arguments
+----------------------
+--force | -f
+--skip | -s
+  This script aborts with an error if the frames directory is already
+  present.  These options override this setting: -f forces the deletion
+  and regeneration of the frames, while -s tells the script to skip
+  the frame generation and just convert the existing frames to video.
+
+--keep | -k
+  Keeps a copy of the .pov files in the current directory (for
+  debugging).
+
+--scale
+--scale-ions | -Z
+--scale-particles | -M
+  Scale ions and particles so that their volume is proportional to their
+  mass.  With this option, <ion-radius> (specified via -i) is the radius
+  of a hydrogen nucleus (the radius for all other ions is
+  <ion-radius> * Z^1/3) , while <particle-radius> is the radius of an
+  electron.
+
+--quick | -q
+  Turns off shadows, transparencies and antialiasing (for speed).
+
+--help | -h
+  Shows this help.
+
+--out=<out> | -o <out>
+  Sets name of CASINO out file.
+  Default: out
+
+--movie=<data-file> | -m <data-file>
+  Sets name of the "movie" data file.
+  Default: movie.out
+
+--video=<video> | -v <video>
+  Sets name of output video file.  Note that the video format is determined by
+  the extension, and it is possible to generate avi, mp4, flv or (huge) gif
+  files by changing the value of <video>.
+  Default: movie.avi
+
+--framedir=<framedir> | -d <framedir>
+  Sets name of directory where PNG frames are stored.
+  Default: ./movie_frames
+
+--xrange=<min>:<max> | -x <min>:<max>
+--yrange=<min>:<max> | -y <min>:<max>
+--zrange=<min>:<max> | -z <min>:<max>
+  Defines the x, y and z ranges to focus the scene on.
+  Default: simulation-cell dimensions for periodic systems, and dimensions
+  inferred from the configuration present in the movie file for non-periodic
+  systems.
+
+--camera-axis=x|y|z | -a x|y|z
+  Defines the axis on which the camera sits.
+  Default: z
+
+--particle-colours=<expression> | -c <expression>
+  Defines the colours to use for particles.  <expression> is a colon-delimited
+  list of valid povray colours to be used for successive spin indices.
+  Default: Blue:Cyan:Red:Magenta
+
+--ion-colours=<expression> | -C <expression>
+  Defines the colours to use for ions.  <expression> is a colon-separated list
+  of tokens of the form <colour> or <z>=<colour>.  The first form defines a
+  default colour for ions, and the second form assigns a colour to an atomic
+  number (e.g., "6=Blue:O=Red" would colour carbon atoms in blue and oxygens
+  in red).
+  Default: Green
+
+--povray=<binary> | -P <binary>
+--ffmpeg=<binary> | -F <binary>
+  Set the names of the povray and ffmpeg/avconv binaries.
+  Defaults: "povray" and whichever of "ffmpeg" or "avconv" is in the user's
+  PATH.
+
+--particle-radius=<r> | -e <r>
+  Defines the radius to be used for particles, in atomic units.
+  Default: 0.3
+
+--ion-radius=<r> | -i <r>
+  Defines the radius to be used for (hydrogen) nuclei, in atomic units.
+  Default: 0.4
+
+--nframe=<n> | -n <n>
+  Defines how many frames to render.
+  Default: the number of frames in "movie.out".
+
+--width=<w> | -w <w>
+  Sets the pixel width of the images; the height is automatically calculated to
+  match the system's dimensions.
+  Default: 480
+
+--frame-rate=<r> | -r <r>
+  Sets the frame rate in frames per second (integer).
+  Default: 10
+
+--nproc=<p> | -p <p>
+  Sets the number of simultaneous povray tasks to run.
+  Default: number of CPU cores.

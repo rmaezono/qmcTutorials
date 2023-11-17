@@ -1,0 +1,486 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# Create tar.gz file of latest CASINO version (according to git) and #
+# publish the changes if you are a repository maintainer.            #
+#                                                                    #
+# MDT 10.2008                                                        #
+# Rewritten in bash PLR 04.2011                                      #
+#                                                                    #
+# Changes                                                            #
+# -------                                                            #
+# 1.2012 Minor change in call to update-version to allow not         #
+#        reconstructing the DIARY file from scratch.                 #
+#--------------------------------------------------------------------#
+# Don't whinge about undefined variables
+set +u
+# Enable extended pattern-matching features
+shopt -s extglob
+
+# Current configuration
+MAINTAINER_LIST="mdt26"
+GIT_MAIN_DIR=~casino/git/CASINO
+PUBLIC_MAIN_DIR=~casino/PUBLIC
+PUBLISH_DIR=~casino/PUBLIC/current_beta
+MANUAL_MAIN_DIR=~casino/manual
+MANUAL_WEB_DIR=~mdt26/public_html/casino_manual_dir
+FAQ_DIR=~mdt26/public_html
+
+# Define temporary directory
+if [ ! -z "$QMC_TMPDIR" ] && [ -d "$QMC_TMPDIR" ] ; then
+ tmp_dir="$QMC_TMPDIR"
+elif [ ! -z "$TMPDIR" ] && [ -d "$TMPDIR" ] ; then
+ tmp_dir="$TMPDIR"
+else
+ tmp_dir="$HOME"
+fi
+tdir="$tmp_dir/casino_release_temp"
+
+# Fake configuration - toggle flag to allow "fake" maintainer mode
+FAKE=0
+if ((FAKE==1)) ; then
+ MAINTAINER_LIST="$USER"
+ GIT_MAIN_DIR="$tmp_dir/fake_release/git"
+ PUBLIC_MAIN_DIR="$tmp_dir/fake_release/PUBLIC"
+ PUBLISH_DIR="$tmp_dir/fake_release/PUBLIC/current_beta"
+ MANUAL_MAIN_DIR="$tmp_dir/fake_release/manual"
+ MANUAL_WEB_DIR="$tmp_dir/fake_release/web_manual"
+ mkdir -p "$GIT_MAIN_DIR" >& /dev/null
+ mkdir -p "$PUBLIC_MAIN_DIR" >& /dev/null
+fi
+
+##################### Functions #####################
+unpad() {
+ # Remove leading and trailing blanks from "$@"
+ local string="$@"
+ while [ "${string:0:1}" = " " ] ; do
+  string="${string:1}"
+ done
+ while [ "${string:$((${#string}-1)):1}" = " " ] ; do
+  string="${string:0:$((${#string}-1))}"
+ done
+ echo "$string"
+}
+pretty_print() {
+ # Print $3 with line folding at column $lwidth, with indentation $1 on the
+ # first line and indentation $2 on the following.
+ local indent1=$1 indent_rest=$2 text word line el="" lwidth=79
+ text="$(unpad "$3")"
+ line=""
+ while ((${#text}>0)) ; do
+  word="${text%% *}"
+  text="$(unpad "${text:${#word}}")"
+  if [ -z "$line" ] ; then # only happens first time around
+   line="$(printf "%${indent1}s")$word"
+  else
+   if ((${#line}+1+${#word}>lwidth)) ; then
+    echo "$line$el" ; line="$(printf "%${indent_rest}s")$word"
+   else
+    line="$line $word"
+   fi
+  fi
+ done
+ [ -z "$line" ] || echo "$line$el"
+}
+errstop() { echo ; pretty_print 0 7 "ERROR: $1" ; echo ; exit 1 ; }
+check_number_N() { [[ "$1" == +([[:digit:]]) ]] ; }
+in_line() {
+ # Like which_field, but only set return value, no other output
+ local str="$1"
+ while (($#>1)) ; do shift ; [ "$str" = "$1" ] && return 0 ; done
+ return 1
+}
+##################### End functions #####################
+
+# Flag maintainer mode
+maintainer=0
+in_tcm=1 ; [ -d "$GIT_MAIN_DIR" ] && [ -d "$PUBLIC_MAIN_DIR" ] || in_tcm=0
+((in_tcm==1)) && in_line $USER $MAINTAINER_LIST && maintainer=1
+
+print_help() {
+ cat <<_EOH
+Usage: ${0##*/} [<options>]
+
+This script will produce a .tar.gz archive with the latest HEAD of your
+local git repository under <repository-dir> (\$HOME/CASINO by default).
+
+If you are in TCM and are a maintainer of the repository, this script
+will tag the commit automatically (or as defined by the override flags,
+see below), publish the archive, diary and manual to the relevant
+group and web directories, and push the commits to the main git
+repository.
+
+If you are not a maintainer or are not in TCM, this script will just put
+the archive under <dest-dir> (\$HOME by default).
+
+Options:
+-r <repository-dir>
+       Set repository-dir to something other than the default \$HOME/CASINO.
+
+-d <dest-dir>
+       Set dest-dir to something other than the default \$HOME (this option
+       is for non-maintainers only).
+
+--allow-dirty
+       Do not error out on a dirty working tree.
+
+--major-release
+       Do a stable release changing the major version number, e.g.,
+       2.9.276 -> 3.0.
+
+--minor-release
+       Do a stable release changing the minor version number, e.g.,
+       2.9.276 -> 2.10.
+
+--rev-release
+       Do a stable revision, e.g., 2.8 -> 2.8.1 (only applicable from a stable
+       version).
+
+--dev-ready
+       Use this flag when prompted to do so.
+
+--override-describe <tag>[-<ncommits>-g]
+       Use the provided string instead of git-describe to identify the current
+       HEAD.
+
+--override-newtag <new-tag>
+       Use the provided string as the new version tag instead of generating
+       it automatically.
+
+--override-stable <stable-commit>
+       Use the provided string as the tag of the reference stable commit to
+       produce diffs, instead of determining it automatically.
+
+--dry-run
+       Do not really do anything, just run up to the point where all error
+       checks have been performed.
+
+--not-maintainer
+       Run in non-maintainer mode.
+
+--do-not-tag
+--do-not-publish
+--do-not-push
+       Skip tagging/publishing/git-pushing (these are maintainer actions)
+_EOH
+}
+
+# Read command-line options
+repo="$HOME/CASINO"
+allow_dirty=0
+major_release=0
+minor_release=0
+rev_release=0
+dev_ready=0
+dest=""
+if ((maintainer==1)) ; then
+ do_tag=1
+ do_publish=1
+ do_push=1
+else
+ do_tag=0
+ do_publish=0
+ do_push=0
+fi
+override_describe=""
+override_newtag=""
+override_stable=""
+dry_run=0
+while (($#>0)) ; do
+ case "$1" in
+ -r) shift ; repo="$1" ;;
+ -d) shift ; dest="$1" ;;
+ --major-release) major_release=1 ;;
+ --minor-release) minor_release=1 ;;
+ --rev-release) rev_release=1 ;;
+ --dev-ready) dev_ready=1 ;;
+ --allow-dirty) allow_dirty=1 ;;
+ --do-not-tag) do_tag=0 ;;
+ --do-not-publish) do_publish=0 ;;
+ --do-not-push) do_push=0 ;;
+ --not-maintainer)
+  maintainer=0 ; do_tag=0 ; do_publish=0 ; do_push=0 ;;
+ --dry-run) dry_run=1 ;;
+ --override-describe) shift ; override_describe="$1" ;;
+ --override-newtag) shift ; override_newtag="$1" ;;
+ --override-stable) shift ; override_stable="$1" ;;
+ --help) print_help ; exit ;;
+ *) print_help ; errstop "Unknown argument '$1'." ;;
+ esac
+ shift
+done
+
+if ((maintainer==1)) ; then
+ echo "Running in maintainer mode."
+ [ -z "$dest" ] || errstop "-d not allowed in maintainer mode. Use\
+  --not-maintainer to run in non-maintainer mode."
+ dest="$PUBLISH_DIR"
+else
+ echo "Running in non-maintainer mode."
+ [ -z "$dest" ] && dest="$HOME"
+fi
+
+# Change into repository and do some checks
+[ -d "$repo" ] || errstop "Directory $repo not found."
+cd "$repo" || errstop "Could not change into $repo"
+type -P git >& /dev/null || errstop "git not found."
+git --no-pager log -1 >& /dev/null || errstop "Directory $repo is not a git\
+ repository."
+is_dirty=0 ; git diff-files --quiet || is_dirty=1
+((is_dirty==1)) && ((allow_dirty==0)) && errstop "Working tree is dirty.\
+ Commit your changes, or use --allow-dirty to work with last commit."
+
+if [ -z "$override_describe" ] ; then
+ # Get git-describe output
+ describe="$(git describe --tags 2> /dev/null)"
+ [ -z "$describe" ] && errstop "Could not determine last tag using\
+  git-describe."
+else
+ describe="$override_describe"
+fi
+# Deconstruct version number to form new version number and stable version
+if [ -z "$override_stable" ] || [ -z "$override_newtag" ] ; then
+ [[ "$describe" == v*.* ]] || errstop "Version not understood (v): $version"
+ version="${describe#v}"
+ version="${version%%-*}"
+ version1="${version%%.*}"
+ check_number_N "$version1" || errstop "Version not understood (n1): $version"
+ version23="${version#$version1}" ; version23="${version23#.}"
+ version2="${version23%%.*}"
+ check_number_N "$version2" || errstop "Version not understood (n2): $version"
+ version3="${version23#$version2}" ; version3="${version3#.}"
+ [ -z "$version3" ] && version3=0
+ check_number_N "$version3" || errstop "Version not understood (n3): $version"
+ # Determine if this is stable or development
+ is_stable=0 ; ((version2%2==0)) && is_stable=1
+ # Extract number of commits from git-describe output
+ vdelta="${describe%-g*}"
+ vdelta="${vdelta#*-}"
+ check_number_N "$vdelta" || vdelta=0
+ # Construct new version number from information above
+ if ((is_stable==1)) ; then
+  if ((major_release==1)) ; then
+   new_version="v$((version1+1)).0"
+   current_series="$new_version"
+  elif ((minor_release==1)) ; then
+   new_version="v$version1.$((version2+2))"
+   current_series="$new_version"
+  elif ((rev_release==1)) ; then
+   # We ignore the specific value of vdelta here
+   new_version="v$version1.$version2.$((version3+1))"
+   current_series="$new_version"
+  else
+   new_version="v$version1.$((version2+1)).0"
+   current_series="v$version1.$((version2+1))"
+  fi
+  diff_from="v$version"
+ else # is_stable==0
+  if ((major_release==1)) ; then
+   new_version="v$((version1+1)).0"
+   current_series="$new_version"
+  elif ((minor_release==1)) ; then
+   new_version="v$version1.$((version2+1))"
+   current_series="$new_version"
+  elif ((rev_release==1)) ; then
+   errstop "--rev-release only applies to revisions of stable versions.  This\
+    is a development version (v$version1.$version2)."
+  else
+   new_version="v$version1.$version2.$((version3+vdelta))"
+   current_series="v$version1.$version2"
+  fi
+#  diff_from="v$version1.$((version2-1))"
+  diff_from="v$version"
+ fi
+fi
+[ -z "$override_stable" ] || diff_from="$override_stable"
+[ -z "$override_newtag" ] || new_version="$override_newtag"
+
+# Determine if diff can be produced
+[ -z "$(git tag -l "$diff_from" 2> /dev/null)" ] && diff_from=""
+
+# Inform of version decisions
+echo "git-describe (--override-describe to change): $describe"
+if ((do_tag==0)) ; then
+ echo "New tag        (--override-newtag to change): $new_version\
+ [not applied]"
+else
+ echo "New tag        (--override-newtag to change): $new_version"
+fi
+if [ -z "$diff_from" ] ; then
+ echo "Stable tag     (--override-stable to change): none, no diffs"
+else
+ echo "Stable tag     (--override-stable to change): $diff_from"
+fi
+
+# Exit if we only want the above information
+((dry_run==1)) && exit
+echo
+
+# Make the manual
+echo -n "Updating manual..."
+cd manual/src || errstop "Could not change into manual/src"
+make >& /dev/null || errstop "Problem making the manual."
+echo " done"
+cd ../..
+
+# Create temporary directory
+rm -rf "$tdir"
+mkdir -p "$tdir"
+
+# Tag commit
+[ -z "$new_version" ] && distrib=CASINO || distrib="CASINO_$new_version"
+if ((do_tag==1)) ; then
+ echo -n "Applying tag..."
+ if ((FAKE==1)) ; then
+  echo -n " (fake)"
+ else
+  git tag -d "$new_version" >& /dev/null
+  git tag "$new_version" || errstop "Problem applying tag - check quota?"
+ fi
+ echo " done"
+fi
+
+# Update VERSION file
+if [ -x build-tools/update-version ] ; then
+ echo -n "Updating VERSION and DIARY..."
+ build-tools/update-version --quiet --override-stable "$diff_from"\
+  --override-describe "$describe" --override-series "$current_series"\
+  --single-rev-diary "$tdir/DIARY1"
+ (($?==1)) && errstop "Problem updating VERSION and DIARY - check quota?"
+ echo " done"
+fi
+
+# Generate diffs.
+if [ ! -z "$diff_from" ] && ((do_publish==1)) ; then
+ echo -n "Generating patch and logs from $diff_from to git HEAD..."
+ git diff "$diff_from..HEAD" | gzip -9 > "$tdir/patch-$new_version.gz"
+ [ -e "$tdir/DIARY1" ] && mv -f "$tdir/DIARY1" "$tdir/DIARY-$new_version"
+ git shortlog "$diff_from..HEAD" > "$tdir/ShortLog-$new_version"
+ git diff --stat --summary -M "$diff_from..HEAD"\
+  > "$tdir/diffstat-$new_version"
+ echo " done"
+fi
+
+# Generate archive, removing and adding the appropriate files - use a fake
+# CASINO tree to do additions because user's directory may not be called
+# 'CASINO'.
+echo -n "Generating archive from git HEAD..."
+git archive --prefix=CASINO/ HEAD \
+ | tar --delete CASINO/manual/src CASINO/.gitignore > "$tdir/$distrib.tar"
+echo " done"
+echo -n "Creating fake CASINO tree..."
+mkdir "$tdir/CASINO"
+if [ -e manual/casino_manual.pdf ] ; then
+ mkdir "$tdir/CASINO/manual"
+ cp -f manual/casino_manual.pdf "$tdir/CASINO/manual"
+fi
+[ -e VERSION ] && cp -f VERSION "$tdir/CASINO"
+[ -e DIARY ] && cp -f DIARY "$tdir/CASINO"
+echo " done"
+if [ -e manual/casino_manual.pdf ] ; then
+ echo -n "Adding manual..."
+ tar -f "$tdir/$distrib.tar" -C "$tdir" -r --no-recursion CASINO/manual
+ tar -f "$tdir/$distrib.tar" -C "$tdir" -r CASINO/manual/casino_manual.pdf
+ echo " done"
+fi
+if [ -e VERSION ] ; then
+ echo -n "Adding VERSION..."
+ tar -f "$tdir/$distrib.tar" -C "$tdir" -r CASINO/VERSION
+ echo " done"
+fi
+if [ -e DIARY ] ; then
+ echo -n "Adding DIARY..."
+ tar -f "$tdir/$distrib.tar" -C "$tdir" -r CASINO/DIARY
+ echo " done"
+fi
+echo -n "Removing fake CASINO tree..."
+rm -rf "$tdir/CASINO"
+echo " done"
+echo -n "Gzipping..."
+gzip -9 "$tdir/$distrib.tar"
+echo " done"
+
+# Publish or copy to $dest
+if ((do_publish==1)) ; then
+ [ -e "$dest" ] || mkdir "$dest" >& /dev/null
+ if [ -d "$dest" ] && [ -w "$dest" ] ; then
+  echo -n "Cleaning public directory..."
+  rm -rf "$dest"/*
+  echo " done"
+  echo -n "Publishing archive..."
+  mv -f "$tdir/$distrib.tar.gz" "$dest" || errstop "Problem publishing\
+   archive - check quota?"
+  ln -s "$dest/$distrib.tar.gz" "$dest/CASINO_current_beta.tar.gz"\
+   || errstop "Problem linking archive to CASINO_current_beta.tar.gz - check\
+   quota?"
+  echo " done"
+  if [ ! -z "$diff_from" ] ; then
+   echo -n "Publishing patch and logs..."
+   for file in patch-$new_version.gz DIARY-$new_version \
+    ShortLog-$new_version diffstat-$new_version ; do
+    [ -e "$tdir/$file" ] && { mv -f "$tdir/$file" "$dest"\
+     || errstop "Problem publishing patch - check quota?" ; }
+   done
+   echo " done"
+  fi
+  chmod go+rx "$dest"/*
+ fi
+ if [ -e manual/casino_manual.pdf ] ; then
+  echo -n "Publishing manual..."
+  [ -e "$MANUAL_MAIN_DIR" ] || mkdir -p "$MANUAL_MAIN_DIR" >& /dev/null
+  if [ -d "$MANUAL_MAIN_DIR" ] && [ -w "$MANUAL_MAIN_DIR" ] ; then
+   cp -f manual/casino_manual.pdf "$MANUAL_MAIN_DIR" || errstop "Problem\
+    publishing manual to group - check quota?"
+   chmod go+r "$MANUAL_MAIN_DIR/casino_manual.pdf"
+  fi
+  [ -e "$MANUAL_WEB_DIR" ] || mkdir -p "$MANUAL_WEB_DIR" >& /dev/null
+  if [ -d "$MANUAL_WEB_DIR" ] && [ -w "$MANUAL_WEB_DIR" ] ; then
+   cp -f manual/casino_manual.pdf "$MANUAL_WEB_DIR" || errstop "Problem\
+    publishing manual to web - check quota?"
+   chmod go+r "$MANUAL_WEB_DIR/casino_manual.pdf"
+  fi
+  echo " done"
+ fi
+ if [ -e DIARY ] ; then
+  echo -n "Publishing DIARY..."
+  if [ -d "$PUBLIC_MAIN_DIR" ] && [ -w "$PUBLIC_MAIN_DIR" ] ; then
+   cp -f DIARY "$PUBLIC_MAIN_DIR/DIARY_tcm" || errstop "Problem publishing\
+    DIARY to group - check quota?"
+   chmod go+r "$PUBLIC_MAIN_DIR/DIARY_tcm"
+  fi
+  echo " done"
+ fi
+ if [ -e FAQ ] ; then
+  echo -n "Publishing FAQ..."
+  if [ -d "$FAQ_DIR" ] && [ -w "$FAQ_DIR" ] ; then
+   cp -f FAQ "$FAQ_DIR/casino_faq.txt" || errstop "Problem publishing\
+    FAQ to group - check quota?"
+   chmod go+r "$FAQ_DIR/casino_faq.txt"
+  fi
+ echo " done"
+ fi
+else
+ if [ -d "$dest" ] && [ -w "$dest" ] ; then
+  echo -n "Moving archive to $dest..."
+  mv -f "$tdir/$distrib.tar.gz" "$dest" || errstop "Problem moving archive -\
+   check quota?"
+  echo " done"
+ fi
+fi
+
+# Push git commits to main repository
+if ((do_push==1)) && [ -w "$GIT_MAIN_DIR" ] ; then
+ echo -n "Pushing changes to main repository..."
+ if ((FAKE==1)) ; then
+  echo -n " (fake)"
+ else
+  git push --tags "$GIT_MAIN_DIR" master || errstop "Problem git-pushing -\
+   check quota?"
+  chmod -R go+rX "$GIT_MAIN_DIR"
+ fi
+ echo " done"
+fi
+
+# Clean up
+echo -n "Cleaning up temporary directory..."
+rm -rf "$tdir"
+echo " done"

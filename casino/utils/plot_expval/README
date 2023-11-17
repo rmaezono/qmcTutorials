@@ -1,0 +1,44 @@
+PLOT_EXPVAL
+===========
+
+MDT 11.2005
+
+This routine allows you to produce 1D, 2D, 3D plots of the various
+expectation values that CASINO can calculate which get stored in the file
+'expval.data'.
+
+The current list of expectation values which this utility can handle is :
+
+ (1)  density
+ (2)  spin density
+ (3)  spin density matrix (NOT YET)
+ (4)  reciprocal space pair-correlation function
+ (5)  spherical pair correlation function
+ (6)  localization tensor (NOT YET)
+ (7)  structure factor
+ (8)  spherically-averaged structure factor
+ (9)  one-particle density matrix
+ (10) two-particle density matrix
+ (11) condensate fraction estimator (unbiased TBDM, goes as TBDM-OBDM**2)
+ (12) momentum density
+ (13) dipole moment
+
+In cases where the plot_geometry is not clear from the context (i.e.
+everything apart from spherical PCF and spherical structure factors), then
+control of the plot is performed through the 'plot_expval' block in
+input (this is ignored during a normal CASINO run). The structure of this block
+is as follows :
+
+ LINE 1: dimensionality of plot ndim 1/2/3, OR EQUIVALENTLY, line/plane/volume
+ LINE 2: No. of points along each of the ndim directions
+ LINE 3: xyz coords of point A
+ LINE 4: xyz coords of point B
+ LINE 5: xyz coords of point C (if reqd.)
+ LINE 6: xyz coords of point D (if reqd.).
+
+assuming the geometrical region on which the function is plotted is a
+line AB / plane AB-AC / volume AB-AC-AD. The data will be plotted in a
+format suitable for xmgr/grace in the file 'lineplot.dat' or in a format
+suitable for gnuplot in '2Dplot.dat' or '3Dplot.dat'. Visualize the latter
+using the plot_2D CASINO utility which calls gnuplot with all the
+right options.

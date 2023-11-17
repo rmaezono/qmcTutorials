@@ -1,0 +1,15 @@
+GP - JEEP - QBOX
+----------------
+
+We used to support an old Lawrence Livermore code which, when we played with it
+years ago, was called GP. It also appears to have been called JEEP, and has now
+morphed into something called QBOX which has a website at
+eslab.ucdavis.edu/software/qbox/index.htm .
+
+This directory contains a converter called 'jeep_to_pwfn' which used to read in
+'jeep.wf' and 'atoms.sys' files to produce a CASINO pwfn.data file. It is
+highly unlikely that this still works with modern versions of QBOX. If anyone
+out there would like to update this information, or to make the converter work
+in a modern context, then they would be very welcome.
+
+MDT 12.2013

@@ -1,0 +1,29 @@
+#-! DESCRIPTION: GNU Compiler Collection's g++ C++ compiler
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 2.2007
+#-! CXX_VERSION: >= 4.2
+#-! COMMAND_CHECK_CXX_VERSION:
+#-!  {
+#-!   while read a b line ; do
+#-!    if [ "$a $b" = "gcc version" ] ; then
+#-!     set -- $line ; echo $1 ; break
+#-!    fi
+#-!   done
+#-!  } < <(&CXX& -v < /dev/null 2>&1)
+#-! COMMAND_CHECK_CXX:
+#-!  if &CXX& --version < /dev/null >& /dev/null ; then
+#-!   {
+#-!    while read a b line ; do
+#-!     if [[ "$a $b" == "g++ ("* ]] ; then
+#-!      echo 1 ; break
+#-!     fi
+#-!    done
+#-!   } < <(&CXX& --version < /dev/null 2>&1)
+#-!  fi
+
+# Compiler name
+CXX = g++-13
+
+# Compiler flags
+CXXFLAGS_opt   = -O3
+CXXFLAGS_debug = -O0 -g

@@ -1,0 +1,318 @@
+MCTA_POST_PROCESS and MCTA_HF
+=============================
+This directory contains tools for the post-processing of Monte Carlo
+twist averaged (MCTA) VMC and DMC data for the homogeneous electron
+gas.  This post-processing technique corrects the error bar of the
+energy by:
+  (1) subtracting multiples of the Hartree-Fock (HF) kinetic and
+      exchange energies from the local energies at each twist angle,
+  (2) reblocking the resulting set of modified local energies, and
+  (3) adding multiples of very accurate MCTA values of the HF kinetic
+      and exchange energies.
+See below for an overview of the control variate scheme that this
+method uses.
+
+Post-processed error bars are expected to be smaller than those
+obtained without post-processing; reduction factors of between 1.5 and
+50 have been seen in practice.
+
+The MCTA_HF utility is a parallel tool which calculates the MCTA-HF
+energy of a HEG with the requested accuracy.  The output of MCTA_HF
+is required to run MCTA_POST_PROCESS.
+
+The MCTA_POST_PROCESS utility is a Fortran implementation of the
+post-processing algorithm, which reads the CASINO output files, asks
+for the MCTA-HF energy components and produces the post-processed
+result.
+
+
+MCTA_HF
+=======
+
+Usage
+-----
+MCTA_HF is a parallel utility, which can be run via mpirun, e.g.,
+
+  mpirun -np 4 mcta_hf
+
+The utility can be used in clusters with batch queuing systems, in
+which case a submission script appropriately invoking mcta_hf should
+be written.  One can also run the utility directly without mpirun to
+perform a single-processor calculation.
+
+MCTA_HF reads the system parameters from standard input, and it can
+compute the MCTA-HF energies of several systems in a single run.
+This makes the utility well suited for use on clusters.
+
+
+Example
+-------
+Suppose we want to calculate the MCTA-HF energy of a 54-electron gas
+in an fcc lattice at rs=5 a.u. with an error bar of 5*10^-7 a.u./part.
+or less using 2 MPI processes.  We would do:
+
+--
+
+$ mpirun -np 2 mcta_hf
+
+ Enter dimensionality (0 to exit):
+3
+ Enter particle numbers (one integer per particle type in one line):
+27 27
+ Enter particle masses (one number per particle type in one line) [a.u.]:
+1 1
+ Enter particle charges (one number per particle type in one line) [a.u.]:
+-1 -1
+ Enter r_s [a.u.]:
+5.0
+ Enter unscaled simulation cell vector #1:
+0 1 1
+ Enter unscaled simulation cell vector #2:
+1 0 1
+ Enter unscaled simulation cell vector #3:
+1 1 0
+ Enter target error bar [a.u./part.]:
+5.e-7
+
+ 54-particle gas in fcc lattice at r_s [a.u.] = 5.00000
+   Electron self-image energy [a.u./part.]: -9.4807382583013744E-002
+   Reciprocal lattice:
+     k vectors generated  : 1331
+     Active k vectors     : 113
+     Reoccupable k vectors: 112
+   HF energy at Gamma point [a.u./part.]:
+     K = 4.5015307381191069E-002
+     X = -9.6290448395888281E-002
+     E = -5.1275141014697212E-002
+   MCTA-HF energy [a.u./part.]:
+     K = 4.4307837542957057E-002 +/- 3.9693394902712086E-007
+     X = -9.7465563354232107E-002 +/- 3.0363946454161166E-007
+     E = -5.3157725811275050E-002 +/- 4.9975342351741980E-007
+     Info: used a total of 1858000 twists.
+
+
+ Enter dimensionality (0 to exit):
+0
+ Done.
+
+--
+
+
+Multiple-system example
+-----------------------
+
+In this example we write the input to be read by the utility to a file,
+then run the utility.  In addition to the above system, we also compute
+the MCTA-HF energy of a 602-electron gas in a 2D square lattice at rs=2
+a.u. with an error bar of 5*10^-7 a.u./part. or less, and we use 4 MPI
+processes.
+
+---
+
+$ cat > run_params <<EOF
+3
+27 27
+1 1
+-1 -1
+5.0
+0 1 1
+1 0 1
+1 1 0
+5.e-7
+2
+301 301
+1 1
+-1 -1
+2.0
+1 0
+0 1
+2.e-7
+0
+EOF
+$ mpirun -np 4 mcta_hf < run_params
+
+ Enter dimensionality (0 to exit):
+ Enter particle numbers (one integer per particle type in one line):
+ Enter particle masses (one number per particle type in one line) [a.u.]:
+ Enter particle charges (one number per particle type in one line) [a.u.]:
+ Enter r_s [a.u.]:
+ Enter unscaled simulation cell vector #1:
+ Enter unscaled simulation cell vector #2:
+ Enter unscaled simulation cell vector #3:
+ Enter target error bar [a.u./part.]:
+
+ 54-particle gas in fcc lattice at r_s [a.u.] = 5.00000
+   Electron self-image energy [a.u./part.]: -9.4807382583013744E-002
+   Reciprocal lattice:
+     k vectors generated  : 1331
+     Active k vectors     : 113
+     Reoccupable k vectors: 112
+   HF energy at Gamma point [a.u./part.]:
+     K = 4.5015307381191069E-002
+     X = -9.6290448395888281E-002
+     E = -5.1275141014697212E-002
+   MCTA-HF energy [a.u./part.]:
+     K = 4.4307816498069010E-002 +/- 3.9675541137130175E-007
+     X = -9.7465485455937501E-002 +/- 3.0352943122387803E-007
+     E = -5.3157668957868491E-002 +/- 4.9954476483244398E-007
+     Info: used a total of 1856000 twists.
+
+
+ Enter dimensionality (0 to exit):
+ Enter particle numbers (one integer per particle type in one line):
+ Enter particle masses (one number per particle type in one line) [a.u.]:
+ Enter particle charges (one number per particle type in one line) [a.u.]:
+ Enter r_s [a.u.]:
+ Enter unscaled simulation cell vector #1:
+ Enter unscaled simulation cell vector #2:
+ Enter target error bar [a.u./part.]:
+
+ 602-particle gas in square lattice at r_s [a.u.] = 2.00000
+   Electron self-image energy [a.u./part.]: -4.4842615001559560E-002
+   Reciprocal lattice:
+     k vectors generated  : 625
+     Active k vectors     : 349
+     Reoccupable k vectors: 88
+   HF energy at Gamma point [a.u./part.]:
+     K = 0.12500349351763446
+     X = -0.30048752903607545
+     E = -0.17548403551844100
+   MCTA-HF energy [a.u./part.]:
+     K = 0.12500993248757733 +/- 1.0802290872707995E-007
+     X = -0.30045176792600276 +/- 1.6558402266381819E-007
+     E = -0.17544183543842543 +/- 1.9770436861989394E-007
+     Info: used a total of 36000 twists.
+
+
+ Enter dimensionality (0 to exit):
+ Done.
+
+---
+
+
+Capabilities
+------------
+MCTA_HF can:
+- Be used to compute the MCTA-HF energy of homogeneous systems in
+  1, 2 and 3 dimensions with any cell shape.
+- Be used to compute the MCTA-HF kinetic energy of homogeneous systems
+  with a non-Ewald interaction (by ignoring the reported exchange
+  energy).
+- Be used to compute the MCTA-HF energy of biwires / bilayers, ignoring
+  the capacitor term (since it is independent of the separation d).
+
+
+MCTA_POST_PROCESS
+=================
+
+Usage
+-----
+MCTA_POST_PROCESS should be run under a directory containing the
+CASINO 'out' file and the 'vmc.hist' or 'dmc.hist' file corresponding
+to the calculation that requires post-processing.
+
+MCTA_POST_PROCESS will ask the user to interactively enter the MCTA-HF
+kinetic and exchange energies (from MCTA_HF, see above), and it will
+then go on to report the total energy and the correlation energy.
+
+
+Example
+-------
+Suppose we have run a VMC calculation of a 54-electron gas in a simple
+cubic cell at rs=1, for which MCTA_HF gives the MCTA-HF energy
+components:
+  K =  1.10732606689554  +/- 9.849401012527091E-007
+  X = -0.487091388553644 +/- 1.726966885629877E-007
+We would then run:
+
+--
+
+$ mcta_post_process
+
+ 54-particle gas in simple cubic lattice at r_s [a.u.] = 1.00000
+ 8192 k-vector offsets used in VMC run.
+
+ Reblocked unprocessed energy [a.u./part.]:
+   E_unprocessed = 0.57936648325640161 +/- 1.7491424805218846E-004
+
+ Single-block post-processing:
+   a = -1.0120764281308834
+   b = -0.49197919697457154
+   Energy (offset by a*HF_KE + b*HF_XE) [a.u./part.]:
+     E_pp_single = -0.30159431331854503 +/- 5.6336742391298453E-006
+
+ Multi-block post-processing:
+   a = -1.0123113410462632 +/- 9.5551035704882293E-004
+   b = -0.49268348893458808 +/- 5.6386053773983865E-003
+   Energy (offset by a*HF_KE + b*HF_XE) [a.u./part.]:
+     E_pp_multi = -0.30151135376406357 +/- 5.6331551721559118E-006
+
+ Enter the twist-averaged HF kinetic energy and error bar [a.u./part.]:
+1.10732606689554 9.849401012527091E-007
+ Enter the twist-averaged HF exchange energy and error bar [a.u./part.]:
+-0.487091388553644 1.726966885629877E-007
+
+ Final corrected total energy [a.u./part.]:
+   E_final = 0.57946549724784235 +/- 5.7213475069801737E-006
+
+ Final corrected correlation energy [a.u./part.]:
+   CE_final = -4.0769181094053808E-002 +/- 5.6338494897922634E-006
+
+ Relative reduction in standard error of total energy from post-processing:
+   dE_unprocessed / dE_final = 30.57221
+
+--
+
+
+Capabilities
+------------
+MCTA_POST_PROCESS can:
+- Be applied to data from calculations of homogeneous systems in 1, 2
+  and 3 dimensions with any cell shape.
+- Be applied to data from calculations using interactions other than
+  the Ewald interaction (the utility simply ignores the HF exchange
+  energy in these cases).
+
+MCTA_POST_PROCESS cannot:
+- Be applied to calculations performed over multiple continuation
+  runs; a single "out" file with the entire set of twist angles needs
+  to be crafted from the multiple "out" files for the utility to be
+  able to load the required data.
+
+
+Post-processing methodology
+===========================
+The post-processing algorithm is based on a control variate technique
+described in Ref. [1].  In this technique, the local energy is
+modified by subtracting a function F of the twist angle,
+
+  E_mod(R,k) = E_L(R,k) - F({a};k) .
+
+F is called the control variate.  The parameters {a} in F can then be
+optimized so as to minimize the variance of E_mod.
+
+In the case of MCTA calculations in a HEG, the shifts in the local
+energy when k changes correlate well with a linear combination of
+the kinetic (K) and exchange (X) HF energies, so we use
+
+  F(a,b;k) = a*K(k) + b*X(k)
+
+as the control variate.  a and b are obtained by minimizing the
+variance of E_mod.
+
+Note that obtaining a and b by minimizing the variance of the same
+sample that the control variate method is to be applied to gives rise
+to a potential negative bias in the variance.  This bias has been
+found to be small in practice, and it should be negligible for large
+data sets.  Also, MCTA_POST_PROCESS computes a and b using a blocking
+method which should help reduce this bias, giving error estimates on
+a and b in the process.
+
+
+References
+==========
+[1] G.G. Spink, N.D. Drummond, and R.J. Needs,
+    Phys. Rev. B 88, 085121 (2013).
+
+
+PLR 06.2014

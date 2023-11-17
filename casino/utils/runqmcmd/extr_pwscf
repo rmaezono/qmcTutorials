@@ -1,0 +1,25 @@
+#!/bin/bash
+# Grab the energies from an MD simulation out of a PWSCF out.pwscf file;
+# convert from Rydberg to Hartree; write to plot file.
+# MDT 10.2011
+
+[[ ! -e out.pwscf ]] && { echo "Output file out.pwscf missing" ; exit 1 ; }
+
+[[ -e ENERGIESpw.dat ]] && rm ENERGIESpw.dat
+
+touch ENERGIESpw.dat
+
+grep '!    total energy' out.pwscf > arse_$$
+nenergies=$(wc -l < arse_$$)
+
+for ((i=1; i <= nenergies ; i++)) ; do
+
+ energy=$(awk 'NR=='$i' {print $5}' arse_$$)
+
+ energy=$(echo "$energy * 0.5" | bc) # convert from Ry to Ha
+
+ echo $i $energy >> ENERGIESpw.dat
+
+done
+
+rm arse_$$

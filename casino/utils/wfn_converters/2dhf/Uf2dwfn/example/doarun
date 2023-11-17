@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Run 2dhf, then convert to generate a dwfn.data file
+# for casino. O2 is the example given here.
+# This expects 2dhf to be installed already, in the default 
+# home directory location.
+
+start O2
+cp ./2dhf_output.orb  ./inp.orb
+cp ./O2.data          ./inp.data
+
+~/bin/uf2dwfn
+

@@ -1,0 +1,66 @@
+#!/bin/bash
+#----------------------------------------------------#
+# Script to compile a LaTeX file using any number of #
+# passes, buffering all output to display it only if #
+# there is an error.                                 #
+# PLR 06.2009                                        #
+#----------------------------------------------------#
+set +u
+
+# Error function
+function errstop { echo "$*" ; exit 1 ; }
+
+# Read command line
+npass=3
+while (($#>0)) ; do
+ case "$1" in
+ -n) shift ; npass=$1 ;;
+ *) file="$1" ;;
+ esac
+ shift
+done
+
+# Sanity checks
+type -P pdflatex >& /dev/null || errstop "Error: no pdflatex in PATH"
+[ -z "$file" ] && errstop "Error: no filename supplied."
+if [ ! -f "$file" ] ; then
+ [ -f "$file.tex" ]\
+  || errstop "Error: neither \"$file\" nor \"$file.tex\" found."
+ file="$file.tex"
+fi
+[ "${file%.tex}" = "$file" ]\
+ && errstop "Error: \"$file\" does not end in .tex."
+filepdf="${file%.tex}.pdf"
+[ -r "$file" ] || errstop "Error: file \"$file\" not readable."
+[ -r . ] || errstop "Error: current directory not readable."
+[ -w . ] || errstop "Error: current directory not writeable."
+
+# Execute pdflatex npass times, putting the output of each pass in log[]
+IFS_save="$IFS" ; i=0 ; err=0
+{ i=0 ; while : ; do
+ export IFS=""
+ read -r line || break
+ export IFS="$IFS_save"
+ case "$line" in
+ PdFlAtExErRoR*) err=${line#PdFlAtExErRoR} ; break ;;
+ PdFlAtExStArT) i=0 ;;
+ *) i=$((i+1)) ; log[$i]="$line" ;;
+ esac
+done ; } <\
+ <(\
+  j=0 ; while ((j<npass)) ; do j=$((j+1)) ;\
+   echo PdFlAtExStArT ;\
+   pdflatex "$file" < /dev/null 2>&1 || { echo PdFlAtExErRoR$j ; break ; } ;\
+  done\
+ )
+export IFS="$IFS_save"
+
+# Print output if errors encountered
+if ((err!=0)) ; then
+ echo "-------------------------PDFLATEX LOG------------------------"
+ j=0 ; while ((j<i)) ; do j=$((j+1))
+  echo "${log[$j]}"
+ done
+ echo "----------------------END OF PDFLATEX LOG--------------------"
+ errstop "Problem at PDFLATEX pass $err."
+fi

@@ -1,0 +1,213 @@
+#!/bin/bash
+#-----------------------------------------------------------------------------#
+# modify_inputs                                                               #
+# -------------                                                               #
+#                                                                             #
+# This script allows the CASINO administrator to modify all the 300 input     #
+# files in the CASINO examples directory in various ways, reflecting          #
+# changes in the list of keywords understood by CASINO. The current list of   #
+# things it can do is :                                                       #
+#                                                                             #
+# (1) Change the default value of a keyword from x to y.                      #
+# (2) Delete a keyword completely.                                            #
+# (3) Add a new keyword together with its default and closing blurb.          #
+#                                                                             #
+# Usage : type 'modify_inputs' and follow the prompts.                        #
+#                                                                             #
+# This script is written in bash as various people keep whingeing at me to    #
+# do this, as csh shell scripts are nasty and old fashioned.                  #
+#                                                                             #
+# This is the only CASINO utility that was written on an aeroplane (from      #
+# Torino to Stanstead). Bet you really wanted to know that.                   #
+#                                                                             #
+# MDT 11.2003                                                                 #
+#-----------------------------------------------------------------------------#
+
+function check_keyword {
+ for i in $(find . -name input) ; do
+  nlines=`awk '$1 == "'$keyword'"{print}' $i | wc -l`
+  if [ $nlines -gt 1 ] ; then
+   echo " "
+   echo "This keyword occurs more than once as the first field in :"
+   echo $i
+   echo " "
+   exit
+  fi
+  if [ $nlines -lt 1 ] ; then
+   echo " "
+   echo "This keyword does not appear in the file :"
+   echo $i
+   echo " "
+   exit
+  fi
+ done
+}
+
+function delete {
+
+ until [ ! -z "$keyword" ] ; do
+  echo
+  echo Please enter the keyword to delete.
+  read keyword
+ done
+
+ check_keyword
+
+ for i in $(find . -name input) ; do
+  awk '$1 != "'$keyword'"{print >> "arse"}' $i
+  mv -f arse $i
+ done
+ echo
+ echo The keyword $keyword has been removed from all input files.
+ echo
+
+ exit
+
+}
+
+function change {
+
+ until [ ! -z "$keyword" ] ; do
+  echo
+  echo Please enter the keyword whose default value you want to change.
+  read keyword
+ done
+
+ check_keyword
+
+ until [ ! -z "$keyword_default" ] ; do
+  echo
+  echo Please enter the new default value for $keyword.
+  read keyword_default
+ done
+
+
+ for i in $(find . -name input) ; do
+  line=$(awk '$1 == "'$keyword'"{print NR}' $i)
+  awk 'BEGIN{keylen = length("'"$keyword_default"'")} \
+        {if (NR != '$line')\
+         {print >> "arse"}\
+        else\
+         { start = match($0,$3) ; oldkeylen = length($3) ; \
+           {if (oldkeylen > keylen) \
+             {keylendiff = (oldkeylen - keylen - 1) ;\
+              keylen = oldkeylen ; drift = 1} \
+            else\
+             {keylendiff = 0 ; drift = 2}\
+           }\
+           print substr($0,1,start-2),"'"$keyword_default"'",\
+           substr("                                    ",1,keylendiff),\
+           substr($0,start+keylen+drift) >> "arse"}\
+        }' $i
+
+  mv -f arse $i
+ done
+
+ echo Default value of $keyword changed to $keyword_default in all files.
+ exit
+
+}
+
+function add {
+
+ until [ ! -z "$keyword" ] ; do
+  echo
+  echo Enter the name of the new keyword.
+  read keyword
+ done
+
+ until [ ! -z "$keyword_default" ] ; do
+  echo
+  echo Enter the default value for $keyword.
+  read keyword_default
+ done
+
+ until [ ! -z "$keyword_blurb" ] ; do
+  echo
+  echo 'Enter some blurb to describe what the keyword does'
+  echo '(Strictly no more than 40 characters!)'
+  read keyword_blurb
+ done
+
+ echo 'Which section shall I add it to? (not blocks yet)'
+ echo
+ sections="BASIC_INFORMATION VMC DMC VARIANCE_MINIMIZATION GENERAL_PARAMETERS RARELY_MODIFIED_GENERAL_PARAMETERS MOVIES"
+ select option in $sections; do
+  if [ "$option" = "BASIC_INFORMATION" ]; then
+   section="# VMC"
+   break
+  elif [ "$option" = "VMC" ]; then
+   section="# DMC"
+   break
+  elif [ "$option" = "DMC" ]; then
+   section="# VARIANCE MINIMIZATION"
+   break
+  elif [ "$option" = "VARIANCE_MINIMIZATION" ]; then
+   section="# GENERAL PARAMETERS"
+   break
+  elif [ "$option" = "GENERAL_PARAMETERS" ]; then
+   section="# RARELY MODIFIED GENERAL PARAMETERS"
+   break
+  elif [ "$option" = "RARELY_MODIFIED_GENERAL_PARAMETERS" ]; then
+   section="# MOVIES"
+   break
+  elif [ "$option" = "MOVIES" ]; then
+   section="# BLOCK INPUT"
+   break
+  else
+   clear
+   echo
+   echo Illegal argument.
+   usage
+   exit
+  fi
+ done
+
+ for i in $(find . -name input) ; do
+  line=`grep -n "$section" $i | awk -F":" 'NR==1{print $1}'`
+  let line=line-1
+  awk 'BEGIN{keylen = length("'"$keyword"'") ; \
+        keyword_def_len = length("'"$keyword_default"'")}\
+        {if (NR != '$line')\
+         {print >> "arse"}\
+        else\
+         {printf "%-17s %s %-14s %s %s \n \n", "'"$keyword"'", ":", "'"$keyword_default"'", "#*!", "'"$keyword_blurb"'" >> "arse"}\
+        }' $i
+  mv -f arse $i
+ done
+
+
+ echo New keyword $keyword with default $keyword_default added to all inputs.
+ exit
+
+}
+
+name=`uname -s`
+if [ "$name" = "OSF1" ]; then
+ echo "This script doesn't work on Mike's Alpha. Old version of bash, maybe.."
+ exit
+fi
+
+if [ ! -z "$1" ]; then
+ echo No arguments are required for this script.
+ exit
+fi
+
+flags="Change, Delete, Add,  Exit."
+select option in $flags; do
+ if [ "$option" = "Change," ]; then
+  change
+ elif [ "$option" = "Delete," ]; then
+  delete
+ elif [ "$option" = "Add," ]; then
+  add
+ elif [ "$option" = "Exit." ]; then
+  exit
+ else
+  clear
+  echo
+  echo Illegal argument.
+  usage
+  exit
+ fi
+done

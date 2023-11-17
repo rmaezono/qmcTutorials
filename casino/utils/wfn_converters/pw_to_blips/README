@@ -1,0 +1,31 @@
+BLIP.f90
+========
+
+This program transforms plane waves into blips. It reads the file
+'pwfn.data' and produces the file 'bwfn.data' (this is not necessary
+with some codes such as PWSCF which are capable of producing bwfn.data
+files directly).
+
+The quality of the blip expansion can be increased with the
+input parameter 'xmul'. This results in an increasing number
+of blip coefficients, so a larger memory occupancy in CASINO
+(but the CPU time should be the same).
+
+To test the quality of the blip expansion set 'ltest = .t.'.
+The program then samples the wavefunction, the Laplacian and
+the gradient at 1000 points in the simulation cell and computes
+the quantity:
+
+                  < bw | pw >
+alpha = ------------------------------
+       sqrt( < bw | bw > < pw | pw > )
+
+the closer to 1 this quantity the better the representation.
+Increasing xmul one should always be able to get alpha as
+close to one as wanted.
+
+The program works with Gamma calculations, k points calculations and with
+real or complex coefficients.
+
+The gain in speed with respect to plane waves is of the order
+of NPW/64

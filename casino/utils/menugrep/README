@@ -1,0 +1,36 @@
+Menugrep
+========
+PLR 08.2005
+
+This util invokes grep and displays the result in a menu, from which
+the user can select a specific line in a file to edit straight away
+using vim.
+
+Usage: menugrep [-w] [-c] <pattern> [<files>]
+
+* -w invokes grep -w (<pattern> is a complete word rather than a part).
+
+* -c disables smart-case matching (i.e., enables fully case-sensitive
+  searches). Note: 'smart-case' means that when a lower-case pattern
+  is provided, the search is case-insensitive, and when any upper-case
+  letter is present, the search becomes case-sensitive. This is an
+  issue if the user wishes to search for lower-case patterns, in which
+  case the -c flag ought to be used.
+
+Examples
+--------
+* To look for 'debug' (arbitrary capitalization) in *.f90:
+
+  menugrep debug *.f90
+
+* To look specifically for 'DEBUG':
+
+  menugrep DEBUG *.f90
+
+* To look specifically for 'debug':
+
+  menugrep -c debug *.f90
+
+* To look for 'DeBuG' as an isolated word:
+
+  menugrep -w DeBuG *.f90

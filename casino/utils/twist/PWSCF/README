@@ -1,0 +1,181 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# TWISTAV_PWSCF                                                      #
+# =============                                                      #
+# Script to automate collection of twist-averaged data with PWSCF    #
+# and CASINO.                                                        #
+#                                                                    #
+# Mike Towler 11.2011                                                #
+#--------------------------------------------------------------------#
+
+Usage
+=====
+${0##*/} [--help --nproc_dft=I --splitqmc[=N] --startqmc=M --dft_only/--qmc_only --ntwist=L [<runqmc/runpwscf options>]
+
+This script is used to automate the collection of twist-averaged data using
+CASINO and the PWSCF DFT code (part of the Quantum espresso package -
+available at www.quantum-espresso.org). PWSCF must be version 4.3 or later.
+
+This script works by repeatedly calling the 'runpwscf' and 'runqmc' scripts
+which know how to run PWSCF/CASINO on any individual machine. With the
+exception of those listed above, almost all optional arguments to this
+script are the same as for runpwscf/runqmc and are passed on automatically
+to these subsidiary run scripts (the --background/-B option is also used by
+twistav_pwscf, and for the same purpose). Type 'runpwscf --help' or
+'runqmc --help' to find out what these options are. The short list of
+optional flags specific to twistav_pwscf are described below.
+
+It is assumed that PWSCF lives in ~/espresso and CASINO lives in ~/CASINO.
+There are override options available if this is not the case.
+
+If you are running on a multi-user machine with an account to be
+charged for the calculations, you might consider aliasing 'twistav_pwscf' as
+alias twistav_pwcf="twistav_pwscf --user.account=CPH005mdt "
+or whatever.
+
+To run a twist-averaged calculation you should in general do
+something like the following:
+
+Setup the PWSCF input ('in.pwscf') and the CASINO input ('input' etc. but no
+wave function file) in the same directory. For the moment we assume you have
+an optimized Jastrow from somewhere. 
+
+Have the PWSCF input file setup as 'calculation = "scf"' (control section) 
+with both 'nosym' and 'noinv' (system section) set to T, wf_collect (control 
+section) set to T, and 'verbosity' (control section) to 'high'. Some 
+required k-point information is not printed in output without the latter. The
+in.pwscf file must also contain a K_POINTS block written using the 'crystal' 
+format i.e. something like:
+
+K_POINTS crystal
+8
+  0.250000   0.250000   0.250000   0.1250000
+ -0.250000   0.250000   0.250000   0.1250000
+  0.250000  -0.250000   0.250000   0.1250000
+ -0.250000  -0.250000   0.250000   0.1250000
+  0.250000   0.250000  -0.250000   0.1250000
+ -0.250000   0.250000  -0.250000   0.1250000
+  0.250000  -0.250000  -0.250000   0.1250000
+ -0.250000  -0.250000  -0.250000   0.1250000
+
+This block will be manipulated by {\tt twistav\_pwscf} and the runscripts that
+it calls.
+
+In your CASINO input file, complex_wf must be T. Note that the VMC/DMC runs 
+for each twist can be relatively short and need not be fully converged; the 
+idea is that we collect enough data to achieve an acceptable error bar when 
+the data is averaged over all twist angles. If a normal run without 
+twist-averaging takes N moves to arrive at an acceptable error bar, then 
+each twist angle might be run for around N/ntwist moves.
+
+The twistav_pwscf script will then repeatedly run PWSCF to generate 'ntwist'
+xwfn.data files (ntwist default = 12, or change with optional argument
+--ntwist=xx), then it will run CASINO on each of the xwfn.data. The CASINO
+out files, xwfn.data files, config.out and vmc.hist/dmc.hist files will be
+renamed with an appropriate integer suffix.
+
+The calculation can be run through pwfn.data, bwfn.data or bwfn.data.b1
+formats as specified in the pw2casino.dat file (see CASINO and PWSCF
+documentation). When PWSCF is upgraded to produce new-format bwfn.data.bin
+files, then this script will need to be changed - ask MDT to do so.
+
+If you wish to do the (fast) DFT wave function generation calculations and the
+(slow) QMC calculations on different machines, for example to avoid batch queue
+waiting time, then use the --dft_only option to generate the full set of
+xwfn.data files, transfer these to the more powerful machine, then run on that
+using the --qmc_only} option---see below.
+
+The clearup_twistav script can be used to clear up the output from a PWSCF
+twist-averaging run.
+
+Default behaviour of twistav_pwscf (on all machines):
+----------------------------------
+
+Note : in the following NTWIST IS 12, or the value of the optional argument
+--ntwist , while  xwfn.data refers to whatever wave function file is specified
+in the pw2casino.dat file (either bwfn.data.b1 [default], bwfn.data or
+pwfn.data).
+
+For a complete TWISTAV run, the following steps are performed in sequence:
+
+(A) PWSCF generates NTWIST xwfn.data.$ files, where $ is a sequence number from
+    1 to NTWIST. Each succeeding run will have a different twist.
+(B) CASINO runs a full VMC or VMC-DMC run on each of the xwfn.data.
+
+On batch queue systems, twistav_pwscf will by default do *two* batch script
+submissions, the first - handled by the runpwscf script - executing step (A),
+and the second - handled by the runqmc script - executing step (B).
+
+In principle, this wastes some unnecessary time (the time spent waiting for the
+QMC batch script to start) but this is unavoidable if twistav_pwscf uses
+separate runpwscf and runqmc scripts to handle the DFT xwfn generation and
+QMC calculations. This may be changed in the future if anyone
+thinks it's worth it.
+
+Note that usually all calculations will be done on the number of cores
+requested on the command line (with the --nproc or -p flag) irrespective of
+whether they are DFT or QMC calculations.  Since typically DFT calculations
+in fact require fewer cores, you may override this for the DFT calculations by
+using the --nproc_dft flag to twistav_pwscf.
+
+Modifications to default behaviour (on all machines)
+----------------------------------
+
+(1) twistav_pwscf --dft_only  : execute only step (A), generating NTWIST
+                                xwfn.data.$ files. Usually used if you want
+                                to run DFT and QMC on different machines.
+
+(2) twistav_pwscf --qmc_only  : execute only step (B). Usually used if you want
+                                to run DFT and QMC on different machines.
+
+This latter option requires that the NTWIST xwfn.data.$ files already exist -
+if they don't the script will whinge and die.
+
+(3) twistav_pwscf --startqmc=M : Start the chain of QMC runs with file
+    xwfn.data.M .
+
+Modifications to default behaviour (batch machines only)
+----------------------------------
+
+On batch machines, there is an additional complication because of the presence
+of walltime limits. Full twist-averaging runs might need to be split into
+multiple sections if all \emph{ntwist} QMC calculations run one after another
+would exceed the walltime limit. The following method may be used to do this.
+
+(4) twistav_pwscf --splitqmc=N : Split step B into N separate batch script
+     submissions. If no value is supplied [--splitqmc] the run will be split
+     into two.
+
+Example : NTWIST=13, and twistav_pwscf --splitqmc=4 will result in
+four step B batch submissions with 3, 3, 3, 4 twists. Recall that
+the QMC calculations for each twist angle are considerable shorter than
+normal, and the entire twist-averaging run should not take much longer than
+a standard calculation done with a constant twist angle.
+
+Note there is no facility for splitting step A into sections i.e. all
+DFT wave function generation runs will always be run in a single batch
+script submission. This is because we assume the DFT runs are fast and you
+have adequate job time limits. If this is not the case then simply do
+multiple sets of twistav_pwscf runs.
+
+The use of ensemble jobs (which are anyway supported only on some machines) to
+run the multiple short QMC runs simultaneously is currently not supported; it
+could in principle be implemented. However, if you are choosing to run
+ntwist calculations simultaneously on ntwist times M cores
+rather than running sequentially on M cores, then why not just run the
+sequential run on ntwist times M cores using fewer moves (that way you
+avoid multiplying the queueing time - which can be weeks on overcrowded
+machines - by ntwist.
+
+The twistav_pwscf script needs to run in the background throughout the
+sequence of calculations, so make sure it stays alive. Logging out is
+inadvisable on some machines..
+
+Note finally that we expect to generalize the new twistanalysis_castep utility
+to pwscf very soon; if this is urgent, tell MDT.
+
+There is a set of input files demonstrating how to setup twist-averaging
+calculations with PWSCF in the examples/crystal/twistav/PWSCF directory of the
+main CASINO distribution. If attempting to do twist-averaging on a complicated
+batch machine, users are advised to first use this set of files to verify that
+everything works before concentrating on their own calculations.

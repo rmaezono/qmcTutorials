@@ -1,0 +1,136 @@
+#-! DESCRIPTION: hhhh
+#-! MAINTAINER: qinken <maezono@meiwaku16pc08.local>
+#-! DATE: 07.2017
+#-! ARCH: x86_64
+#-! HOSTNAME: meiwaku16pc08.local
+
+# Includes
+include $(INCBASE)/os/macos.arch
+include $(INCBASE)/f90/gnu.arch
+include $(INCBASE)/cxx/gnu.arch
+
+# Type definition
+TYPE = parallel
+
+# Compiler names
+F90 = mpif90
+CC = gcc
+
+# Environment
+ENVIRONMENT_COMMAND = export MPI=OpenMPI TCM_IFORT_VER=11.1-011
+
+# MPI library
+MPI_VERSION = 1
+
+# Automatic C flags
+CFLAGS_ETIME = -DCASINO_NO_ETIME
+
+# SHM support
+SUPPORT_SHM = yes
+CFLAGS_SHM = -DSHM_SYSV
+
+# Integration info (can be safely deleted)
+### KERNEL: Darwin
+### OS: 
+### ARCH: x86_64
+### DISTRIBUTION: 
+### HOSTNAME: meiwaku16pc08.local
+### BASH_VERSION: 3.2.57(1)-release
+### CC: output of gcc -version:
+###### gcc: error: unrecognized command line option '-version'
+###### gcc: fatal error: no input files
+###### compilation terminated.
+### CC: exit status of gcc -version: 0
+### CC: output of gcc --version:
+###### gcc (MacPorts gcc6 6.3.0_2) 6.3.0
+###### Copyright (C) 2016 Free Software Foundation, Inc.
+###### This is free software; see the source for copying conditions.  There is NO
+###### warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+###### 
+### CC: exit status of gcc --version: 0
+### CC: output of gcc -V:
+###### gcc: error: unrecognized command line option '-V'
+###### gcc: fatal error: no input files
+###### compilation terminated.
+### CC: exit status of gcc -V: 0
+### CC: output of gcc -v:
+###### Using built-in specs.
+###### COLLECT_GCC=gcc
+###### COLLECT_LTO_WRAPPER=/opt/local/libexec/gcc/x86_64-apple-darwin16/6.3.0/lto-wrapper
+###### Target: x86_64-apple-darwin16
+###### Configured with: /opt/local/var/macports/build/_opt_bblocal_var_buildworker_ports_build_ports_lang_gcc6/gcc6/work/gcc-6.3.0/configure --prefix=/opt/local --build=x86_64-apple-darwin16 --enable-languages=c,c++,objc,obj-c++,lto,fortran --libdir=/opt/local/lib/gcc6 --includedir=/opt/local/include/gcc6 --infodir=/opt/local/share/info --mandir=/opt/local/share/man --datarootdir=/opt/local/share/gcc-6 --with-local-prefix=/opt/local --with-system-zlib --disable-nls --program-suffix=-mp-6 --with-gxx-include-dir=/opt/local/include/gcc6/c++/ --with-gmp=/opt/local --with-mpfr=/opt/local --with-mpc=/opt/local --with-isl=/opt/local --enable-stage1-checking --disable-multilib --enable-lto --enable-libstdcxx-time --with-build-config=bootstrap-debug --with-as=/opt/local/bin/as --with-ld=/opt/local/bin/ld --with-ar=/opt/local/bin/ar --with-bugurl=https://trac.macports.org/newticket --with-pkgversion='MacPorts gcc6 6.3.0_2'
+###### Thread model: posix
+###### gcc version 6.3.0 (MacPorts gcc6 6.3.0_2) 
+### CC: exit status of gcc -v: 0
+### CC: output of gcc -h:
+###### gcc: error: missing argument to '-h'
+###### gcc: fatal error: no input files
+###### compilation terminated.
+### CC: exit status of gcc -h: 0
+### CC: output of gcc -help:
+###### gcc: error: unrecognized command line option '-h'; did you mean '-h'?
+###### gcc: fatal error: no input files
+###### compilation terminated.
+### CC: exit status of gcc -help: 0
+### CC: output of gcc --help:
+###### Usage: gcc [options] file...
+###### Options:
+######   -pass-exit-codes         Exit with highest error code from a phase.
+######   --help                   Display this information.
+######   --target-help            Display target specific command line options.
+######   --help={common|optimizers|params|target|warnings|[^]{joined|separate|undocumented}}[,...].
+######                            Display specific types of command line options.
+######   (Use '-v --help' to display command line options of sub-processes).
+######   --version                Display compiler version information.
+######   -dumpspecs               Display all of the built in spec strings.
+######   -dumpversion             Display the version of the compiler.
+######   -dumpmachine             Display the compiler's target processor.
+######   -print-search-dirs       Display the directories in the compiler's search path.
+######   -print-libgcc-file-name  Display the name of the compiler's companion library.
+######   -print-file-name=<lib>   Display the full path to library <lib>.
+######   -print-prog-name=<prog>  Display the full path to compiler component <prog>.
+######   -print-multiarch         Display the target's normalized GNU triplet, used as
+######                            a component in the library path.
+######   -print-multi-directory   Display the root directory for versions of libgcc.
+######   -print-multi-lib         Display the mapping between command line options and
+######                            multiple library search directories.
+######   -print-multi-os-directory Display the relative path to OS libraries.
+######   -print-sysroot           Display the target libraries directory.
+######   -print-sysroot-headers-suffix Display the sysroot suffix used to find headers.
+######   -Wa,<options>            Pass comma-separated <options> on to the assembler.
+######   -Wp,<options>            Pass comma-separated <options> on to the preprocessor.
+######   -Wl,<options>            Pass comma-separated <options> on to the linker.
+######   -Xassembler <arg>        Pass <arg> on to the assembler.
+######   -Xpreprocessor <arg>     Pass <arg> on to the preprocessor.
+######   -Xlinker <arg>           Pass <arg> on to the linker.
+######   -save-temps              Do not delete intermediate files.
+######   -save-temps=<arg>        Do not delete intermediate files.
+######   -no-canonical-prefixes   Do not canonicalize paths when building relative
+######                            prefixes to other gcc components.
+######   -pipe                    Use pipes rather than intermediate files.
+######   -time                    Time the execution of each subprocess.
+######   -specs=<file>            Override built-in specs with the contents of <file>.
+######   -std=<standard>          Assume that the input sources are for <standard>.
+######   --sysroot=<directory>    Use <directory> as the root directory for headers
+######                            and libraries.
+######   -B <directory>           Add <directory> to the compiler's search paths.
+######   -v                       Display the programs invoked by the compiler.
+######   -###                     Like -v but options quoted and commands not executed.
+######   -E                       Preprocess only; do not compile, assemble or link.
+######   -S                       Compile only; do not assemble or link.
+######   -c                       Compile and assemble, but do not link.
+######   -o <file>                Place the output into <file>.
+######   -pie                     Create a position independent executable.
+######   -shared                  Create a shared library.
+######   -x <language>            Specify the language of the following input files.
+######                            Permissible languages include: c c++ assembler none
+######                            'none' means revert to the default behavior of
+######                            guessing the language based on the file's extension.
+###### 
+###### Options starting with -g, -f, -m, -O, -W, or --param are automatically
+######  passed on to the various sub-processes invoked by gcc.  In order to pass
+######  other options on to these processes the -W<letter> options must be used.
+###### 
+###### For bug reporting instructions, please see:
+###### <https://trac.macports.org/newticket>.
+### CC: exit status of gcc --help: 0

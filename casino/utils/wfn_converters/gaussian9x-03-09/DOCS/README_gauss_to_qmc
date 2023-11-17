@@ -1,0 +1,44 @@
+
+G9xtoqmc
+========
+
+(See the notes in the CASINO manual - much more extensive than these (MDT))
+
+The g9xtoqmc program is a utility to read the results of a Gaussian94/98/03/09
+calculation and output the resulting wavefunction in a form compatible with
+CASINO.  The code *requires* the existance of a formatted checkpoint file
+(produced by putting FormCheck=(MO,Basis) in the route section of the Gaussian
+job file).  It expects this file to have a '.Fchk' suffix ('.fchk for
+Gaussian09). The output file of the Gaussian job is also  *required*.  It is
+assumed that this has a '.out' suffix.  If the original Gaussian job file is
+present then it will be appended to the end of the QMC input file.
+
+Basically, if you have a Gaussian job file called dna (say) and run it to
+produce dna.out and Test.FChk then you must:
+
+mv Test.fchk dna.fchk
+run g9xtoqmc ... and follow prompts
+mv dna.qmc gwfn.data
+
+which may be then be used as input to a CASINO calculation.
+
+The code should automatically detect what sort of Gaussian job it is
+and give you the opportunity to construct an excited-state
+wavefunction if applicable.
+
+It can deal with the following sorts of calculation:
+
+  HF and DFT ground states, open and closed shell.
+  CIS excited states, open and closed shell.
+  CASSCF states.
+  Time-dependent HF or DFT excited states.
+
+If the user chooses to output a CIS, CASSCF or TD-DFT wavefunction, they are
+given the option of resumming it.
+
+Note that although more recent versions of Gaussian contains a limited
+facility for treating periodic systems, the gaussiantoqmc
+converter does not support this, since it was written before the periodic
+functionality was introduced. People who wish to do this should use the
+(superior) CRYSTAL program instead (or volunteer to update the converter).
+

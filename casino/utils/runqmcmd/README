@@ -1,0 +1,126 @@
+
+RUNQMCMD
+--------
+
+Usage
+=====
+runqmcmd [--help --nproc_dft=I --splitqmc[=N] --startqmc=M
+           --dft_only/--qmc_only [<runqmc/runpwscf options>]
+
+  This script is used to automate DMC-MD molecular dynamics calculations using
+  CASINO and the PWSCF DFT code (part of the Quantum espresso package -
+  available at www.quantum-espresso.org). PWSCF must be version 4.3 or later.
+
+  We need to do restarted DMC calculations for a series of points along a
+  DFT trajectory.
+
+  This script works by repeatedly calling the 'runpwscf' and 'runqmc' scripts
+  which know how to run CASINO/PWSCF on any individual machine. Almost all
+  optional arguments to this script are all the same as for runpwscf/runqmc
+  and are passed on automatically to these subsidiary run scripts. Type
+  'runpwscf --help' or 'runqmc --help' to find out what these options are.
+  There is a short list of optional flags specific to runqmcmd which are
+  described below.
+
+  It is assumed that PWSCF lives in ~/espresso and CASINO lives in ~/CASINO.
+  There are override options available if this is not the case.
+
+  If you are running on a multi-user machine with an account to be
+  charged for the calculations, you might consider aliasing 'runqmcmd' as
+  alias runqmcmd="runqmcmd --user.account=CPH005mdt "
+  or whatever.
+
+  In general you should do something like the following:
+
+  Setup the PWSCF input ('in.pwscf') and the CASINO input ('input' etc. but no
+  wave function file) in the same directory. For the moment we assume you have
+  an optimized Jastrow from somewhere (this will be automated later). Have the
+  PWSCF setup as 'calculation = "md"', and 'nstep = 100' or whatever. The
+  runqmcmd script will then run PWSCF once to generate 100 xwfn.data files,
+  then it will run CASINO on each of the xwfn.data. The first will be a proper
+  DMC run with full equilibration (using the values of DMC_EQUIL_NSTEP,
+  DMC_STATS_NSTEP etc. The second and subsequent steps (with slightly
+  different nuclear positions) will be restarts from the previous converged
+  config.in - each run will use new keywords DMCMD_EQUIL_NSTEP and
+  DMCMD_STATS_NSTEP (with the number of blocks assumed to be 1. The latter
+  values are used if new keyword DMC_MD is set to T, and they should be very
+  small).
+
+  It is recommended that you set DMC_SPACEWARPING AND DMC_REWEIGHT_CONF to T
+  in CASINO input when doing such calculations.
+
+  The calculation can be run through pwfn.data, bwfn.data or bwfn.data.b1
+  formats as specified in the pw2casino.dat file (see CASINO and PWSCF
+  documentation).
+
+Default behaviour of runqmcmd (on all machines):
+-----------------------------
+
+Note : NMDSTEP is the value of the PWSCF input keyword 'nstep', while xwfn.data
+refers to whatever wave function file is specified in the pw2casino.dat
+file (either bwfn.data.b1 [default], bwfn.data or pwfn.data).
+
+For a complete DMC-MD run, the following three steps are performed in sequence:
+
+(A) Generate NMDSTEP+1 xwfn.data.$ files, where $ is a sequence number from
+    0 to NMDSTEP.
+(B) Run a full DMC run on xwfn.data.0
+(C) Temporarily modify the CASINO input file, by changing DMC_MD from F to T,
+    and RUNTYPE from VMC_DMC to DMC_DMC. Run nmdstep restarted QMC runs on
+    xwfn.data.1 to xwfn.data.[nmdstep], each restarting from the previous.
+
+On batch queue systems, runqmcmd will by default do *two* batch script
+submissions, the first - handled by the runpwscf script - executing step (A),
+and the second - handled by the runqmc script - executing steps (B-C).
+
+In principle, this wastes some unnecessary time (the time spent waiting for the
+QMC batch script to start) but this is unavoidable if runqmcmd uses separate
+runpwscf and runqmc scripts to handle the DFT and QMC calculations. This
+may be changed in the future, if anyone can be arsed.
+
+Note that all calculations will be done on the number of cores requested on the
+command line (with the --nproc/-p flag) irrespective of whether they are DFT or
+QMC calculations. You may override this for the DFT calcs by using the
+--nproc_dft flag to runqmcmd.
+
+Modifications to default behaviour (on all machines)
+----------------------------------
+
+(1) runqmcmd --dft_only  : execute only step(1), generating NMDSTEP+1
+                           xwfn.data.$ files.
+
+Essentially the same thing can be done by executing 'runpwscf --qmc' but doing
+that would bypass a few error traps.
+
+(2) runqmcmd --qmc_only  : execute only steps(B-C)
+
+This requires that the NMDSTEP+1 xwfn.data.$ files already exist - if they
+don't the script will whinge and die.
+
+(3) runqmcmd --startqmc=M : Start the chain of QMC runs with file xwfn.data.M
+    If M=0, the first run will be a full QMC run with DMC_MD=F, otherwise
+    if M>0 then all runs will be short restarted ones with DMC_MD=T.
+    (Note that for M>0, DMC_MD and RUNTYPE in the input file will be
+     'temporarily 'modified' as described above, no matter what values they
+    currently have). The resulting sequence M-->NMDSTEP can be split into N
+    parts using --splitqmc=N  as before.
+
+Modifications to default behaviour (batch machines only)
+----------------------------------
+
+On batch machines, there is an additional complication due to the walltime
+limits on particular queues which may require full DMC-MD runs to be
+split into sections. The following flags may be used to do this.
+
+(4) runqmcmd --splitqmc : do step A (DFT run), step B (initial QMC run) and
+    step C (chain of remaining QMC restarted jobs) as three separate batch
+    script submissions (i.e. no longer combine B and C).
+
+(5) runqmcmd --splitqmc=N : As (3) but split step C into N separate batch
+    script submissions.
+
+    Example : NMDSTEP=1005, and runqmcmd --splitqmc=4 will result in
+    1 step B job plus four sets of step C jobs with 251, 251, 251, 252 steps.
+
+
+MDT 4.2011

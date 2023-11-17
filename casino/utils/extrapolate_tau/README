@@ -1,0 +1,13 @@
+EXTRAPOLATE_TAU
+!------------------------------------------------------------------------!
+! This program enables the extrapolation of DMC energies to zero         !
+! time step by fitting a polynomial form to the DMC energy as a          !
+! function of time step, i.e. E = k1*tau^n1 + k2*tau^n2 + ...            !
+! Note that the exponents n1, n2, ... do not need to be integers.        !
+! One of them should be zero, however.                                   !
+!                                                                        !
+! The program will ask the user for the name of the file containing the  !
+! energy against time step data.  The file should have either two or     !
+! three columns holding, respectively, the time step, the DMC energy and !
+! the statistical error bar in the DMC energy.                           !
+!------------------------------------------------------------------------!

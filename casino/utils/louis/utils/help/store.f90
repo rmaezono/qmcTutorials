@@ -1,0 +1,4 @@
+MODULE store
+ IMPLICIT NONE
+ INTEGER :: o=6
+END MODULE store

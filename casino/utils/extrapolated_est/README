@@ -1,0 +1,15 @@
+ !-------------------------------------------------------------!
+ ! This program calculates the extrapolated estimator from 2   !
+ ! data files, one DMC and one VMC. If both sets have          !
+ ! errorbars, these will be combined in the usual way.         !
+ !                                                             !
+ ! The extrapolated estimator is 2g_DMC-g_VMC - see manual for !
+ ! details.                                                    !
+ !                                                             !
+ ! The files will be checked to ensure that they have the same !
+ ! numbers of lines, sets of errorbars and x-coords.           !
+ !                                                             !
+ ! One can produce the required input files by using           !
+ ! PLOT_EXPVAL in a directory containing expval.data           !
+ !-------------------------------------------------------------!
+

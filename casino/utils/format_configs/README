@@ -1,0 +1,10 @@
+FORMAT_CONFIGS
+--------------
+Format a binary config.in file and make it into a readable
+config.in_formatted file (or vice versa)..
+
+Make sure only one of config.in or config.in_formatted is present in the
+current directory and type 'format_configs'. The utility will then convert
+whichever file it is into the other one.
+
+12.2006 PLR

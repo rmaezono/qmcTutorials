@@ -1,0 +1,14 @@
+LOUIS_HELP
+----------
+
+Simple script to invoke the LOUIS help system.
+
+Use in any of the following modes.
+
+louis_help <casino_keyword>     : tells you the definition and type of keyword
+louis_help search <text>        : finds <text> in descriptions of all keywords
+louis_help all                  : lists all possible keywords
+louis_help basic                : lists all basic level keywords
+louis_help inter                : lists all intermediate level keywords
+louis_help expert               : lists all expert level keywords
+

@@ -1,0 +1,139 @@
+CRYSTAL9X wave function converter - changes to CRYSTAL required
+===============================================================
+
+This version : MDT 3.2001
+
+Here is a list of changes you need to make to the standard versions of
+CRYSTAL95 and CRYSTAL98 in order that they will generate all the information
+we require for a QMC calculation. You should keep this special QMC version of
+the code separate from your standard production code - since the changes
+described here will make CRYSTAL run more slowly.
+
+PLEASE SEEK PERMISSION FROM THE AUTHORS OF CRYSTAL BEFORE MAKING THESE
+MODIFICATIONS (email : crystal@ch.unito.it).
+
+1. Add a call to FINE1 in the MAIND routine so that CRYSTAL writes a fort.12
+   file even when running in direct SCF mode (the fort.12 file is a copy
+   of the common blocks containing all the geometry/basis set etc info.
+   This file is normally used to allow the integrals and properties programs
+   to communicate with each other, hence its default non-appearance in direct
+   SCF mode).
+
+   In CRYSTAL95 :
+
+   CALL ENEMAD
+   CALL MONMAD
+   CALL TIMVRS('FINE')
+   CALL FINE1                 <-------------------------- add this
+
+   In CRYSTAL98 :
+
+   CALL ENEMAD
+   CALL MONMAD
+   IF(INF(57).NE.0)THEN       <--------------------------remove this
+   CALL FINE1
+   CALL TIMVRS('FINE1   ')
+   ENDIF                      <--------------------------remove this
+
+   C95 and C98 : MAIND is in the libx5.f 'module'
+
+2. Replace MVF=INF(50) with MVF=1 in CAPPA *and* CAPPA1 (to make the IBZ equal
+   to the BZ - we need eigenvector info at all k points, not just the
+   irreducible ones). MVF is the number of symmetry operators.
+
+   i.e. replace the first line of each routine
+   MVF=INF(50)
+   with
+   MVF=1
+
+   C95 : CAPPA and CAPPA1 are in the libx1.f 'module'
+   C98 : CAPPA and CAPPA1 are in the libxx.f 'module'
+
+   Note this will have the effect of slowing down CRYSTAL significantly in
+   the SCF part (at least for high symmetry cases) but for the kind
+   of systems we usually want to do with QMC this doesn't matter at the
+   moment.  One day I will work up a way around this.
+
+3. Reverse numbers 135 and 137 in routine READ2 keyword input list.
+   This appears to be an actual CRYSTAL bug which means that the KNETOUT input
+   keyword flags the STOPP input keyword and vice versa.
+
+   i.e. in CRYSTAL95 change
+
+   IF(NOMZT.EQ.NOMZ(I))GOTO(101,102,103,103,120,121,122,123,124,125,
+   *126,127,127,128,128,129,130,131,132,133,134,136,135,137,101,138,
+   *133),I                                           ^   ^
+
+   to
+
+   IF(NOMZT.EQ.NOMZ(I))GOTO(101,102,103,103,120,121,122,123,124,125,
+   *126,127,127,128,128,129,130,131,132,133,134,136,137,135,101,138,
+   *133),I                                           ^   ^
+
+   and in CRYSTAL98 change
+
+      IF(NOMZT.EQ.NOMZ(I))GOTO(101,102,103,1033,103,120,121,
+     *122,123,124,125,
+     *126,127,127,128,128,129,130,131,132,133,134,136,135,137,101,138,
+     *138,133,139,1399,140,141,142),I                  ^   ^
+
+   to
+
+      IF(NOMZT.EQ.NOMZ(I))GOTO(101,102,103,1033,103,120,121,
+     *122,123,124,125,
+     *126,127,127,128,128,129,130,131,132,133,134,136,137,135,101,138,
+     *138,133,139,1399,140,141,142),I                  ^   ^
+
+   C95 : READ2 is in libx8.f 'module'
+   C98 : READ2 is in libxx.f 'module'
+
+4. Change the environment variables at the top of the supplied run script in
+   CASINO/utils/wfn_converters/crystal_to_qmc/crystal_run_scripts so that
+   it knows e.g. where all your CRYSTAL binaries and your scratch disk are.
+
+5. Change the LIM0XX parameters throughout all libx*.f modules and recompile
+   when you inevitably run over the predefined dimensions when working on
+   large systems (particularly since you turned off k space symmetry in (2)
+   above. I couldn't get the official script to work, so make a script
+   containing something like the following (in order to increase
+   LIM015 from 640 to 1280 in every routine). Thankfully, CRYSTAL '2001' will
+   finally use dynamic memory allocation. :-)
+
+   #!/bin/csh -f
+   foreach i (libx*.f)
+    sed -e 's/LIM015=640/LIM015=1280/g' $i > $i.o
+    mv $i.o $i
+   end
+
+6. (CRYSTAL98 consideration - no action required)
+
+   In CRYSTAL98, the NEWK routine writes the eigenvectors on fort.10 without
+   first sorting them in order of increasing eigenvalue, as is done by default
+   in CRYSTAL95. Currently, the crystaltoqmc converter requires that this
+   sorting has been carried out. Helpfully, the NEWK routine does actually
+   go on to write the ordered eigenvectors in fort.8. If you use the official
+   run script to generate the qmc files, and the script detects its running
+   CRYSTAL98 it should automatically use fort.8 insted of fort.10. I mention
+   this only because it is potentially confusing - it certainly confused me for
+   a while. :-)
+
+7. I found a bug in CRYSTAL when it calculates the total Coulomb energy in
+   charged systems. In the past this has led people to believe that
+   CASINO gets the wrong energies for Wigner crystals because it disagrees
+   with CRYSTAL. Sadly, it is the other way round ho hum.
+
+   Change the line in CJAT3
+   (line942 of libxy.f in CRYSTAL98, line 3316 of libx1.f in CRYSTAL95)
+
+     VSQR=VSQR*TOTCHR
+
+   to
+
+     VSQR=VSQR*DBLE(INF(9))/6.d0
+
+   and thus the electron-spheropole term will be calculated with the total
+   number of electrons per cell, rather than the total nuclear charge.
+
+   Vic Saunders tells me there is similar bug for charged 1D polymers
+   but has not yet told me what it is, and I have not yet been bothered
+   to look for myself.

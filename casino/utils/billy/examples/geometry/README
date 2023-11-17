@@ -1,0 +1,19 @@
+
+To optimize the bond length in a methane molecule:
+==================================================
+
+CRYSTAL95 input file - methane
+
+* Put ampersands in front of the three parameters specifying the bond length.
+  (In this cases they are constrained to be equal to each other so we use
+  ampersands rather than asterisks..)
+* NB: You would use an asterisk to optimize a single lattice constant, for
+  example.
+
+The command 'billy methane 20' will then give
+
+methane.log     - optimization report
+methane.opt     - CRYSTAL input file with the optimized bond length
+methane.opt_ast - as above, but maintaining the asterisks/ampersands.
+                  (not important for this case, but useful time saver, if
+                   we have lots of parameters, and want to optimize again.)

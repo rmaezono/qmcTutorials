@@ -1,0 +1,94 @@
+ _                _     
+| |    ___  _   _(_)___ 
+| |   / _ \| | | | / __|
+| |__| (_) | |_| | \__ \
+|_____\___/ \__,_|_|___/  1.2
+
+A program to propagate quantum particles in a box using de Broglie-Bohm
+dynamics (and appropriate generalizations).
+
+Program will plot single trajectories, calculate time-dependent densities, 
+psi squared, and H functions.
+
+Mike Towler (Feb 2010)
+
+Python plotting script by Nick Russell (Feb 2010).
+
+Email for code-related queries and bug reports:
+Mike Towler - mdt26 at cam.ac.uk
+
+The following citation (quoted in full) is required in any publication
+describing results obtained from LOUIS :
+
+"M.D. Towler, LOUIS program user manual, University of Cambridge (2010)."
+
+For the moment, LOUIS may not be redistributed or modified in any way 
+whatsoever without the explicit written permission of Mike Towler. Please
+contact mdt26 at cam.ac.uk if you wish to do this.
+
+Since June 2013, LOUIS has been distributed as a utility included with
+the distribution of the CASINO quantum Monte Carlo code, as its ability
+to study quantum trajectories has some relevance to proposed new QMC 
+algorithms.
+
+LIST OF FILES IN THIS DIRECTORY
+===============================
+
+Files:
+------
+DIARY          : List of changes made to the distribution since the
+                 appearance of version 1 in March 2010 
+README         : This file
+
+Directories:
+------------
+art            : pretty pictures and movies (big ones links to the web)
+examples       : Examples for 1D/2D/3D systems
+manual         : The LOUIS manual
+papers         : some relevant papers produced using LOUIS
+src            : LOUIS source code
+utils          : Additional useful utility programs
+
+QUICK GUIDE TO USE
+==================
+
+INSTALLATION
+------------
+
+LOUIS uses the CASINO architecture system so should set up and run 
+automatically on any machine that CASINO supports.
+
+If you want to compile the debug, prof, or dev versions you need to type
+'make debug/make prof/make dev' in the louis subdirectory, rather than
+using the CASINO generic utils Makefile (which deliberately doesn't handle 
+'features').
+
+RUNNING THE CODE
+----------------
+Type 'runlouis' in a directory containing a LOUIS 'input' file. If you have
+set up the path correctly, then neither the 'runlouis' script nor the
+'louis' fortran binary need to be in the current directory.
+
+Type 'runlouis --help' to see the full list of command line options, which are
+basically the same as those of 'runqmc'. On a parallel machine, type e.g. 
+'runlouis -p 512' to run on 512 cores.
+
+Example input files in LOUIS/examples for 1D/2D/3D cases.
+
+To learn about any input file keyword, type 'louishelp <name of keyword>'.
+
+The code can be run in 'trajectory mode' (very fast, will only use 1 core)
+to study individual quantum trajectories, or 'density mode' to study the
+evolution the density of particles obeying deBB dynamics (much slower,
+especially in 3D, generally requires parallel machine).
+
+VISUALIZING THE RESULTS
+-----------------------
+
+The script 'plot_louis' will plot pretty pictures or movies from your data.
+[Requires python and gnuplot to be installed]. See also 'louisplot2d' and
+'louisplot3d'.
+
+See the manual for more detailed stuff.
+
+MDT 2.2010

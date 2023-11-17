@@ -1,0 +1,82 @@
+MULTIRUN
+--------
+
+MULTIRUN is a script to run several CASINO runs sequentially changing any set
+of parameters from an user-provided input file. Output files for these runs
+are kept in io/<run-num>. All files required by all runs must be present in
+the directory under which MULTIRUN is run. File 'input' must contain all
+parameters the user wishes to vary.
+
+SYNTAX
+------
+
+multirun [--check] [runqmc-options] -- <param> <list> [<separator> <param>
+                                                       <list> [...]]
+
+ Where:
+
+* --check        : tells multirun to build and print the list of runs
+                   requested, but not to execute them.
+* runqmc-options : options to be passed to runqmc
+* --             : this separator is mandatory
+* <param>        : a parameter (which must be present in ./input) which the
+                   user wants to vary
+* <list>         : several formats are available:
+
+  -l <list-of-values>
+
+    <param> takes the values supplied after -l
+
+  -f <filename> <column> [<skip-lines> [<num-of-lines>]]
+
+    <param> takes the values listed in column <column> of file <filename> from
+    line <skip-lines>+1 to <skip-lines>+<num-of-lines>. By default,
+    <skip-lines>=0 and <num-of-lines> is the number of lines in the file.
+
+  -fit <from> <+|-><incr> <to>
+
+    <param> takes the numeric values that lie between From and To and are
+    separated by Incr. NB, <from> <= <param> < <to>+<incr>. <param> may
+    exceed <to> <to>-<from>/<incr> is not an integer. The sign +/- before
+    <incr> is mandatory.
+
+  -fin <from> <+|-><incr> <num-of-values>
+
+    <param> takes <num-of-values> numeric values starting from <from> and
+    increasing by <incr>. The sign +/- before <incr> is mandatory.
+
+* <separator>    : this can be used to make two or more adjacent parameters
+                   vary together (<separator> is '+') or independently
+                   (<separator> is -).
+
+A log file will be kept in ./multirun.log, which includes info about which
+runs are in which directories and a copy of STDERR/STDOUT.
+
+
+EXAMPLE
+-------
+
+If we wanted to study how single variance minimization runs perform
+with/without weights with increasing number of configs, we would need to
+increase NMOVE and NWRCON at the same time, while turning VMREWEIGHT on and
+off independently. We should type:
+
+ multirun -- nmove -fit 1000 +1000 10000 + nwrcon -fin 1000 +1000 10
+  - vmreweight -l T F
+
+This generates 20 variance minimization runs:
+
+ nmove : 1000   nwrcon : 1000   vmreweight : T
+ nmove : 2000   nwrcon : 2000   vmreweight : T
+ ...
+ nmove : 10000  nwrcon : 10000  vmreweight : T
+ nmove : 1000   nwrcon : 1000   vmreweight : F
+ nmove : 2000   nwrcon : 2000   vmreweight : F
+ ...
+ nmove : 10000  nwrcon : 10000  vmreweight : F
+
+* Note that the order in which parameters are entered is kept: first given,
+  first varied.
+* The '+' before NWRCON is what makes it change at the same time as NMOVE.
+  The number of values both of these parameters take must be the same.
+* The '-' before VMREWEIGHT makes it independent of the others.

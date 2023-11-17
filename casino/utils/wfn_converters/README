@@ -1,0 +1,29 @@
+!-------------------------------------------------------------------------!
+! WFN_CONVERTERS                                                          !
+! --------------                                                          !
+!                                                                         !
+! Utilities to read wave function data from various electronic structure  !
+! programs and convert to CASINO (x)wfn.data format.                      !
+!                                                                         !
+! - ATSP2K --> awfn.data                                                  !
+! - ABINIT --> pwfn.data                                                  !
+! - ADF --> stowfn.data                                                   !
+! - CASTEP --> pwfn.data                                                  !
+! - CFOUR --> gwfn.data                                                   !
+! - DALTON --> gwfn.data                                                  !
+! - CRYSTAL9X/03.06/09/14 --> gwfn.data                                   !
+! - GAMESS --> gwfn.data                                                  !
+! - GAUSSIAN9X/03/09 --> gwfn.data                                        !
+! - GP --> pwfn.data                                                      !
+! - MCEXX --> pwfn.data                                                   !
+! - MOLPRO --> gwfn.data                                                  !
+! - ORCA --> gwfn.data                                                    !
+! - PSI-4 --> gwfn.data                                                   !
+! - PWSCF --> pwfn.data/bwfn.data/bwfn.data.b1                            !
+! - TURBOMOLE --> gwfn.data                                               !
+! - 2DHF --> awfn.data                                                    !
+!                                                                         !
+! The pw_to_blips directory contains a utility to convert pwfn.data       !
+! plane-wave files to bwfn.data blip files.                               !
+!                                                                         !
+!-------------------------------------------------------------------------!

@@ -1,0 +1,53 @@
+Pseudopotentials in PWSCF and CASINO
+====================================
+
+http://www.quantum-espresso.org/
+
+DFT trial wave functions produced by the PWSCF code (part of the Quantum
+Espresso distribution) must be generated using the same pseudopotential
+as in the subsequent QMC calculation. This requires the use of tools
+to switch between the different file formats used by the two codes.
+
+[It should be noted that ultrasoft and PAW pseudopotentials cannot be used
+with the CASINO code.]
+
+CASINO uses the 'CASINO tabulated format', PWSCF officially supports the UPF
+(version 2) format (though it will read other 'deprecated' formats).
+
+There are two options for switching between the various file formats.
+
+(1) casino2upf/upf2casino (written by Simon Binnie)
+---------------------------------------------------
+
+Converts CASINO tabulated format to and from UPF version 2 (UPFv2) format.
+
+This is included in the Quantum Espresso distribution (see directory upftools).
+
+In the CASINO distribution, see also the README and INSTRUCTIONS files in the
+utils/pseudo_converters/pwscf/casino2upf directory.
+
+(2) casino2gon (written by John Trail)
+--------------------------------------
+
+Converts CASINO tabulated format to the (deprecated) GON format.
+
+This is included in the utils/pseudo_converters/pwscf/casino2gon directory
+in the CASINO distribution.
+
+
+Which utility to use?
+=====================
+
+Since UPFv2 is the current official format for PWSCF, one would normally
+use the casino2upf converter (though as of 3.2011 PWSCF will still read
+GON files).
+
+The casino2gon alternative is useful when you need to do interpolation -
+i.e. use have a non-standard grid or wave functions on a different grid.
+
+In particular it can take pp_gaussian or pp_gamess as input as well as pp.data
+- see the CASINO pseudopotential website:
+
+http://vallico.net/casinoqmc
+
+MDT 3.2011

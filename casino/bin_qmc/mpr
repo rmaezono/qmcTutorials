@@ -1,0 +1,190 @@
+#!/bin/csh -f
+###############################################################################
+#
+# MPR
+#
+# Mike Towler 7.2.2002
+#
+# Print stuff on Mike's printer using a2ps.
+# Mandrake 8.1, Lexmark Z53 printer. This version tweaked to work in TCM, but
+# not all the features work, since we have an old badly-set up version of
+# a2ps on the Alphas. TCM PCs should work fine.
+#
+# Type 'info a2ps' for the full a2ps manual
+#
+# Options:
+# -1 : 1x1 portrait
+# -2 : 2x1 landsape [default]
+# -3 : 3x1 landsape
+# -4 : 2x2 portrait
+# -5 : 5x1 landsape
+# -6 : 3x2 landsape
+# -7 : 7x1 landsape
+# -8 : 4x2 landsape
+# -9 : 3x3 landsape
+#
+# -p/-portrait  : override with portrait mode
+# -l/-landscape : override with landscape mode
+#
+# -duplex  : as it says
+# -duplex2 : duplex with fancy margin stuff ('tumble' mode.)
+# -book    : print a book
+#
+# -void    : don't print the file : useful for just echoing the number of pages
+# -file    : print to a file rather than the printer
+# -display : show on screen using ghostview rather than printing
+# -colour  : use the colour laser printer instead of the default B/W one
+#
+# a2ps should know about the following file types and print them using other
+# applications - beware the 2 sides per physical sheet default.
+# jpeg gif tiff tex texi(=texinfo) dvi xpm xbm png mf mp html pdf
+# The files are allowed to be gzipped or bzip2ed.
+#
+#
+# NOTE:
+# How to use 'pine' with a2ps:
+# Add to .pinerc:
+# printer=a2ps -=mail -d
+# person-print-command=a2ps -=mail -d
+#
+###############################################################################
+#
+
+# print on printer by default (B/W Coffee area laser printer)
+set printer = -Php
+# default 2 pages per physical sheet
+set npage = -1
+# default not duplex
+set duplexing = ""
+# Use default for portrait/landscape
+set portrait_landscape = ""
+
+# First the options (beginning with -), then all other arguments assumed to be
+# files for processing.
+
+while ( $#argv > 0 )
+ switch ( $argv[1] )
+ case -1:
+  set npage = -1 ; shift ; breaksw
+ case -1p:
+  set npage = -1 ; set portrait_landscape = -R ; shift ; breaksw
+ case -1l:
+  set npage = -1 ; set portrait_landscape = -r ; shift ; breaksw
+ case -2:
+  set npage = -2 shift ; breaksw
+ case -2p:
+  set npage = -2 ; set portrait_landscape = -R ; shift ; breaksw
+ case -2l:
+  set npage = -2 ; set portrait_landscape = -r ; shift ; breaksw
+ case -3:
+  set npage = -3 shift ; breaksw
+ case -3p:
+  set npage = -3 ; set portrait_landscape = -R ; shift ; breaksw
+ case -3l:
+  set npage = -3 ; set portrait_landscape = -r ; shift ; breaksw
+ case -4:
+  set npage = -4 ; shift ; breaksw
+ case -4p:
+  set npage = -4 ; set portrait_landscape = -R ; shift ; breaksw
+ case -4l:
+  set npage = -4 ; set portrait_landscape = -r ; shift ; breaksw
+ case -5:
+  set npage = -5 ; shift ; breaksw
+ case -5p:
+  set npage = -5 ; set portrait_landscape = -R ; shift ; breaksw
+ case -5l:
+  set npage = -5 ; set portrait_landscape = -r ; shift ; breaksw
+ case -6:
+  set npage = -6 ; shift ; breaksw
+ case -6p:
+  set npage = -6 ; set portrait_landscape = -R ; shift ; breaksw
+ case -6l:
+  set npage = -6 ; set portrait_landscape = -r ; shift ; breaksw
+ case -7:
+  set npage = -7 ; shift ; breaksw
+ case -7p:
+  set npage = -7 ; set portrait_landscape = -R ; shift ; breaksw
+ case -7l:
+  set npage = -7 ; set portrait_landscape = -r ; shift ; breaksw
+ case -8:
+  set npage = -8 ; shift ; breaksw
+ case -8p:
+  set npage = -8 ; set portrait_landscape = -R ; shift ; breaksw
+ case -8l:
+  set npage = -8 ; set portrait_landscape = -r ; shift ; breaksw
+ case -9:
+  set npage = -9 ; shift ; breaksw
+ case -9p:
+  set npage = -9 ; set portrait_landscape = -R ; shift ; breaksw
+ case -9l:
+  set npage = -9 ; set portrait_landscape = -r ; shift ; breaksw
+ case -p:
+  set portrait_landscape = -R ; shift ; breaksw
+ case -portrait:
+  set portrait_landscape = -R ; shift ; breaksw
+ case -l:
+  set portrait_landscape = -r ; shift ; breaksw
+ case -landscape:
+  set portrait_landscape = -r ; shift ; breaksw
+ case -void:
+  set void ; shift ; breaksw
+ case -file:
+  set tofile ; set printer = -Pfile ; shift ; breaksw
+ case -display:
+  set todisplay ; shift ; breaksw
+ case -colour :
+  set colour ; set printer = -Ppsc  ; shift ; breaksw
+ case -book :
+  set book ; set duplexing = -=book ; shift ; breaksw
+ case -duplex :
+  set duplex ; set duplexing = -s2 ; shift ; breaksw
+ case -duplex2 :
+  set tumble ; set duplexing = -tumble ; shift ; breaksw
+ case -*:
+  echo "Illegal flag $argv[1]"
+  echo "Usage: mpr [-p/l] [-123456789] [-void/file/display/colour] [-book] [-duplex/duplex2]i <list of files to be printer>"
+  exit 1
+ default:
+  break
+ endsw
+end
+
+# Use the last of multiple of -1/../-9 definition ;-) , but:
+if (($?todisplay && $?tofile)||($?todisplay&&$?colour)||($?todisplay&&$?void)||($?tofile&&$?colour)||($?tofile&&$?void)||($?colour&&$?void))then
+ echo "Choose one of -colour/-file/-display/-file"
+ exit
+endif
+if (($?duplex&&$?tumble)||($?duplex&&$?book)||($?duplex2&&$?book))then
+ echo "Choose one of -duplex/-duplex2/-book"
+ exit
+endif
+
+
+while ( $#argv > 0 )
+
+if ($?duplex) then
+ a2ps --verbose=1 $npage $portrait_landscape $duplexing $argv[1] | duplex $printer
+
+else if ($?todisplay) then
+
+# Ugly tweak to print to display (no -Pdisplay in this old version of a2ps)
+ a2ps --verbose=2 $npage $portrait_landscape --output=a2ps_$$.ps $argv[1] ; gv a2ps_$$.ps ; rm a2ps_$$.ps
+
+else if ($?void) then
+
+# Ugly tweak to print to void (no -Pvoid in this old version of a2ps)
+ a2ps --verbose=1 $npage $portrait_landscape $argv[1] --output=a2ps_$$.ps ; rm a2ps_$$.ps
+ echo "(then deleted)."
+
+else
+
+ a2ps --verbose=1 $npage $portrait_landscape $duplexing $printer $argv[1]
+
+endif
+
+shift
+
+end
+
+exit
+

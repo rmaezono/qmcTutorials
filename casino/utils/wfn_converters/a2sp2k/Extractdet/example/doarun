@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Generate CASINO input files for a neutral Nitrogen atom.
+# This expects Atsp2K to be installed already, in ~/Atsp2K/bin.
+
+~/Atsp2K/bin/hf    < ./hf.inp
+mv ./wfn.out ./wfn.inp
+
+~/Atsp2K/bin/lsgen < ./lsgen.inp
+mv ./clist.out ./cfg.inp
+
+~/Atsp2K/bin/nonh
+
+~/Atsp2K/bin/mchf  < ./mchf.inp
+
+~/bin/extractdet

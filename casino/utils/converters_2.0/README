@@ -1,0 +1,8 @@
+
+The input/output file specification for CASINO was changed in going from
+version 1.8.2 to version 2.0 of CASINO.
+
+This directory contains utilities which convert the old formats to the new
+formats, where possible.
+
+MDT 5.2005

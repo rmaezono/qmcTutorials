@@ -1,0 +1,169 @@
+#!/bin/bash
+###################################################################
+# Script to generate a menu from which to pick up any file/line
+# with concidences with a given pattern and edit it straight away.
+#
+# v0.1 PLR 02.2004 Initial version
+# v0.5 PLR 03.2004 Cut long lines. Improved visualization.
+# v0.6 PLR 03.2005 Large speedup. Added support for 'smart case'
+#                  patterns.
+# v0.7 PLR 08.2005 Added -w and -c options.
+###################################################################
+# User definable options
+show_colours=1
+# Internal vars.
+progname="MenuGrep v0.7" ; progcomm="menugrep"
+progdscr="script to edit grep-matching files straight away."
+# Colour definition
+default="\033[0m" ; black="\033[30m" ; red="\033[31m"
+green="\033[32m"  ; brown="\033[33m" ; blue="\033[34m"
+purple="\033[35m" ; cyan="\033[36m"  ; grey="\033[37m"
+# Colour assignment
+if ((show_colours==1)) ; then
+ plain=$default ; comment=$brown ; result=$purple
+ result2=$green ; highlight=$red ; interact=$green
+ colourful="${blue}C${cyan}o${green}l${brown}o${red}u${purple}r${plain}ful "
+ e="-e"
+else
+ plain=""     ; comment=""   ; result=""
+ result2=""   ; highlight="" ; interact=""
+ colourful="" ; e=""
+fi
+program_title="$comment$progname$plain: $colourful$progdscr"
+# If nothing given, show title and usage
+if (($#==0)) ; then
+ echo $e $program_title
+ echo $e "${comment}Usage$plain: $progcomm [-w] [-c] [-m] pattern [files]"
+ echo ; exit
+fi
+
+############################ Functions ############################
+function uncap {
+ local lower="abcdefghijklmnopqrstuvwxyz" upper="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+ if (($#==0)) ; then
+  cat /dev/stdin | tr $upper $lower
+ else
+  echo $* | tr $upper $lower
+ fi
+}
+########################## End functions ##########################
+
+# Read command-line options and pattern
+edit=vi ; [ ! -z "$EDITOR" ] && edit=$EDITOR
+case $edit in
+*vi|*vim) editor_type=vi ;;
+*emacs)   editor_type=emacs ;;
+*)        editor_type=unknown ;;
+esac
+word_search=0 ; case_insensitive=1 ; skip_old=1
+while : ; do
+ case "$1" in
+ -w|--word) word_search=1 ; shift ;;
+ -c|--case_sensitive) case_insensitive=0 ; shift ;;
+ -m|--mod) edit=mod ; shift ;;
+ *) break ;;
+ esac
+done
+pattern="$1"
+# Smart-case search if not disabled in options
+if ((case_insensitive==1)) ; then
+ lowercase=$(uncap $pattern)
+ [ "$pattern" != "$lowercase" ] && case_insensitive=0
+fi
+# Define grep options
+grp="grep"
+((word_search==1)) && grp="$grp -w"
+((case_insensitive==1)) && grp="$grp -i"
+# Define vim options
+if ((word_search==1)) ; then
+ if ((case_insensitive==1)) ; then
+  vimsrch="+/\\c\\<$pattern\\>"
+ else
+  vimsrch="+/\\<$pattern\\>"
+ fi
+else
+ if ((case_insensitive==1)) ; then
+  vimsrch="+/\\c$pattern"
+ else
+  vimsrch="+/$pattern"
+ fi
+fi
+
+# Read target files if given
+shift ; (($#==0)) && files='*' || { files="$*" ; skip_old=0 ; }
+
+# Start loop
+while : ; do
+ clear ; echo $e $program_title ; echo
+ # Scan to get no. of matching lines, if any
+ nummatches=0 ; numfiles=0
+ for thisfile in $files ; do
+  # Check file is readable to prevent ugly output
+  [ ! -r "$thisfile" ] && continue
+  # Skip over .old files by default
+  ((skip_old==1)) && [[ "$thisfile" == *.old ]] && continue
+  chktxt=$(file $thisfile | grep -c text)
+  ((chktxt==0)) && continue
+  num=$($grp -ce "$pattern" $thisfile)
+  if ((num>0)) ; then
+   numfiles=$((numfiles+1))   ; nummatches=$((nummatches+num))
+   linesinfile[$numfiles]=$num ; filename[$numfiles]=$thisfile
+  fi
+ done
+ # Teach bash some English
+ lineword="lines" ; optionword="[1-$nummatches]" ; fileword="files"
+ ((nummatches==1)) && { lineword="line" ; optionword="[1]" ; }
+ ((numfiles==1)) && fileword="file"
+ # Print out total number of matches for the given pattern
+ echo -n $e "${result}Searching for $result2$pattern$plain : "
+ if ((nummatches==0)) ; then
+  # Exit if no matches
+  echo $e "${result}Not found$plain." ; echo
+  exit
+ fi
+ echo $e "$highlight$nummatches$result matching $lineword in\
+ $highlight$numfiles$result $fileword$plain."
+ echo
+ # Now loop over file to show matching lines
+ imatch=0 ; ifile=0
+ while ((ifile<numfiles)) ; do
+  ifile=$((ifile+1)) ; thisfile=${filename[$ifile]}
+  # Print filename and no. matches
+  num=${linesinfile[$ifile]} ; matchword="matches"
+  ((${linesinfile[$ifile]}==1)) && matchword="match"
+  echo $e "${result}****** File $thisfile with $num $matchword$plain"
+  for linenum in $($grp -ne "$pattern" $thisfile | sed "s/:.*//") ; do
+   # Go through matches in file
+   imatch=$((imatch+1))
+   filearray[$imatch]=$thisfile ; linearray[$imatch]=$linenum
+   # Cut lines so that they never get wider than 80 chars
+   head="[$imatch] Line $linenum: " ; maxlength=$((80-${#head}))
+   sedn="${linenum}s/^ *//p" ; display=$(sed -n "$sedn" $thisfile)
+   length=${#display}
+   if ((length>maxlength)) ; then
+    trimto=$((maxlength-4)) ; display="${display:0:$trimto}..."
+   fi
+   # Print to screen
+   echo $e "$result[$imatch] ${result2}Line $linenum$plain:\
+ $comment$display$plain"
+  done
+ done
+ # Interactive prompt
+ echo ; echo -n $e "${interact}Enter num. $result$optionword$interact or\
+ press Enter to quit$plain: "
+ read useropt
+ # Avoid errors by removing all non-numeric chars from input
+ useropt=$(echo $useropt | awk '{a=gsub(/[^0123456789]/,"") ; print $a}')
+ [ -z "$useropt" ] && useropt=0
+ ((useropt<1)) || ((useropt>nummatches)) && break
+ # Edit selected file @ selected line, and loop
+ thisfile=${filearray[$useropt]} ; linenum=${linearray[$useropt]}
+ case $editor_type in
+ vi) $edit $thisfile $vimsrch +$linenum ;;
+ emacs) $edit +$linenum $thisfile ;;
+ unknown) $edit $thisfile ;;
+ esac
+done
+
+# Finish
+echo $e "${result}Done$plain." ; echo

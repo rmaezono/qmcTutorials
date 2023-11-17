@@ -1,0 +1,267 @@
+BILLY LOG FILE FOR si
+Si - how to optimize exponents of outer 5 valence functions with billy
+Total no. of iterations: 2
+Thu Mar 12 12:13:42 GMT 1998
+OPTIMIZATION CYCLE 1
+Optimized at 20% scan range.
+Energy of unoptimized system is -5.7679856802860E+02
+Processing parameter 1
+Initial value: 2.4755
+Data analysis: 
+ X,Y,YFIT=     1.980400000  -576.797533317  -576.797536064
+ X,Y,YFIT=     2.145430000  -576.797880880  -576.797875029
+ X,Y,YFIT=     2.310470000  -576.798210676  -576.798210419
+ X,Y,YFIT=     2.475500000  -576.798568029  -576.798572632
+ X,Y,YFIT=     2.640530000  -576.798987080  -576.798992123
+ X,Y,YFIT=     2.805570000  -576.799509455  -576.799499364
+ X,Y,YFIT=     2.970600000  -576.800120923  -576.800124730
+ RMS DEVIATION=    5.40896E-06
+ MINIMUM AT X=       2.7222036
+ Y AT MINIMUM=     -576.7992302813
+Minimum not within scan range
+Retry. Adjusting scan range.
+Data analysis: 
+ X,Y,YFIT=     2.376480000  -576.798349064  -576.798360347
+ X,Y,YFIT=     2.574520000  -576.798809305  -576.798777873
+ X,Y,YFIT=     2.772560000  -576.799396354  -576.799413994
+ X,Y,YFIT=     2.970600000  -576.800120923  -576.800139028
+ X,Y,YFIT=     3.168640000  -576.800838372  -576.800823295
+ X,Y,YFIT=     3.366680000  -576.801342372  -576.801337115
+ X,Y,YFIT=     3.564720000  -576.801546067  -576.801550806
+ RMS DEVIATION=    1.70362E-05
+ MINIMUM AT X=       2.2426327
+ Y AT MINIMUM=     -576.7982674579
+Minimum not within scan range
+Retry. Adjusting scan range.
+Data analysis: 
+ X,Y,YFIT=     2.851760000  -576.799674128  -576.799648167
+ X,Y,YFIT=     3.089410000  -576.800566606  -576.800633968
+ X,Y,YFIT=     3.327050000  -576.801265399  -576.801237418
+ X,Y,YFIT=     3.564700000  -576.801546061  -576.801503593
+ X,Y,YFIT=     3.802350000  -576.801466399  -576.801477489
+ X,Y,YFIT=     4.039990000  -576.801168046  -576.801204152
+ X,Y,YFIT=     4.277640000  -576.800746732  -576.800728585
+ RMS DEVIATION=    3.69442E-05
+ MINIMUM AT X=       3.6590858
+ Y AT MINIMUM=     -576.8015257040
+Finished. Proposed optimum value = 3.6590858
+Previous energy was -5.7679856802860E+02
+      New energy is -5.7680154943298E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 2
+Initial value: 0.47
+Data analysis: 
+ X,Y,YFIT=     0.376000000  -576.801162798  -576.801158267
+ X,Y,YFIT=     0.407333000  -576.801476188  -576.801482392
+ X,Y,YFIT=     0.438667000  -576.801592329  -576.801604740
+ X,Y,YFIT=     0.470000000  -576.801549433  -576.801528371
+ X,Y,YFIT=     0.501333000  -576.801261712  -576.801256359
+ X,Y,YFIT=     0.532667000  -576.800771335  -576.800791750
+ X,Y,YFIT=     0.564000000  -576.800145727  -576.800137643
+ RMS DEVIATION=    1.29143E-05
+ MINIMUM AT X=       0.4422140
+ Y AT MINIMUM=     -576.8016060119
+Finished. Proposed optimum value = 0.4422140
+Previous energy was -5.7680154943298E+02
+      New energy is -5.7680159374132E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 3
+Initial value: 1.0809
+Data analysis: 
+ X,Y,YFIT=     0.864720000  -576.801776646  -576.801777027
+ X,Y,YFIT=     0.936780000  -576.801854490  -576.801853112
+ X,Y,YFIT=     1.008840000  -576.801784473  -576.801786130
+ X,Y,YFIT=     1.080900000  -576.801593741  -576.801593260
+ X,Y,YFIT=     1.152960000  -576.801292125  -576.801291682
+ X,Y,YFIT=     1.225020000  -576.800898275  -576.800898577
+ X,Y,YFIT=     1.297080000  -576.800431163  -576.800431124
+ RMS DEVIATION=    8.70684E-07
+ MINIMUM AT X=       0.9376308
+ Y AT MINIMUM=     -576.8018531224
+Finished. Proposed optimum value = 0.9376308
+Previous energy was -5.7680159374132E+02
+      New energy is -5.7680185449586E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 4
+Initial value: 0.3393
+Data analysis: 
+ X,Y,YFIT=     0.271440000  -576.796446382  -576.796392561
+ X,Y,YFIT=     0.294060000  -576.798244363  -576.798383528
+ X,Y,YFIT=     0.316680000  -576.800262444  -576.800205756
+ X,Y,YFIT=     0.339300000  -576.801854496  -576.801766012
+ X,Y,YFIT=     0.361920000  -576.802949825  -576.802971065
+ X,Y,YFIT=     0.384540000  -576.803650862  -576.803727685
+ X,Y,YFIT=     0.407160000  -576.803980874  -576.803942639
+ RMS DEVIATION=    7.66452E-05
+ MINIMUM AT X=       0.4040302
+ Y AT MINIMUM=     -576.8039486343
+Minimum not within scan range
+Retry. Adjusting scan range.
+Data analysis: 
+ X,Y,YFIT=     0.325760000  -576.800993862  -576.800998570
+ X,Y,YFIT=     0.352907000  -576.802562642  -576.802553790
+ X,Y,YFIT=     0.380053000  -576.803535912  -576.803528831
+ X,Y,YFIT=     0.407200000  -576.803981288  -576.804003967
+ X,Y,YFIT=     0.434347000  -576.804067006  -576.804059352
+ X,Y,YFIT=     0.461493000  -576.803783600  -576.803775207
+ X,Y,YFIT=     0.488640000  -576.803227117  -576.803231711
+ RMS DEVIATION=    1.07908E-05
+ MINIMUM AT X=       0.4245504
+ Y AT MINIMUM=     -576.8040827178
+Finished. Proposed optimum value = 0.4245504
+Previous energy was -5.7680185449586E+02
+      New energy is -5.7680407889753E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 5
+Initial value: 0.15
+Data analysis: 
+ X,Y,YFIT=     0.120000000  -576.803931001  -576.803945048
+ X,Y,YFIT=     0.130000000  -576.805315258  -576.805272084
+ X,Y,YFIT=     0.140000000  -576.805293096  -576.805332290
+ X,Y,YFIT=     0.150000000  -576.804078898  -576.804072907
+ X,Y,YFIT=     0.160000000  -576.801437342  -576.801441174
+ X,Y,YFIT=     0.170000000  -576.797399213  -576.797384329
+ X,Y,YFIT=     0.180000000  -576.791842635  -576.791849611
+ RMS DEVIATION=    2.36594E-05
+ MINIMUM AT X=       0.1354821
+ Y AT MINIMUM=     -576.8054653429
+Finished. Proposed optimum value = 0.1354821
+Previous energy was -5.7680407889753E+02
+      New energy is -5.7680544518563E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Summary for cycle 1
+Initial energy              :  -5.7679856802860E+02
+Energy after this cycle     :  -5.7680544518563E+02
+OPTIMIZATION CYCLE 2
+Optimized at 10% scan range.
+Energy before this cycle is -5.7680544518563E+02
+Processing parameter 1
+Initial value: 3.6591
+Data analysis: 
+ X,Y,YFIT=     3.293190000  -576.804862217  -576.804862854
+ X,Y,YFIT=     3.415160000  -576.805182093  -576.805180760
+ X,Y,YFIT=     3.537130000  -576.805367934  -576.805367708
+ X,Y,YFIT=     3.659100000  -576.805445186  -576.805446690
+ X,Y,YFIT=     3.781070000  -576.805440070  -576.805440698
+ X,Y,YFIT=     3.903040000  -576.805374740  -576.805372723
+ X,Y,YFIT=     4.025010000  -576.805264950  -576.805265758
+ RMS DEVIATION=    1.17190E-06
+ MINIMUM AT X=       3.7087141
+ Y AT MINIMUM=     -576.8054532044
+Finished. Proposed optimum value = 3.7087141
+Previous energy was -5.7680544518563E+02
+      New energy is -5.7680545154002E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 2
+Initial value: 0.4422
+Data analysis: 
+ X,Y,YFIT=     0.397980000  -576.805222993  -576.805225980
+ X,Y,YFIT=     0.412720000  -576.805369168  -576.805364082
+ X,Y,YFIT=     0.427460000  -576.805442988  -576.805439747
+ X,Y,YFIT=     0.442200000  -576.805451540  -576.805455620
+ X,Y,YFIT=     0.456940000  -576.805401091  -576.805414347
+ X,Y,YFIT=     0.471680000  -576.805336854  -576.805318571
+ X,Y,YFIT=     0.486420000  -576.805164653  -576.805170939
+ RMS DEVIATION=    9.34602E-06
+ MINIMUM AT X=       0.4388284
+ Y AT MINIMUM=     -576.8054571260
+Finished. Proposed optimum value = 0.4388284
+Previous energy was -5.7680545154002E+02
+      New energy is -5.7680545449550E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 3
+Initial value: 0.9376
+Data analysis: 
+ X,Y,YFIT=     0.843840000  -576.805106766  -576.805106857
+ X,Y,YFIT=     0.875093000  -576.805248702  -576.805248504
+ X,Y,YFIT=     0.906347000  -576.805364070  -576.805364052
+ X,Y,YFIT=     0.937600000  -576.805454496  -576.805454719
+ X,Y,YFIT=     0.968853000  -576.805521687  -576.805521735
+ X,Y,YFIT=     1.000110000  -576.805566581  -576.805566330
+ X,Y,YFIT=     1.031360000  -576.805589612  -576.805589717
+ RMS DEVIATION=    1.57613E-07
+ MINIMUM AT X=       1.0524493
+ Y AT MINIMUM=     -576.8055941389
+Minimum not within scan range
+Retry. Adjusting scan range.
+Data analysis: 
+ X,Y,YFIT=     0.928260000  -576.805429932  -576.805430248
+ X,Y,YFIT=     0.962640000  -576.805510202  -576.805509576
+ X,Y,YFIT=     0.997020000  -576.805563168  -576.805562844
+ X,Y,YFIT=     1.031400000  -576.805589628  -576.805590865
+ X,Y,YFIT=     1.065780000  -576.805594699  -576.805594452
+ X,Y,YFIT=     1.100160000  -576.805575104  -576.805574417
+ X,Y,YFIT=     1.134540000  -576.805531244  -576.805531575
+ RMS DEVIATION=    6.28956E-07
+ MINIMUM AT X=       1.0536860
+ Y AT MINIMUM=     -576.8055959248
+Finished. Proposed optimum value = 1.0536860
+Previous energy was -5.7680545449550E+02
+      New energy is -5.7680559811108E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 4
+Initial value: 0.4246
+Data analysis: 
+ X,Y,YFIT=     0.382140000  -576.806354023  -576.806358134
+ X,Y,YFIT=     0.396293000  -576.806293303  -576.806283099
+ X,Y,YFIT=     0.410447000  -576.806023763  -576.806027762
+ X,Y,YFIT=     0.424600000  -576.805598111  -576.805601931
+ X,Y,YFIT=     0.438753000  -576.805010450  -576.805015368
+ X,Y,YFIT=     0.452907000  -576.804288728  -576.804277789
+ X,Y,YFIT=     0.467060000  -576.803394775  -576.803399071
+ RMS DEVIATION=    6.69670E-06
+ MINIMUM AT X=       0.3835108
+ Y AT MINIMUM=     -576.8063590226
+Minimum not within scan range
+Retry. Adjusting scan range.
+Data analysis: 
+ X,Y,YFIT=     0.343890000  -576.805325962  -576.805324266
+ X,Y,YFIT=     0.356627000  -576.805874744  -576.805878000
+ X,Y,YFIT=     0.369363000  -576.806212284  -576.806213657
+ X,Y,YFIT=     0.382100000  -576.806353870  -576.806349717
+ X,Y,YFIT=     0.394837000  -576.806307497  -576.806304580
+ X,Y,YFIT=     0.407573000  -576.806090008  -576.806096697
+ X,Y,YFIT=     0.420310000  -576.805747020  -576.805744467
+ RMS DEVIATION=    3.63290E-06
+ MINIMUM AT X=       0.3851160
+ Y AT MINIMUM=     -576.8063547158
+Finished. Proposed optimum value = 0.3851160
+Previous energy was -5.7680559811108E+02
+      New energy is -5.7680636136791E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+Processing parameter 5
+Initial value: 0.1355
+Data analysis: 
+ X,Y,YFIT=     0.121950000  -576.806602599  -576.806583986
+ X,Y,YFIT=     0.126467000  -576.806639733  -576.806702154
+ X,Y,YFIT=     0.130983000  -576.806694992  -576.806632894
+ X,Y,YFIT=     0.135500000  -576.806361368  -576.806357866
+ X,Y,YFIT=     0.140017000  -576.805820628  -576.805858748
+ X,Y,YFIT=     0.144533000  -576.805135178  -576.805117421
+ X,Y,YFIT=     0.149050000  -576.804113817  -576.804115245
+ RMS DEVIATION=    3.75722E-05
+ MINIMUM AT X=       0.1271246
+ Y AT MINIMUM=     -576.8067041597
+Finished. Proposed optimum value = 0.1271246
+Previous energy was -5.7680636136791E+02
+      New energy is -5.7680664910053E+02
+Optimum parameter therefore lowers the energy.
+Inserting the value in remaining input files.
+SUMMARY
+=======
+No. of minima not found                  :   0
+Initial energy                           :  -5.7679856802860E+02
+Final energy after 2 optimization cycles :  -5.7680664910053E+02
+Optimized input file:  si.opt
+Optimized input file with asterisks: si.opt_ast
+Thu Mar 12 14:47:38 GMT 1998
+BILLY STOP.

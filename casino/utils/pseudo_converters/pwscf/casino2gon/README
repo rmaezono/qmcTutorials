@@ -1,0 +1,107 @@
+CASINO2GON utility
+==================
+
+JRT 2009
+
+Convert CASINO pseudopotentials for input into the PWSCF program
+----------------------------------------------------------------
+
+casino2gon needs an input file, 'awfn.inp', to specify what is converted and
+how, and puts results in file 'ppot.gon' for PWSCF to use (note this GON
+file format is currently deprecated, and may become unsupported in a future
+release of PWSCF). It also needs files from the CASINO website.
+
+A example awfn.inp file is:
+
+1:# atom,Zval,Zgrid,xmin,dx,nrgrid
+2:Zn    12.00000000    30.00000000    -7.00000000     0.01250000 1000
+3:0                                       ! local channel
+4:   0    2.00000000                      ! GS occupation of s-channel
+5:   1    0.00000000                      ! GS occupation of p-channel
+6:   2   10.00000000                      ! GS occupation of d-channel
+7:"./zn/2/pp_gaussian"                    ! path to pseudopotential file
+8:"./zn/1/awfn.data_d10s2_1S"             ! path to projectors
+9:"./zn/1/awfn.data_d10s1p1_3P"           ! path to projectors
+
+Line number
+1: Just a comment. Ignore.
+2: Name of atom , Pseudo Z value , Zgrid , xmin , dx , nrgrid
+   The last 4 describe the grid that PWSCF uses, r(i)=exp[xmin/Zgrid+(i-1)*dx]
+   with i=1..nrgrid.
+   As a rule of thumb, use values above but:
+    Use Zgrid=atomic number of the atom calculated.
+    Change dx if maximum radius reported by the code is less than 6 or greater
+    than 10.
+3: Channel that PWSCF is told to use as local
+4:  Occupation numbers
+5:  of the
+6:  pseudoatom GS.
+7: Path to CASINO pseudopotential file. Can be a pp.data, or a pp_gaussian file.
+8: Path to GS awfn.data file, supplies projectors.
+9: Path to a second awfn.data file, etc
+   There can be any number of awfn.data files listed at the end, and the
+   converter uses orbitals in a first-come-first-served order, ie for the
+   above file the s and d projectors come from "./zn/1/awfn.data_d10s2_1S",
+   and the p projector comes from "./zn/1/awfn.data_d10s1p1_3P".
+
+Problems
+--------
+
+Two problems appear repeatedly with PWSCF and other plane wave calculations:
+
+A) problem : Ghost states appear
+   solution: Make the s-channel local, not the d-channel
+
+B) problem : Needs a massive E_cut, and convergence is unstable
+   solution: Use the 'new' small-core pseudopotentials on the webpage for
+   1st row transitions
+   (eg numbers 8&9 in www.tcm.phy.cam.ac.uk/~mdt26/pseudo_lib/zn/pseudo.html)
+
+ That's all it takes.
+ If you do (A) ghost states disappear. If you do (B) you need a lot fewer
+ plane waves (cost is 6 more valence electrons per transition atom).
+
+ See CASINO/utils/pseudo_converters/NOTES for some more thoughts on this issue.
+
+ The casino2gon converter can only use website HF orbitals for the KB
+ projectors, and provides an old format of file (GON not UPF) so the casino2upf
+ converter supplied with the Quantum Espresso distribution would probably be a
+ better choice for most people, as long as you do (A) and (B) above.
+
+Examples
+--------
+
+ In this directory are some examples for converting Fe pseudopotential files
+ to ppot.gon files. (1) uses solution A and B, (2) uses solution A only (i.e.
+ converts the 'old' large-core pseudopotentials) and (3) uses neither solution.
+ A test is to compare original HF pseudoatom energy with a PWSCF atom-in-a-box
+ calculation (LDA, (10a_0)^3 unit cell, 1 kpt at origin, 100 Ry. cutoff) - they
+ should be different, but not by much. For Fe this gives:
+
+Example       E_HF                 E_pwscf
+(1)        -177.22094           -178.82155332  successful
+(2)         -42.53476            -33.30939245  no ghost states, but needs a
+                                               bigger E_cut (not converged)
+(3)         -42.53476           -203.21877497  a ghost state, so useless
+
+ Rest of 1st row transitions behave the same - small-core ppots with s-local
+ give:
+              E_HF                 E_pwscf
+sc          -58.11932            -59.27481536
+ti          -75.14934            -76.45267348
+v           -95.35388            -32.35608974
+cr         -119.39496           -120.79262612
+mn         -146.42622           -147.79751987
+fe         -177.25648           -178.82155332
+co         -212.21002           -213.94393377
+ni         -253.56842           -253.65546909
+cu         -295.33914           -296.49501195
+zn         -343.10286           -343.47556881
+
+ Large-core ppots with s-local need a bigger basis set - for 100 Ry. cutoff
+ atom-in-a-box is often not large enough. Large-core with d-local give a ghost
+ state.
+
+ Final point - it is usually best to have projectors for all non-local
+ channels. Most plane-wave codes miss some out when they calculate their own
+ KSDFT projectors from GS

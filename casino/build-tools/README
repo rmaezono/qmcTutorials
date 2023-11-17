@@ -1,0 +1,42 @@
+build-tools
+-----------
+This directory contains the following utilities used for building CASINO:
+
+- make-wrappers:   creates wrappers around binary utilities so that one can
+                   switch CASINO_ARCHs and still run the correct binary without
+                   changing the PATH variable.  This tool is intended to be
+                   invoked from utils/Makefile after completing compilation.
+
+- release:         if invoked by a maintainer, performs all tasks involved in
+                   publishing the current git HEAD, including a tarball,
+                   changelogs, manual, etc, plus the git-push to the main
+                   repository.  If invoked by non-maintainer developer, creates
+                   a tarball containing the current git HEAD under the user's
+                   home directory.
+
+- update-version:  regenerates the contents of the VERSION and DIARY files
+                   using information from git.  This tool is intended to be
+                   invoked from the global Makefile, from src/Makefile and from
+                   build-tools/release.
+
+- f90wrap:         wraps around F90 compilers in order to correctly handle
+                   .mod file dependencies, allowing, among other things, to
+                   skip unnecessary compilations which a plain Makefile system
+                   would not be able to do easily.  This tool is intended to
+                   be invoked by src/Makefile.
+
+- pdf-compiler:    wraps around pdflatex in order to automate running multiple
+                   pdflatex iterations, and to buffer the output which is only
+                   displayed in the event of encountering errors.  This tool is
+                   intended to be invoked by manual/src/Makefile.
+
+- update-makefile: regenerates CASINO Makefiles by analysing the dependencies
+                   of the .f90 files in a directory.  This tool is intended to
+                   be run by hand by developers.  Notice that CASINO Makefiles
+                   have special format to allow using this script.
+
+- winwrap:         wraps around F90 compiler invocations under CYGWIN, handling
+                   pathname conversions etc.  This tool is intended to be
+                   invoked by src/Makefile and the Makefiles under utils/.
+
+PLR 05.2011

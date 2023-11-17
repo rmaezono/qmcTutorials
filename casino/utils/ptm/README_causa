@@ -1,0 +1,68 @@
+
+Note sent to MDT April 2013 - "PTM for dummies" by Mauro Causa
+--------------------------------------------------------------
+
+Simple instructions to clarify the procedure..
+
+[MDT NOTE: THIS ASSUMES ONLY s,p,d COMPONENTS ALLOWED - AS USED TO BE THE 
+CASE. WILL NOW HANDLE F,G AS WELL]
+
+From mauro.causa@unina.it Fri Apr 19 13:47:35 2013
+Date: Fri, 19 Apr 2013 14:47:31 +0200
+From: Mauro Causa' <mauro.causa@unina.it>
+To: Mike Towler <mdt26@cam.ac.uk>
+Subject: ptm for dummies
+
+Dear Mike
+
+after couple of months of soft work, and ten days of hard work, i am now able
+to use ptm for translating any pseudo from crystal (or other gaussian  
+fit) to Casino.
+
+I write for me some instructions. Please tell me if are correct, and  
+if yes and if you want give them in some way to the users.
+
+I tested the following procedure on several PP taken from CASINO web site.
+
+I enclose picture of the PP tables got from Casino site, and of the  
+tables built  from the corresponding gaussian fits.
+
+Transformation of Pseudo-Potential gaussian fit into table form, as QMC input
+using ptm
+
+Case 1: My potential has a local component
+------------------------------------------
+
+Check each step using the xmgrace graphical representation
+
+- It is logical to put the local component as the third one, reserved  
+to d component (Vd)
+
+- Using ptm transform the gaussian fit into tables; subtract Z/r only  
+to the local component Vd.
+
+- Using ptm edit the first 2 components, substituting Vs with Vs+Vd  
+and Vp with Vp+Vd, using the enclosed modified ptm.f90 (that sums also  
+the components). The reason for that is that Casino wants the total PP  
+for each components, including the local one, and including -Z/r.
+
+- Edit again the PP tables using ptm, multiplying them times r.
+
+This is the input for Casino.
+
+Case 2: My potential has not a local component
+----------------------------------------------
+
+Check each step using the xmgrace graphical representation
+
+- Using ptm transform the gaussian fit into tables; subtract Z/r to  
+all 3 components Vs, Vp, Vd
+
+- Edit again the PP tables using ptm, multiplying them times r.
+
+This is the input for Casino.
+
+Mauro Causa'
+Dip. di Ingegneria Chimica, dei Materiali e delle Produzioni  
+Industriali, Universita' di Napoli Federico II, Via Cintia, 80126 Napoli
+tel: +39 081 674405 fax: +39 081 674090 mobile: +39 329 5933497

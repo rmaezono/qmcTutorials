@@ -1,0 +1,144 @@
+#!/bin/bash
+############################################################################
+# CLEARUP,   NDD, 2002.                                                    #
+# Script for clearing up junk files / output produced by CASINO before one #
+# starts afresh. It attempts to "reset" directories to suitable starting   #
+# points.  NB, the user runs this script at his or her own risk - the      #
+# author accepts no responsibility for the consequences of its use.        #
+#                                                                          #
+# If you add to this script, please make sure that you are as specific as  #
+# possible about the files to be deleted, to minimize the chance of people #
+# deleting files they want to keep.                                        #
+#                                                                          #
+# Changes                                                                  #
+# NDD 10.03.06  Update to CASINO 2.  No longer deletes all CASINO 1 files. #
+# PLR    11.07  Rewritten for efficiency, eliminating the overhead from    #
+#               attempting to remove non-existent files.                   #
+############################################################################
+set +u
+shopt -s extglob
+
+# Colours.
+default="\033[0m" ; black="\033[30m" ; red="\033[31m"
+green="\033[32m"  ; brown="\033[33m" ; blue="\033[34m"
+purple="\033[35m" ; cyan="\033[36m"  ; grey="\033[37m"
+
+# Basic setup
+base_dir=$(pwd) ; ndir=0 ; die=0
+usage="Usage: clearup [--help] [--all] [--force] [directory1 .. directoryN]"
+
+# Read command line.
+clean_all=0 ; clean_force=0
+while (($#>0)) ; do
+ case "$1" in
+ -h|-help|--help) die=1 ;;
+ -a|-all|--all) clean_all=1 ;;
+ -f|-force|--force) clean_force=1 ;;
+ *)
+  [ ! -d "$1" ] \
+   && { echo -e "${red}Directory \"$1\" not found.$default" ; die=1 ; }
+  ndir=$((ndir+1)) ; dir[$ndir]="$1" ;;
+ esac
+ shift
+done
+if ((die==1)) ; then
+ echo
+ echo "$usage"
+ echo
+ echo -e \
+  "${blue}Get rid of CASINO output files in directory1 to directoryN.$default"
+ echo -e "${blue}Use the -a flag to get rid of bwfn.data.bx files.$default"
+ echo
+ exit 0
+fi
+((ndir==0)) && { ndir=1 ; dir[1]="." ; }
+
+# Functions
+function check_number_N {
+ # Check whether $1 is a positive integer
+ local num="$1" size i=0 c
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case $c in 1|2|3|4|5|6|7|8|9|0) continue ;; esac ; return 1
+ done
+ return 0
+}
+# End functions
+
+# Loop over directories.
+idir=0
+while ((idir<ndir)) ; do idir=$((idir+1))
+ echo -e \
+  "${blue}Clearing up after CASINO in directory: $green${dir[$idir]}$default"
+ isvmc_sthing=-1 ; cd "${dir[$idir]}"
+ if ((clean_force==0)) && [ -e ".runqmc.lock" ] ; then
+  echo -e "${red}Directory locked by runqmc, skipping (-f to force).$default"
+  cd "$base_dir"
+  continue
+ fi
+ for file in * .* ; do
+  file_nogz="${file%.gz}" ; file_nogz="${file_nogz%.bz2}" ; delthis=0
+  case "$file_nogz" in
+  .|..) : ;;
+  .casino_finished|.runqmc.lock) delthis=1 ;; # flags
+  out|.out_node*|.err|dmc.hist|vmc.hist) delthis=1 ;; # out and .hist
+  config.out|config.backup|config.out_formatted|config.in_formatted|\
+   config.out_fixed|config.out_nofixed) delthis=1 ;; # config out/backup/fmtd
+  expval.backup) delthis=1 ;; 
+  rmc.config|rmc.rep) delthis=1 ;; # RMC custom files
+  emin.log|btilde.log|bhtilde.log|SVD_cpts_?.log|random.log) delthis=1 ;;
+  lsf.dat) delthis=1 ;; # Variance.
+  config.in|config.in_fixed|config.in_nofixed) # selective removal of config.in
+   if ((isvmc_sthing==-1)) ; then
+    isvmc_sthing=1
+    if [ -e input ] ; then
+     (($(grep -i runtype input | grep -c " vmc")==0)) && isvmc_sthing=0
+    fi
+   fi
+   ((isvmc_sthing==1)) && delthis=1 ;;
+  correlation.out.*)
+   # Reset to correlation.data.
+   itst=${file_nogz#correlation.out.}
+   check_number_N "$itst" && rm "$file" 2> /dev/null ;;
+  parameters.*.casl)
+   # Reset to parameters.casl.
+   itst=${file_nogz#parameters.} ; itst=${itst%.casl}
+   check_number_N "$itst" && rm "$file" 2> /dev/null ;;
+  jastrow_value_u.out|jastrow_deriv_u.out|jastrow_sderiv_u.out|\
+   jastrow_value_w.out|jastrow_deriv_w.out|jastrow_sderiv_w.out|\
+   jastrow_value_chi_*.out|jastrow_deriv_chi_*.out|jastrow_sderiv_chi_*.out|\
+   jastrow_value_f_*.out|jastrow_value_p.out|jastrow_value_q_*.out|\
+   jastrow_lap_p.out|jastrow_lap_q.out|\
+   bfconfig.out|bfconfigx.out|bfions.out|bffield.out|bfeta_*.out|bfmu_*.out|\
+   parameters_converted.casl|\
+   bfphi_*.out) delthis=1 ;; # plot_jastrow and plot_backflow files (old .out)
+  jastrow_value_u.dat|jastrow_deriv_u.dat|jastrow_sderiv_u.dat|\
+   jastrow_value_w.dat|jastrow_deriv_w.dat|jastrow_sderiv_w.dat|\
+   jastrow_value_chi_*.dat|jastrow_deriv_chi_*.dat|jastrow_sderiv_chi_*.dat|\
+   jastrow_value_f_*.dat|jastrow_value_p.dat|jastrow_value_q_*.dat|\
+   jastrow_lap_p.dat|jastrow_lap_q.dat|\
+   bfconfig.dat|bfconfigx.dat|bfions.dat|bffield.dat|bfeta_*.dat|bfmu_*.dat|\
+   parameters_converted.casl|\
+   bfphi_*.dat) delthis=1 ;; # plot_jastrow and plot_backflow files (new .dat)
+  lineplot.dat|2Dplot.dat|3Dplot.dat|casinoplot.dat|\
+   casinoplot_+([[:digit:]]).dat|vmc_data.plot|dmc_data.plot|\
+   ft_of_jastrow.dat|fft_of_jastrow.dat|movie.out|orbital_check.outx.*)
+   delthis=1 ;; # qmc_plot, movie, Jastrow FT and orbital_check files
+  reblock.plot|reblock.results|dmc.status) delthis=1 ;; # reblock results
+  status|statusfile|core|core.*|.outlog|.errlog|.nfile*|gmon.out|.out_discard*|\
+  *.cobaltlog|*[0-9].error|*[0-9].output|casino*.0.out|casino*.0.err|\
+  out_part.*|saved_part_*|gmon.out)
+   delthis=1 ;; # stdout/stderr logs
+  casino_*) # job-submission scripts and links to parallel binary
+   itst=${file_nogz#casino_} ; jtst=${itst#*x}
+   [ ! -z "$jtst" ] && itst=${itst%x$jtst} || jtst=1
+   check_number_N "$itst" && check_number_N "$jtst" && delthis=1 ;;
+  bwfn.data.b*|bwfn.data.bin) # Binary blip files.
+   ((clean_all==1)) && ( [ -f bwfn.data ] || [ -f bwfn.data.gz ] )\
+    && delthis=1 ;;
+  esac
+  ((delthis==1)) && rm -rf "$file" 2> /dev/null
+ done # loop over files in directory
+ cd "$base_dir"
+done # loop over directories
+echo -e "${blue}Finished.$default"

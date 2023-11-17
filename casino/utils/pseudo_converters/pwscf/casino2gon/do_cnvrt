@@ -1,0 +1,10 @@
+ifort -o casino2pwscf casino2pwscf.f90
+
+for i in 1 2 3
+ do
+
+ cp ./awfn.inp_$i  ./awfn.inp
+ ./casino2pwscf
+ mv ppot.gon ppot_$i.gon
+
+done

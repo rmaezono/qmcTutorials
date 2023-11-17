@@ -1,0 +1,956 @@
+#!/bin/bash
+#--------------------------------------------------------------------#
+# RUNQMCMD                                                           #
+# ========                                                           #
+# Script to run QMC-MD calculations using PWSCF and CASINO.          #
+#                                                                    #
+# MDT 04.2011                                                        #
+#--------------------------------------------------------------------#
+
+#set -o errexit
+
+# Don't whinge about undefined variables
+set +u
+# Enable extended pattern-matching features
+shopt -s extglob
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+
+######################################################################
+
+print_usage() {
+ # Display usage and die
+ cat <<_EOH
+
+Usage
+=====
+${0##*/} [--help --nproc_dft=I --splitqmc[=N] --startqmc=M --dft_only/--qmc_only [<runqmc/runpwscf options>]
+
+  This script is used to automate DMC-MD molecular dynamics calculations using
+  CASINO and the PWSCF DFT code (part of the Quantum espresso package -
+  available at www.quantum-espresso.org). PWSCF must be version 4.3 or later.
+
+  We need to do restarted DMC calculations for a series of points along a
+  DFT trajectory.
+
+  This script works by repeatedly calling the 'runpwscf' and 'runqmc' scripts
+  which know how to run CASINO/PWSCF on any individual machine. Almost all
+  optional arguments to this script are the same as for runpwscf/runqmc
+  and are passed on automatically to these subsidiary run scripts (the
+  --background/-B option is also used by runqmcmd, and for the same purpose).
+  Type 'runpwscf --help' or 'runqmc --help' to find out what these options are.
+  There is a short list of optional flags specific to runqmcmd which are
+  described below.
+
+  It is assumed that PWSCF lives in ~/espresso and CASINO lives in ~/CASINO.
+  There are override options available if this is not the case.
+
+  If you are running on a multi-user machine with an account to be
+  charged for the calculations, you might consider aliasing 'runqmcmd' as
+  alias runqmcmd="runqmcmd --user.account=CPH005mdt "
+  or whatever.
+
+  In general you should do something like the following:
+
+  Setup the PWSCF input ('in.pwscf') and the CASINO input ('input' etc. but no
+  wave function file) in the same directory. For the moment we assume you have
+  an optimized Jastrow from somewhere (this will be automated later). Have the
+  PWSCF setup as 'calculation = "md"', and 'nstep = 100' or whatever. The
+  runqmcmd script will then run PWSCF once to generate 100 xwfn.data files,
+  then it will run CASINO on each of the xwfn.data. The first will be a proper
+  DMC run with full equilibration (using the values of DMC_EQUIL_NSTEP,
+  DMC_STATS_NSTEP etc. The second and subsequent steps (with slightly
+  different nuclear positions) will be restarts from the previous converged
+  config.in - each run will use new keywords DMCMD_EQUIL_NSTEP and
+  DMCMD_STATS_NSTEP (with the number of blocks assumed to be 1. The latter
+  values are used if new keyword DMC_MD is set to T, and they should be very
+  small).
+
+  It is recommended that you set DMC_SPACEWARPING AND DMC_REWEIGHT_CONF to T
+  in CASINO input when doing such calculations.
+
+  The calculation can be run through pwfn.data, bwfn.data or bwfn.data.b1
+  formats as specified in the pw2casino.dat file (see CASINO and PWSCF
+  documentation).
+
+Default behaviour of runqmcmd (on all machines):
+-----------------------------
+
+Note : NMDSTEP is the value of the PWSCF input keyword 'nstep', while xwfn.data
+refers to whatever wave function file is specified in the pw2casino.dat
+file (either bwfn.data.b1 [default], bwfn.data or pwfn.data).
+
+For a complete DMC-MD run, the following three steps are performed in sequence:
+
+(A) Generate NMDSTEP+1 xwfn.data.$ files, where $ is a sequence number from
+    0 to NMDSTEP.
+(B) Run a full DMC run on xwfn.data.0
+(C) Temporarily modify the CASINO input file, by changing DMC_MD from F to T,
+    and RUNTYPE from VMC_DMC to DMC_DMC. Run nmdstep restarted QMC runs on
+    xwfn.data.1 to xwfn.data.[nmdstep], each restarting from the previous.
+
+On batch queue systems, runqmcmd will by default do *two* batch script
+submissions, the first - handled by the runpwscf script - executing step (A),
+and the second - handled by the runqmc script - executing steps (B-C).
+
+In principle, this wastes some unnecessary time (the time spent waiting for the
+QMC batch script to start) but this is unavoidable if runqmcmd uses separate
+runpwscf and runqmc scripts to handle the DFT and QMC calculations. This
+may be changed in the future, if anyone can be arsed.
+
+Note that all calculations will be done on the number of cores requested on the
+command line (with the --nproc/-p flag) irrespective of whether they are DFT or
+QMC calculations. You may override this for the DFT calcs by using the
+--nproc_dft flag to runqmcmd.
+
+Modifications to default behaviour (on all machines)
+----------------------------------
+
+(1) runqmcmd --dft_only  : execute only step (A), generating NMDSTEP+1
+                           xwfn.data.$ files.
+
+Essentially the same thing can be done by executing 'runpwscf' but doing that
+would bypass a few error traps.
+
+(2) runqmcmd --qmc_only  : execute only steps(B-C)
+
+This requires that the NMDSTEP+1 xwfn.data.$ files already exist - if they
+don't the script will whinge and die.
+
+(3) runqmcmd --startqmc=M : Start the chain of QMC runs with file xwfn.data.M
+    If M=0, the first run will be a full QMC run with DMC_MD=F, otherwise
+    if M>0 then all runs will be short restarted ones with DMC_MD=T.
+    (Note that for M>0, DMC_MD and RUNTYPE in the input file will be
+     'temporarily 'modified' as described above, no matter what values they
+    currently have). The resulting sequence M-->NMDSTEP can be split into N
+    parts using --splitqmc=N  as before.
+
+Modifications to default behaviour (batch machines only)
+----------------------------------
+
+On batch machines, there is an additional complication due to the walltime
+limits on particular queues which may require full DMC-MD runs to be
+split into sections. The following flags may be used to do this.
+
+(4) runqmcmd --splitqmc : do step A (DFT run), step B (initial QMC run) and
+    step C (chain of remaining QMC restarted jobs) as three separate batch
+    script submissions (i.e. no longer combine B and C).
+
+(5) runqmcmd --splitqmc=N : As (3) but split step C into N separate batch
+    script submissions.
+
+    Example : NMDSTEP=1005, and runqmcmd --splitqmc=4 will result in
+    1 step B job plus four sets of step C jobs with 251, 251, 251, 252 steps.
+
+_EOH
+ exit
+}
+
+#################### START BASIC FUNCTIONS ###########################
+
+# Output field number $1 of $2-$n
+field() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i:1}" ; }
+
+# Output all fields of $2-$n from number $1 onwards
+fields_from() { local i=$1 ; shift ; ((i>0)) && echo "${@:$i}" ; }
+
+unpad() {
+ # Remove leading and trailing blanks from "$@"
+ local string="$@"
+ while [ "${string:0:1}" = " " ] ; do
+  string="${string:1}"
+ done
+ while [ "${string:$((${#string}-1)):1}" = " " ] ; do
+  string="${string:0:$((${#string}-1))}"
+ done
+ echo "$string"
+}
+
+rem_list() {
+ # Remove item $1 from $2-$n
+ local item out=""
+ for item in ${@:2} ; do [ "$item" = "$1" ] || out="$out $item" ; done
+ echo "$out"
+}
+
+pretty_print() {
+ # Print $3 with line folding at column $lwidth, with indentation $1 on the
+ # first line and indentation $2 on the following.
+ local indent1=$1 indent_rest=$2 text word line el="" lwidth=79
+ text="$(unpad "$3")"
+ line=""
+ while ((${#text}>0)) ; do
+  word="${text%% *}"
+  text="$(unpad "${text:${#word}}")"
+  if [ -z "$line" ] ; then # only happens first time around
+   line="$(printf "%${indent1}s")$word"
+  else
+   if ((${#line}+1+${#word}>lwidth)) ; then
+    echo "$line$el" ; line="$(printf "%${indent_rest}s")$word"
+   else
+    line="$line $word"
+   fi
+  fi
+ done
+ [ -z "$line" ] || echo "$line$el"
+}
+
+# Check whether $1 is a positive integer
+check_number_N() { [[ "$1" == +([[:digit:]]) ]] ; }
+
+# Check whether $1 is an integer
+check_number_Z() { [[ "$1" == ?([+-])+([[:digit:]]) ]] ; }
+
+check_number_R() {
+ # Check whether $1 is a real number (in Fortran format)
+ [[ "$1" ==\
+  ?([+-])+([[:digit:]])?(.)*([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]] ||
+  [[ "$1" ==\
+  ?([+-])*([[:digit:]]).+([[:digit:]])?([eEdD]?([+-])+([[:digit:]])) ]]
+}
+
+check_logical() {
+local b
+b=$(unpad "$1")
+b="${b#.}"
+case "$b" in
+t*|T*|f*|F*) return 0 ;;
+*) return 1 ;;
+esac
+}
+
+get_logical() {
+local b
+b=$(unpad "$1")
+b="${b#.}"
+case "$b" in
+t*|T*) echo  1 ;;
+f*|F*) echo  0 ;;
+*)     echo -1 ;;
+esac
+}
+
+# Errors, warnings and infos
+errstop() { echo ; pretty_print 0 7 "ERROR: $1" ; echo ; exit 1 ; }
+cerrstop() { echo ; pretty_print 0 7 "CASINO ERROR: $1" ; echo ; exit 1 ; }
+perrstop() { echo ; pretty_print 0 7 "PWSCF ERROR: $1" ; echo ; exit 1 ; }
+errstopd() { echo ; pretty_print 0 7 "ERROR [$1]: $2" ; echo ; exit 1 ; }
+errwarn() { pretty_print 0 9 "WARNING: $1" ; }
+cerrwarn() { pretty_print 0 9 "CASINO WARNING: $1" ; }
+perrwarn() { pretty_print 0 9 "PWSCF WARNING: $1" ; }
+errwarnd() { pretty_print 0 9 "WARNING [$1]: $2" ; }
+info() { (($1<=verbosity)) && pretty_print 0 1 "$2" ; }
+
+# Print T if input is 1 and F if input is 0.
+boolean() { case "$1" in 1) echo T ;; 0) echo F ;; esac ; }
+
+# Wait for CASINO or PWSCF to finish
+wait_pwscf() {
+ while [ ! -e .pwscf_finished ] ; do
+  sleep 10
+ done
+ rm .pwscf_finished
+}
+wait_casino() {
+ while [ ! -e .casino_finished ] ; do
+  sleep 10
+ done
+ rm .casino_finished
+}
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ uncap() {
+  # Turn upper case into lower case in $1.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ } ;;
+*) uncap() { echo "${1,,}" ; } ;;
+esac
+
+#################### END BASIC FUNCTIONS #############################
+
+###################### START FUNCTIONS ###############################
+
+parse_cmdline() {
+ help_mode=""
+ dft="1"
+ qmc="1"
+ splitqmc="0"
+ startqmc="0"
+ background=""
+ check_only=""
+ while (($#>0)) ; do
+  case "$1" in
+   --) errstop "The runqmcmd script does not yet support jobs run in multiple directories flagged by e.g. '-- dir1 dir 2'." ;;
+   --*) # GNU-style "long" options
+    option="${1#--}"
+    case "$option" in
+     help) help_mode=1 ;;
+     check_only) check_only=1 ;;
+     check-only) check_only=1 ;;
+     dft_only) qmc=0 ;;
+     qmc_only) dft=0 ;;
+     splitqmc) splitqmc=1 ;;
+     background) background=1 ;;
+     *=*) # long options with integer arguments
+      var="${option%%=*}" ; val="${option#*=}"
+      case "$var" in
+       splitqmc|startqmc)
+        minval=1
+        check_number_Z $val || errstop "Argument to --$var must be an integer."
+        [ ! -z "$minval" ] && ((val<minval)) && errstop "Argument to --$var \
+        must be an integer greater than or equal to $minval."
+        eval "$var=\"\$val\"" ;;
+       *) ;;
+      esac ;;
+     *) ;;
+    esac ;;
+   -*) # Unix-style "short" options
+    option=${1#-}
+    [ -z "$option" ] && errstop "Bad option '-'."
+    while ((${#option}>0)) ; do
+     option1=${option:0:1}
+     option=${option:1}
+     case "$option1" in
+      h) help_mode=1 ;;
+      B) background=1 ;;
+     esac
+    done ;;
+   *) break ;;
+  esac
+  shift
+ done
+
+}
+
+kword_check() {
+ # Check that keyword value corresponds to keyword type.
+ # Return "!error" if not. Also convert T/F to 1/0 for logical type.
+ local kw_type=$1 kw_val=$2 kw_units="" char
+ case $kw_type in
+ integer) check_number_Z $kw_val || { echo "!error" ; return ; } ;;
+ natural) check_number_Z $kw_val && ((kw_val>0))\
+  || { echo "!error" ; return ; } ;;
+ znatural) check_number_Z $kw_val && ((kw_val>=0))\
+  || { echo "!error" ; return ; } ;;
+ real) ! check_number_R $kw_val && { echo "!error" ; return ; } ;;
+ logical)
+  kw_val=$(uncap $kw_val)
+  case $kw_val in
+  t|.true.) kw_val=1 ;;
+  f|.false.) kw_val=0 ;;
+  *) echo "!error" ; return ;;
+  esac ;;
+ physical)
+  kw_units=$3 ; [ -z "$kw_units" ] && { echo "!error" ; return ; }
+  char=${kw_units:0:1}
+  case $char in
+  "#"|"!") echo "!error" ; return ;;
+  esac
+  ! check_number_R $kw_val && { echo "!error" ; return ; } ;;
+ text) : ;;
+ *) echo "!ierror" ; return ;;
+ esac
+ echo $kw_val $kw_units
+}
+
+case "${BASH_VERSION%%.*}" in
+0|1|2|3)
+ kword_unique() {
+  # Turn upper case into lower case in $1, and remove punctuation.
+  # NB, this is a lot faster than calling 'tr' due to the call overhead.
+  local i string string_out="" n c
+  i=0 ; string="$1" ; n=${#string}
+  while ((i<n)) ; do c="${string:$i:1}" ; i=$((i+1))
+   case "$c" in
+   A) c=a ;; B) c=b ;; C) c=c ;; D) c=d ;; E) c=e ;; F) c=f ;; G) c=g ;;
+   H) c=h ;; I) c=i ;; J) c=j ;; K) c=k ;; L) c=l ;; M) c=m ;; N) c=n ;;
+   O) c=o ;; P) c=p ;; Q) c=q ;; R) c=r ;; S) c=s ;; T) c=t ;; U) c=u ;;
+   V) c=v ;; W) c=w ;; X) c=x ;; Y) c=y ;; Z) c=z ;; -|_|.) c="" ;;
+   esac
+   string_out="$string_out$c"
+  done
+  echo "$string_out"
+ } ;;
+*)
+ kword_unique() { local string ; string="${1,,}" ; echo "${string//[_.-]/}" ; }
+ ;;
+esac
+
+get_param() {
+ # Return the value of parameter $1 of type $2 from input.
+ local i n kw="$1" kw_type="$2" line_in_block in_block exist val
+ local search_string char char2
+ kw=$(kword_unique $kw)
+ if [[ "$kw_type" = block* ]] ; then
+  exist=0 ; eval "[ ! -z \"\$block_$kw\" ] && exist=1"
+  ((exist==0)) && { echo "!notpresent" ; return ; }
+  eval "n=\$blocklength_$kw"
+  in_block="${kw_type#block}"
+  kw_type=block
+  case "$in_block" in
+  "") echo "!present" ; return ;;
+  "#"*)
+   line_in_block=${in_block:1}
+   ((line_in_block<1)) && { echo "!ierror" ; return ; }
+   ((line_in_block>n)) && { echo "!undefined" ; return ; }
+   eval "echo \"\${blockline_$kw[$line_in_block]}\"" ;;
+  :*)
+   search_string=${in_block:1}
+   i=0 ; while ((i<n)) ; do i=$((i+1))
+    eval "char=\"\${blockline_$kw[$i]}\""
+    char2="${char//$search_string/}"
+    [ "$char" != "$char2" ] && { echo "$char" ; return ; }
+   done
+   echo "!undefined" ;;
+  *) echo "!ierror" ; return ;;
+  esac
+ else
+  exist=0 ; eval "[ ! -z \"\$keyword_$kw\" ] && exist=1"
+  ((exist==0)) && { echo "!notpresent" ; return ; }
+  eval "kword_check $kw_type \"\$keywordval_$kw\""
+ fi
+}
+
+read_input() {
+ local input_file=$1 bopen=0 iline=0 dupl bname lblock kw char kw_val var
+ [ ! -s $input_file ] && errstop "File $input_file missing or empty."
+ for var in $blocklist ; do unset block_$var blockline_$var ; done
+ for var in $keywordlist ; do unset keyword_$var keywordval_$var ; done
+ blocklist="" ; keywordlist=""
+ { while : ; do
+  ! read line && break
+  iline=$((iline+1)) ; line=${line%%#*} ; line=${line%%!*}
+  # Skip empty lines (or comments)
+  [ -z "$line" ] && continue
+  # Reduce first field in line to simplest ESDF form.
+  kw=$(kword_unique $(field 1 $line))
+  case "$kw" in
+  %block) # Block opening
+   bname=$(kword_unique $(field 2 $line))
+   ((bopen>0)) && errstop "Input file, line $iline: tried to open\
+    block while block $bname was still open."
+   bopen=1 ; dupl=0
+   [ -z "$bname" ] && errstop "Input file, line $iline: block opened\
+    with no name."
+   eval "[ ! -z \"\$block_$bname\" ] || [ ! -z \"\$keyword_$bname\" ] && dupl=1"
+   ((dupl==1)) && errstop "Input file, line $iline: keyword $bname duplicated."
+   lblock=0 ; eval "block_$bname=1" ; blocklist="$blocklist $bname" ;;
+  %endblock) # Block closing
+   ((bopen==0)) && errstop "Input file, line $iline: tried to close\
+    block, but no block was open."
+   char=$(kword_unique $(field 2 $line))
+   [ -z "$char" ] && errstop "Input file, line $iline: must specify name\
+    ($bname) of block to close."
+   [ "$bname" != "$char" ] && errstop "Input file, line $iline: block\
+    $bname closed with name $char."
+   ((lblock==0)) && errstop "Input file, line $iline: block $bname is\
+    empty."
+   bopen=0 ; eval "blocklength_$bname=$lblock" ; bname="" ;;
+  *)
+   if ((bopen==1)) ; then # Block line
+    lblock=$((lblock+1)) ; eval "blockline_$bname[$lblock]=\"$line\""
+    continue
+   fi
+   # Keyword
+   dupl=0
+   case "$(field 2 $line)" in
+   :|=) kw_val="$(fields_from 3 $line)" ;; *) kw_val="$(fields_from 2 $line)" ;;
+   esac
+   [ -z "$kw_val" ] && errstop "Input file, line $iline: keyword $kw does\
+    not have a value."
+   eval "[ ! -z \"\$block_$kw\" ] || [ ! -z \"\$keyword_$kw\" ] && dupl=1"
+   ((dupl==1)) && errstop "Input file, line $iline: keyword $kw duplicated."
+   eval "keyword_$kw=1 ; keywordval_$kw=\"$kw_val\""
+   keywordlist="$keywordlist $kw" ;;
+  esac
+ done ; } < $input_file
+ ((bopen==1)) && errstop "Input file, line $iline: block $bname\
+  not closed."
+}
+
+check_params() {
+ # Consistency check of input file $1/input - things relevant for MD only.
+ local pwd="$1"
+ local runtype hasvmc=0 hasdmc=0 hasrmc=0 hasopt=0 hasplot=0 req_config=0
+ local xwfn="" btype
+ local atom_basis_type periodic
+ local newrun
+ local nmove_dmc_equil nmove_dmc_stats nblock_dmc_equil nblock_dmc_stats
+ local nmove_dmcmd_equil nmove_dmcmd_stats
+ local dmc_reweight_conf dmc_spacewarping
+ local dmc_equil_nstep dmc_stats_nstep dmc_target_weight
+ local dmcmd_equil_nstep dmcmd_stats_nstep
+ local dmc_equil_nblock dmc_stats_nblock
+ local old_input=0 mandatory_old optional_old mandatory_new optional_new
+ local lwdmc jasbuf
+
+ [ -z "$pwd" ] && pwd=.
+
+ # Declare internal functions
+
+ get_var() {
+  # Get variable[=default] $1 of [attrib/][type|block[#n|:s]] $2, check for
+  # error codes and write value to variable $3 (or to $1 if $3 not provided).
+  local var="$1" vartype="$2" outvar="$3" value attrib="" default=""
+  case "$var" in
+  *=*) default="${var#*=}" ; var="${var%%=*}" ;;
+  esac
+  case "$vartype" in
+  mandatory/*|redundant/*|forbid/*)
+   attrib="${vartype%%/*}"
+   vartype="${vartype#*/}" ;;
+  esac
+  value=$(get_param "$var" "$vartype")
+  case "$value" in
+  "!error")
+   case "$vartype" in
+   text) errstopd "$pwd" "Value of $var could not be parsed." ;;
+   logical) errstopd "$pwd" "Value of $var should be Boolean." ;;
+   integer) errstopd "$pwd" "Value of $var should be an integer." ;;
+   natural) errstopd "$pwd" "Value of $var should be a positive integer." ;;
+   znatural) errstopd "$pwd" "Value of $var should be zero or a positive\
+    integer." ;;
+   real) errstopd "$pwd" "Value of $var should be a real number." ;;
+   physical) errstopd "$pwd" "Value of $var should be a real number with\
+    physical units." ;;
+   block*) errstopd "$pwd" "Block $var could not be parsed." ;;
+   *) errstopd "$pwd" "Type '$vartype' of $var not known." ;;
+   esac ;;
+  "!ierror") errstopd "$pwd" "Bug in RUNQMCMD parsing $var of type $vartype." ;;
+  "!notpresent")
+   [ "$attrib" = mandatory ] && errstopd "$pwd" "$var must be provided on\
+    input."
+   [ ! -z "$default" ] && [ "$attrib" != forbid ] && value="$default" ;;
+  *)
+   [ "$attrib" = forbid ] && { errstopd "$pwd" "$var cannot be used in\
+    conjunction with other keywords present in the input file." ; return ; }
+   if [ "$vartype" = logical ] ; then
+    case "$value" in
+    0|1) : ;; *) errstopd "$pwd" "Bug in RUNQMCMD's boolean parser ($var)." ;;
+    esac
+   fi
+   [ "$attrib" = redundant ] && { errwarnd "$pwd" "$var is redundant and its\
+    value is ignored." ; return ; } ;;
+  esac
+  if [ -z "$outvar" ] ; then
+   eval "$var=\"\$value\""
+  else
+   eval "$outvar=\"\$value\""
+  fi
+ }
+
+ err_unk() { errstopd "$pwd" "Unrecognized value of $1." ; }
+
+ # Read input
+ read_input "$pwd/$casino_input"
+ # Read keywords
+ # PERIODIC
+ get_var periodic=1 logical
+ # RUNTYPE
+ get_var runtype mandatory/text
+ case $runtype in
+  dmc) hasdmc=1 ; req_config=1 ;;
+  dmc_dmc) hasdmc=1 ; req_config=1 ;;
+  vmc_dmc) hasvmc=1 ; hasdmc=1 ; req_config_gen=1 ;;
+  *) cerrstop "Value of runtype must be vmc_dmc or dmc_dmc (or the obsolete dmc)" ;;
+ esac
+
+ # ATOM_BASIS_TYPE
+ get_var atom_basis_type text
+ case $atom_basis_type in
+ 'plane-wave') xwfn="pwfn" ;;
+ 'blip')       xwfn="bwfn" ;;
+ "!notpresent") : ;;
+ *) cerrstop "Value of atom_basis_type must be plane-wave or blip for QMC-MD calculations." ;;
+ esac
+ # BTYPE - OBSOLETE
+ get_var btype integer
+ case $btype in
+ 1) xwfn="pwfn" ; atom_basis_type='plane-wave' ;;
+ 4) xwfn="bwfn" ; atom_basis_type='blip' ;;
+ "!notpresent") : ;;
+ *) cerrstop "Value of (obsolete) btype keyword must be plane-wave or blip for QMC-MD calculations." ;;
+ esac
+
+ # NEWRUN
+ get_var newrun=1 logical
+
+ # DMC-specific
+ if ((hasdmc==1)) ; then
+  # Gather old- and new-style keywords to check for errors
+  get_var nmove_dmc_equil ${mandatory_old}znatural
+  get_var nmove_dmc_stats ${mandatory_old}natural
+  get_var nblock_dmc_equil ${mandatory_old}natural
+  get_var nblock_dmc_stats ${mandatory_old}natural
+  get_var nconfig ${mandatory_old}real
+  get_var trip_popn ${optional_old}real
+  get_var dmc_equil_nstep ${mandatory_new}natural
+  get_var dmc_equil_nblock ${optional_new}natural
+  get_var dmc_stats_nstep ${mandatory_new}natural
+  get_var dmc_stats_nblock ${optional_new}natural
+  get_var dmc_target_weight ${mandatory_new}real
+  get_var dmc_trip_weight ${optional_new}real
+  get_var dmc_spacewarping logical
+  get_var dmc_reweight_conf logical
+  get_var dmc_md logical
+  get_var nmove_dmcmd_equil ${mandatory_old}znatural
+  get_var nmove_dmcmd_stats ${mandatory_old}natural
+  get_var dmcmd_equil_nstep ${mandatory_new}natural
+  get_var dmcmd_stats_nstep ${mandatory_new}natural
+  get_var lwdmc logical
+  get_var jasbuf logical
+ fi
+
+# DMC_MD
+ [ $dmc_md == "!notpresent" ] && cerrstop "Your CASINO input file must contain the DMC_MD keyword."
+
+# DMCMD_EQUIL_NSTEP [or NMOVE_DMCMD_EQUIL (old format)]
+ [[ $dmcmd_equil_nstep == "!notpresent" && $nmove_dmcmd_equil == "!notpresent" ]] && cerrstop "Your CASINO input file must contain the DMCMD_EQUIL_NSTEP keyword (or its old format equivalent)."
+
+# DMCMD_STATS_NSTEP [or NMOVE_DMCMD_STATS (old format)]
+ [[ $dmcmd_stats_nstep == "!notpresent" && $nmove_dmcmd_stats == "!notpresent" ]] && cerrstop "Your CASINO input file must contain the DMCMD_STATS_NSTEP keyword (or its old format equivalent)."
+
+# DMC_SPACEWARPING
+ [ $dmc_spacewarping == "!notpresent" -o $dmc_spacewarping == 0 ] && cerrwarn "It is recommended that DMC_SPACEWARPING is set to T in QMC-MD."
+
+# DMC_REWEIGHT_CONF
+ [ $dmc_reweight_conf == "!notpresent" -o $dmc_reweight_conf == 0 ] && cerrwarn "It is recommended that DMC_REWEIGHT_CONF is set to T in QMC-MD."
+
+# LWDMC
+ [ $lwdmc == "!notpresent" ] || ((lwdmc==0)) && cerrstop "Weighted DMC obligatory for DMC-MD calculations - keyword LWDMC should be T in input."
+
+# JASBUF
+ ((jasbuf==0)) && cerrstop "Buffering of Jastrow obligatory for DMC-MD calculations - keyword JASBUF should be T in input."
+
+}
+
+dump_input_file() {
+ # Generate a file '$1' containing the (possibly modified) input parameters
+ local filename=$1 kwvar kw first i n line
+ # Create file, write header
+ touch $filename
+ cat >> $filename <<_EOF
+#-------------------#
+# CASINO input file #
+#-------------------#
+
+# RUNQMCMD-generated input file
+
+# KEYWORDS - ALPHABETICAL
+
+_EOF
+ # Dump keywords
+ for kw in $keywordlist ; do
+  eval "val=\"\$keywordval_$kw\""
+  printf '%-23s: %-20s\n' "$kw" "$val" >> "$filename"
+ done
+ # Dump blocks
+ first=1
+ for kw in $blocklist ; do
+  if ((first==1)) ; then
+   echo >> "$filename"
+   echo "# BLOCKS - ALPHABETICAL" >> "$filename"
+   first=0
+  fi
+  echo >> "$filename"
+  echo "%block $kw" >> "$filename"
+  eval "n=blocklength_$kw" ; i=0
+  while ((i<n)) ; do i=$((i+1))
+   eval "line=\"\${blockline_$kw[$i]}\""
+   echo "$line" >> $filename
+  done
+  echo "%endblock $kw" >> $filename
+ done
+}
+
+input_files_dos2unix() {
+ # Run dos2unix on input files, if necessary (and possible).
+ local pwd="$1" i cr_char is_dos have_dos2unix=0
+ [ -z "$pwd" ] && pwd=.
+ cr_char=$(echo -e "\015")
+ type dos2unix >& /dev/null && [[ "$CASINO_ARCH" != *sun* ]] && have_dos2unix=1
+ { while read i ; do
+  [ -f "$pwd/$i" ] && [ -r "$pwd/$i" ] && [ -w "$pwd/$i" ] || continue
+  case "$i" in
+  $casino_input|$pwscf_input)
+   is_dos=$(head -n 50 "$pwd/$i" | grep -c "$cr_char$")
+   if ((is_dos>0)) ; then
+    if ((have_dos2unix==1)) ; then
+     echo -n "File '$pwd/$i' appears to be in DOS format. Converting..."
+     dos2unix -k "$pwd/$i" >& /dev/null
+     echo " Done."
+    else
+     errstop "File '$pwd/$i' appears to be in DOS format. DOS2UNIX cannot be\
+      found.  Please convert this file by hand, or use the -f option to runqmc\
+      to bypass error checking."
+    fi
+   fi ;;
+  esac
+ done ; } < <(/bin/ls -1 "$pwd/")
+ (exit 0) # bypass bash fd leak (v3.2 - v4.1)
+}
+
+count_pwscf_param() {
+#
+# Count the number of occurences of the keyword where it isn't commented out
+# in a PWSCF input file.
+#
+local keyword=$1 inpfile=$2 noccur
+noccur=$(grep -v '^[ 	]*!' $inpfile | grep -cw $keyword)
+echo $noccur
+}
+
+get_pwscf_param() {
+#
+# Get values of keywords out of a PWSCF input file
+#
+
+local keyword=$1 inpfile=$2 line=""
+
+# Get line containing outdir from input file, excluding commented-out ones
+line=$(grep -v '^[ 	]*!' $inpfile | grep -w $keyword)
+# Remove everything preceding and including "outdir"
+line="${line#*$keyword}"
+# Remove everything following and including the *first* comma, or do nothing
+# if there is no comma
+line="${line%%,*}"
+# Remove everything preceding and including equal sign
+line="${line#*=}"
+# Remove any additional spaces
+while [ "${line:0:1}" = " " ] ; do line="${line# }" ; done
+while [ "${line:$((${#line}-1)):1}" = " " ] ; do line="${line% }" ; done
+# Remove quotes
+line="${line#\'}" ; line="${line%\'}"
+line="${line#\"}" ; line="${line%\"}"
+
+echo "$line"
+
+}
+
+run_md_sequence() {
+
+if (( dft==1 )) ; then
+
+# First run the PWSCF job
+
+ runpwscf "$@" --qmc --runqmcmd >& /dev/null
+
+# Wait for the PWSCF job to finish
+
+ wait_pwscf
+
+# Exit without comment if any of the xwfn.data.$ files were not produced
+# (hopefully the explanation is in the output file).
+
+ if (( nmdstep == 1 )) ; then
+  [ ! -s $prefix$wfn_file ] && exit 1
+# If we're only doing a "single-step MD calculation"(!), then the wfn_file
+# doesn't get a numerical suffix but runqmc believes it should be called
+# $wfn_file.0 . Work around that here (note the num_wfn_files error trap
+# earlier so that the following syntax works).
+  filename=$prefix$wfn_file
+  mv $filename $filename.0
+ else
+  for ((i=0; i <= nmdstep ; i++)) ; do
+   [ ! -s *$wfn_file.$i ] && exit 1
+  done
+ fi
+
+fi
+
+# Stop now if we're only  doing the DFT calc.
+
+((qmc==0)) && exit 0
+
+# Now do the QMC calculations in numerical order.
+
+# Which type of run?
+if ((splitqmc==0)) ; then
+ calctype=1 # default
+elif ((splitqmc==1)) ; then
+ calctype=2
+elif ((splitqmc>1)) ; then
+ if ((startqmc==0)) ; then
+  calctype=3
+  totjobs=$nmdstep
+ elif ((startqmc>0)) ; then
+  calctype=4
+  totjobs=$((nmdstep-startqmc+1))
+ fi
+ njobs_per_qsub=$((totjobs/splitqmc))
+ njobs_extra=$((totjobs%splitqmc))
+fi
+
+rm -f .casino_finished
+ln -s $prefix$wfn_file.$startqmc $wfn_file
+
+case $calctype in
+ 1) # default (one job on non-batch machines ; one batch job on batch machines)
+  runqmc "$@" --xwfnstart="$startqmc" --xwfnstop="$nmdstep" --runqmcmd
+  wait_casino ;;
+ 2) # separate initial DMC from subsequent chain of restarts (two batch jobs)
+  runqmc "$@" --xwfnstart=0 --xwfnstop=0 --runqmcmd
+  wait_casino
+  runqmc "$@" --xwfnstart=1 --xwfnstop="$nmdstep" --runqmcmd
+  wait_casino ;;
+ 3) # As (2) but restart chain split into splitqmc bits (splitqmc+1 batch jobs)
+  runqmc "$@" --xwfnstart=0 --xwfnstop=0  --runqmcmd
+  wait_casino
+  j=$((startqmc+1)) ; k=$njobs_per_qsub
+  for ((i=1; i < $((splitqmc+1)) ; i++)) ; do
+   rm -f $wfn_file ; ln -s $prefix$wfn_file.$j $wfn_file
+   runqmc "$@" --xwfnstart="$j" --xwfnstop="$k" --runqmcmd
+   wait_casino
+   j=$((j+njobs_per_qsub)) ; k=$((k+njobs_per_qsub))
+   ((i==splitqmc-1)) && k=$((k+njobs_extra))
+  done ;;
+ 4) # As (3) but no initial DMC run, restart chain starts with xwfn.data.M
+    # where M is the value of the --startqmc flag. (splitqmc batch jobs)
+  j=$startqmc ; k=$((j+njobs_per_qsub-1))
+  for ((i=1; i < $((splitqmc+1)) ; i++)) ; do
+   rm -f $wfn_file ; ln -s $prefix$wfn_file.$j $wfn_file
+   runqmc "$@" --xwfnstart="$j" --xwfnstop="$k" --runqmcmd
+   wait_casino
+   j=$((j+njobs_per_qsub)) ; k=$((k+njobs_per_qsub))
+   ((i==splitqmc-1)) && k=$((k+njobs_extra))
+  done ;;
+esac
+
+rm -f $wfn_file
+rm -f bwfn.data.bin # change this when PWSCF is modified to create .bin files
+# Final config.out automatically converted to config.in by runqmc - reverse
+# that here.
+[[ -e config.in ]] && mv config.in config.out
+}
+################### END FUNCTIONS ###################################
+
+
+# Main program
+
+pwscf_input="in.pwscf"
+casino_input="input"
+
+[[ ! -e $casino_input ]] && errstop "The CASINO input file $casino_input does not exist."
+[[ ! -e $pwscf_input ]] && errstop "This script expects the PWSCF input file to be called $pwscf_input - but this does not exist."
+
+input_files_dos2unix "$pwd"
+
+parse_cmdline "$@"
+
+(( dft==0 && qmc==0 )) && errstop "Cannot set both qmc_only and dft_only flags."
+if ((dft==1)) ; then
+ type -p runpwscf >& /dev/null || errstop "The runpwscf script required for running the PWSCF code is not in your path."
+fi
+
+if ((qmc==1)) ; then
+ type -p runqmc >& /dev/null || errstop "The runqmc script required for running the CASINO code is not in your path."
+fi
+
+[ "$help_mode" = 1 ] && print_usage
+
+# Check the PWSCF input
+if (( dft==1 )) ; then
+ runpwscf --check_only "$@"
+ [ $? != 0 ] && exit 1
+ n=$(count_pwscf_param "calculation" "$pwscf_input") || exit
+ ((n>1)) && errstop "Multiple uncommented occurences of keyword 'calculation' in $pwscf_input."
+ calculation=$(get_pwscf_param "calculation" "$pwscf_input") || exit
+ if [[ "$calculation" != [mM][dD] && "$calculation" != [vV][cC]-[mM][dD] ]] ; then
+  perrstop "PWSCF input file does not specify an MD calculation. The 'calculation' keyword should have the value 'md' or 'vc-md'."
+ fi
+fi
+
+# Which xwfn.data file to use?
+wfn_file=bwfn.data.b1
+if [ -s pw2casino.dat ] ; then
+blip_convert=$(get_pwscf_param "blip_convert" "pw2casino.dat") || exit
+check_logical "$blip_convert" || errstop "The blip_convert keyword in pw2casino.dat is set to an invalid value."
+blip_convert=$(get_logical "$blip_convert")
+ if ((blip_convert==0)) ; then
+  wfn_file=pwfn.data
+ else
+  blip_binary=$(get_pwscf_param "blip_binary" "pw2casino.dat") || exit
+  check_logical "$blip_binary" || errstop "The blip_binary keyword in pw2casino.dat is set to an invalid value."
+  blip_binary=$(get_logical "$blip_binary")
+  ((blip_binary==0)) && wfn_file=bwfn.data
+ fi
+fi
+
+# Check the CASINO input
+
+if (( qmc==1 )) ; then
+ arse=0
+ [ ! -e $wfn_file ] && { touch $wfn_file ; echo "Fake file automatically generated by runqmcmd to avoid error trap." > $wfn_file ; arse=1 ; }
+ runqmc --check_only --runqmcmd "$@"
+ [ $? != 0 ] && { rm -f $wfn_file ; exit 1 ; }
+ ((arse==1)) && rm -f $wfn_file
+ check_params
+fi
+
+# How many MD steps specified in in.pwscf file?
+
+n=$(count_pwscf_param "nstep" "$pwscf_input") || exit
+ ((n>1)) && errstop "Multiple uncommented occurences of keyword 'nstep' in $pwscf_input."
+nmdstep=$(get_pwscf_param "nstep" "$pwscf_input") || exit
+
+[[ $startqmc -gt $nmdstep ]] && errstop "Value of startqmc flag may not be greater than nstep in the PWSCF input file."
+[[ $splitqmc -gt $nmdstep ]] && errstop "Value of splitqmc flag may not be greater than nstep in the PWSCF input file."
+
+ n=$(count_pwscf_param "prefix" "$pwscf_input") || exit
+ ((n>1)) && errstop "Multiple uncommented occurences of keyword 'prefix' in $pwscf_input."
+prefix=$(get_pwscf_param "prefix" "$pwscf_input") || exit
+[[ ! -z $prefix ]] && prefix=$prefix.
+
+if (( dft==1 )) ; then
+
+# Whine if any xwfn.data.$ files already exist.
+
+ for ((i=0; i <= nmdstep ; i++)) ; do
+  [ -e $prefix$wfn_file.$i ] && errstop "Some $prefix$wfn_file.x files that will be produced by the PWSCF run already exist. Please move or delete them before running this calculation."
+ done
+
+ rm -f .pwscf_finished
+
+else
+
+# Check existence of xwfn files from previous DFT run if we're using the
+# qmc_only flag.
+ for ((i=0; i <= nmdstep ; i++)) ; do
+  [ ! -e $prefix$wfn_file.$i ] && errstop "PWSCF run bypassed with --qmc_only flag, but one or more of the required $prefix$wfn_file files are missing."
+ done
+
+fi
+
+# Trap for silly requests
+if (( qmc==1 )) ; then
+ ((splitqmc==1)) && ((startqmc>0)) && errstop "Combination of --splitqmc and --startqmc=N with N>0 does not make sense."
+ ((startqmc>0)) && [ ! -e config.in ] && errstop "File config.in must be present if --startqmc flag > 0."
+fi
+
+[ ! -z $check_only ] && exit 0
+
+# Do the MD run
+if ((background==1)) ; then
+ ( run_md_sequence "$@" ; ) &
+else
+ run_md_sequence "$@"
+fi

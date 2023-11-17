@@ -1,0 +1,12 @@
+!----------------------------------------------------------------------------!
+! PLOT_HIST                                                                  !
+! =========                                                                  !
+!                                                                            !
+! Neil Drummond, 8.2005                                                      !
+!                                                                            !
+! This utility reads in vmc.hist, vmc.hist2, dmc.hist and dmc.hist2 files    !
+! and allows the user to plot his or her choice of data against move number. !
+! The resulting vmc_data.plot and dmc_data.plot files can be read by         !
+! XMGrace.  Several items of data may be plotted.                            !
+!----------------------------------------------------------------------------!
+

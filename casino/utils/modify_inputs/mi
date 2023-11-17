@@ -1,0 +1,9 @@
+#!/bin/bash
+# Customizable script to perform actions such as renaming files in the
+# examples directory.
+
+for i in $(find . -name jastrow.data.gz) ; do
+
+rename jastrow correlation $i
+
+done

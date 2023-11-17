@@ -1,0 +1,19 @@
+CASINO2UPF
+----------
+
+The fortran routines here are copies of the relevant routines of the CASINO
+pseudopotential utility supplied with the PWSCF/Quantum Espresso distribution.
+These are provided for information only, and unlike casino2gon this is not a
+standalone functional utility (since it INCLUDEs lots of espresso modules not
+given here).
+
+You must download and install Quantum Espresso in order to use this utility:
+
+http://www.quantum-espresso.org/
+
+Full instructions for use are given in the INSTRUCTIONS file in this directory
+- this is a partial copy of the README file in the uptools directory of the
+  Espresso distribution (which may have been updated since I copied it - do
+check..).
+
+MDT 3.2011

@@ -1,0 +1,45 @@
+#-! DESCRIPTION: GNU/Linux
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! KERNEL: Linux
+#-! OS: GNU/Linux
+#-! *INTERNAL.NICE_BE_NICE:
+#-!  (($(nice)<=15)) && echo 15 || nice
+#-! *INTERNAL.NICE_BE_UNNICE:
+#-!  nice
+#-! *INTERNAL.CPUFREQ_IGNORES_NICE:
+#-!  shopt -s extglob
+#-!  ret() { echo $1 ; exit ; }
+#-!  check_number_N() { [[ "$1" == +([0-9]) ]] ; }
+#-!  [ -d /sys/devices/system/cpu/cpu0/cpufreq ] || ret no
+#-!  f0=$(head -n 1 /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq\
+#-!   2> /dev/null)
+#-!  check_number_N "$f0" || ret no
+#-!  f1=$(head -n 1 /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq\
+#-!   2> /dev/null)
+#-!  check_number_N "$f1" || ret no
+#-!  ((f1>f0)) || ret no
+#-!  [ -r /sys/devices/system/cpu/cpu0/cpufreq/ondemand/ignore_nice_load ]\
+#-!   || ret yes
+#-!  t1=$(head -n 1\
+#-!   /sys/devices/system/cpu/cpu0/cpufreq/ondemand/ignore_nice_load\
+#-!   2> /dev/null)
+#-!  check_number_N "$t1" || ret yes
+#-!  ((t1==0)) && ret no || ret yes
+#-! USER.DESCRIPTION.NICE: Nice-value for the job on workstations.
+#-! *USER.DEFAULT.NICE:
+#-!  case "&INTERNAL.CPUFREQ_IGNORES_NICE&" in
+#-!  no) echo "&INTERNAL.NICE_BE_NICE&" ;;
+#-!  *) echo "&INTERNAL.NICE_BE_UNNICE&" ;;
+#-!  esac
+#-! *USER.MIN.NICE:
+#-!  nice
+#-! USER.MAX.NICE: 19
+#-! *CORES_PER_NODE:
+#-!  if [ -e /sys/devices/system/cpu/cpu0/topology/thread_siblings_list ] ; then
+#-!   cat /sys/devices/system/cpu/cpu*/topology/thread_siblings_list\
+#-!    | sort -u | wc -l
+#-!  else
+#-!   grep -cE "^processor" /proc/cpuinfo 2> /dev/null
+#-!  fi
+#-! RUN_SINGLE: nice -n &USER.NICE& &BINARY&
+#-! RUN_PARALLEL: nice -n &USER.NICE& mpirun -np &NPROC& &BINARY&

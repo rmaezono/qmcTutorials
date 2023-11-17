@@ -1,0 +1,235 @@
+#!/bin/bash
+##########################################################################
+# TCM_COMPS, NDD, 2002.                                                  #
+# Script to show what's happening on the TCM PCs.                        #
+# Can specify computers not to be checked.                               #
+# Can specify that only the user's jobs are to be checked.               #
+# Can specify that only computers mentioned in ~/current_runs are to be  #
+# checked.                                                               #
+# Can specify that only alphas are to be checked.                        #
+# Can specify that only PCs are to be checked.                           #
+# Can specify that you want the best computers to be listed first.       #
+# Can update list of computers automatically.                            #
+##########################################################################
+
+# Colours.
+default="\033[0m" ; black="\033[30m" ; red="\033[31m"
+green="\033[32m"  ; brown="\033[33m" ; blue="\033[34m"
+purple="\033[35m" ; cyan="\033[36m"  ; grey="\033[37m"
+
+# TCM comp list file.
+tcm_comp_list_file="$HOME/.tcm_comps"
+
+function update_comp_list {
+# Update list of computers.
+ local allowance max_no_PCs max_no_alphas max_no_comps i j tcmcomp n list \
+  ss speed memory list2 temp
+# Tolerance for comparing speeds.
+ allowance=5
+# How many PCs should we check?
+ max_no_PCs=99
+# How many alphas should we check?
+ max_no_alphas=0 # R.I.P.
+# Total number of computers to check.
+ max_no_comps=$(($max_no_PCs+$max_no_alphas))
+
+ echo -e "${green}Updating list of computers...$default"
+
+# Find out which computers exist.
+ i=0 ; j=0
+ while [ $i -lt $max_no_comps ]; do
+  i=$(($i+1))
+  if [ $i -le $max_no_PCs ]; then
+# PC
+   tcmcomp="pc$i"
+  else
+# alpha
+   tcmcomp=tcm$(($i-$max_no_PCs))
+  fi # alpha or PC
+# Exclude computers we're not allowed to use.
+  case $tcmcomp in
+  pc23|pc58|pc61|pc62|pc63)
+   echo -e "  ${purple}Not allowed to use $tcmcomp.$default" ;;
+  *)
+   if [ $(ping -c 1 $tcmcomp 2> /dev/null | grep -c "1 received") -eq 1 ]
+    then
+    j=$(($j+1))
+    list[$j]="$tcmcomp"
+    ss=$(rsh $tcmcomp status | sed 's/ /\n/g')
+    speed[$j]=$(echo -e "$ss" | grep MHz | head -1 | sed 's/MHz//g ; s/x/*/g' \
+     | bc -l)
+    memory[$j]=$(echo -e "$ss" | grep Mb | head -1 | sed 's/Mb//g')
+    echo -e "  ${blue}Computer $tcmcomp is available for use.$default"
+   fi # there
+   ;;
+  esac
+
+ done # i
+ n=$j
+
+# Copy out list.
+ i=1
+ while [ $i -le $n ]; do
+  list2[$i]=${list[$i]}
+  i=$(($i+1))
+ done # i
+
+# Sort list into descending order of speed and memory.
+ i=1
+ while [ $i -lt $n ]; do
+  j=$(($i+1))
+  while [ $j -le $n ]; do
+   if [ ${speed[$i]} -lt ${speed[$j]} ]; then
+    temp=${list2[$i]} ; list2[$i]=${list2[$j]} ; list2[$j]=$temp
+    temp=${speed[$i]} ; speed[$i]=${speed[$j]} ; speed[$j]=$temp
+    temp=${memory[$i]} ; memory[$i]=${memory[$j]} ; memory[$j]=$temp
+   fi # swap needed
+   if [ $((${speed[$j]} + $allowance)) -ge ${speed[$i]} ] \
+    && [ ${memory[$i]} -lt ${memory[$j]} ]; then
+    temp=${list2[$i]} ; list2[$i]=${list2[$j]} ; list2[$j]=$temp
+    temp=${speed[$i]} ; speed[$i]=${speed[$j]} ; speed[$j]=$temp
+    temp=${memory[$i]} ; memory[$i]=${memory[$j]} ; memory[$j]=$temp
+   fi # swap needed
+   j=$(($j+1))
+  done # j
+  i=$(($i+1))
+ done # i
+
+ rm -f $tcm_comp_list_file 2> /dev/null
+ echo "${list[*]}" > $tcm_comp_list_file
+ echo "${list2[*]}" >> $tcm_comp_list_file
+
+ echo -e "${green}Done.$default"
+ echo
+
+} # End function update_comp_list
+
+
+# Check this is a TCM computer.
+if [ $(hostname | grep -Ec "^tcm[0-9]|^pc[0-9]") -ne 1 ]; then
+ echo -e "${red}This script is only for use on TCM computers.${default}"
+ exit 1
+fi
+
+exclude_list="start"
+username=$(whoami)
+usage="Usage: tcm_comps [-$user] [-current] [-not computer] [-alphas] [-pcs] [-best] [-update]"
+# Command-line arguments.
+users_jobs_only=0 ; alphas=0 ; pcs=0 ; best=1 ; current=0
+while [ $# -gt 0 ]; do
+ case $1 in
+ -$username|$username)
+  users_jobs_only=1
+  ;;
+ -alphas|alphas)
+  alphas=1
+  ;;
+ -pcs|pcs)
+  pcs=1
+  ;;
+ -best|best)
+  best=1
+  ;;
+ -numerical|numerical)
+  best=0
+  ;;
+ -not|not)
+  shift
+  if [ $# -eq 0 ]; then
+   echo -e "${red}Need to specify which computer you're not interested in...${default}"
+   exit 1
+  fi
+  exclude_list="$exclude_list $1"
+  ;;
+ -current|current)
+  current=1
+  if [ ! -e $HOME/current_runs ]; then
+   echo -e "${red}Cannot find the current_runs file in your home directory.${default}"
+   exit 1
+  fi
+  ;;
+ -update|update)
+  update_comp_list
+  ;;
+ *)
+  echo "$usage"
+  echo "-$user filters out all jobs except yours."
+  echo "-current lists only computers mentioned in the file ~/current_runs."
+  echo "-not computer will skip the specified computer."
+  echo "-alphas will list only the alphas."
+  echo "-pcs will list only PCs."
+  echo "-best lists the computers in descending order of performance."
+  echo "-numerical lists the computers in numerical order."
+  echo "-update updates the list of computers to check."
+  exit 1
+  ;;
+ esac
+ shift
+done
+
+# Work out the list of computers to check. Update file if necessary.
+if [ ! -f $tcm_comp_list_file ]; then
+ update_comp_list
+fi # Need to prepare list of computers.
+if [ $best -eq 0 ]; then
+# Numerical order
+ tcmcomp_list=$(head -1 $tcm_comp_list_file)
+else
+# Descending order of performance
+ tcmcomp_list=$(tail -1 $tcm_comp_list_file)
+fi # numerical order
+
+for tcmcomp in $tcmcomp_list ; do
+
+# Decide whether to look at what is happening on computer tcmcomp.
+ omit=0
+ for tcmcomp2 in $exclude_list ; do
+  if [ "$tcmcomp2" = "$tcmcomp" ]; then
+   omit=1
+  fi
+ done # tcmcomp2
+ if [ $current -eq 1 ]; then
+  if [ $(grep -v ":" $HOME/current_runs | grep -Ec "$tcmcomp |$tcmcomp\$") \
+   -eq 0 ]; then
+   omit=1
+  fi # Computer not mentioned in current_runs.
+ fi # Only list jobs in current_runs
+ if [ $alphas -eq 1 ] && [ $(echo $tcmcomp | grep -c "^pc") -eq 1 ]; then
+  omit=1
+ fi
+ if [ $pcs -eq 1 ] && [ $(echo $tcmcomp | grep -c "^pc") -eq 0 ]; then
+  omit=1
+ fi
+
+# Write out the "status" of the machine.  Check for jobs.
+ if [ $omit -eq 0 ]; then
+  dispstring=$(rsh $tcmcomp "status ; ps axo user,pid,pcpu,vsize,rssize,state,start=STARTED,cputime,ucomm " 2>/dev/null | grep -Ev 'root | grep| ps| tcsh| bash' | grep -E " load |R" )
+  statusstring=$(echo "$dispstring" | head -1)
+  if [ -n "$statusstring" ]; then
+   echo -e "${purple}$statusstring${default}"
+   dispstring=$(echo "$dispstring" | grep -v "$statusstring")
+  fi # statusstring nonempty
+  if [ $users_jobs_only -eq 1 ]; then
+   dispstring=$(echo "$dispstring" | grep -E "$username|^USER ")
+  fi # users_jobs_only
+  if [ -n "$dispstring" ]; then
+   checkstring=$(echo "$dispstring" | grep -Ev "^USER ")
+   if [ -z "$checkstring" ]; then
+    if [ $users_jobs_only -eq 1 ]; then
+     echo -e "${red}YOU ARE NOT RUNNING ANY JOBS ON THIS MACHINE.${default}"
+    else
+     echo -e "${red}NO JOBS ARE RUNNING ON THIS MACHINE${default}"
+    fi # users_jobs_only
+   else
+    headstring=$(echo "$dispstring" | head -1)
+    echo "$headstring"
+    dispstring=$(echo "$dispstring" | grep -v "$headstring")
+    echo -e "${blue}$dispstring${default}"
+   fi # checkstring nonempty
+   echo
+  fi # Something to write
+ fi # omit=0
+
+done # tcmcomp
+
+exit 0

@@ -1,0 +1,109 @@
+#------------------#
+# LOUIS input file #
+#------------------#
+
+# Title 
+# Pi: 3.141592653589793238  
+
+# BASIC 
+calc_type         : density               #*! trajectory or density (Text)
+dimensionality    : 3                     #*! Number of space dimensions (Int)
+int_algorithm     : runge-kutta           #*! Integration algorithm (Text)
+timing_info       : T                     #*! Timers on/off (Boolean)
+vel_type          : deBB                  #*! Velocity formula to use (Text)
+curlweight        : 1.d0                  #*! Weight of vel eq. curl term (Real)
+cell_x            : 3.141592653589793238  #*! Size of box: x (Real)
+cell_y            : 3.141592653589793238  #*! Size of box: y (Real)
+cell_z            : 3.141592653589793238  #*! Size of box: z (Real)
+
+# TRAJECTORY OPTIONS
+time_direction    : forward               #*! Forward or back in time (Text)
+ntrajectories     : 1                     #*! No. of trajectories (Int)
+traj_time_start   : 0.d0                  #*! Initial time (Real)
+traj_time_end     : 12.566370614359172952 #*! Final time (Real)
+plot_all_traj     : F                     #*! Plot all trajectories (Boolean)
+dtsave            : 0.d0                  #*! Min delta t store results (Real)
+%block trajectory_start
+ 1.570796326794896619 1.570796326794896619 1.570796326794896619
+%endblock trajectory_start
+ 
+# DENSITY OPTIONS
+den_ntimes        : 1                     #*! No. of density plots (Int)
+den_time_start    : 0.d0                  #*! Time for first density plot (Real)
+den_time_end      : 0.d0                  #*! Time for last density plot (Real)
+dentype           : 0                     #*! Select initial density (Int)
+nlattice          : 64                    #*! No. of lattice points (Int) 
+nscgrain          : 8                     #*! No. of points in scg cell (Int)
+nsmoothstep       : 4                     #*! Step in smoothing procedure (Int)
+read_backtracked  : F                     #*! Read backtrack positions (Boolean)
+save_backtracked  : F                     #*! Save backtrack positions (Boolean)
+plot_raw          : F                     #*! Plot raw densities (Boolean)
+plot_cg           : T                     #*! Plot CG densities (Boolean)
+plot_smooth       : F                     #*! Plot smooth CG densities (Boolean)
+hfunction         : T                     #*! Compute H-function (Boolean)
+plot_h_integrand  : T                     #*! Plot H integrand (Boolean)
+writefail         : F                     #*! Write initpos failed traj(Boolean)
+nstep_histogram   : F                     #*! Bin number of steps (Boolean)
+fastmode          : T                     #*! Hard trajectories method (Boolean)
+%block coarse_graining_lengths
+ 1
+ 8
+%endblock coarse_graining_lengths
+
+# WAVE FUNCTION   
+wfn_type          : sine_wave             #*! Type of wave function (Text)
+nmodes            : 8                     #*! Number of modes/phases (Int)
+phase_format      : default               #*! How to choose phases (Text)
+phase_preset      : 0                     #*! Which set of preset phases (Int)
+negphase          : F                     #*! Reverse sign of phases (Boolean)
+transposephase    : F                     #*! Transpose 2D phase matrix(Boolean)
+phase_noise       : 0                     #*! Phase noise in nth dp (Int)
+
+# ACCURACY CONTROL
+maxstp            : 100000                #*! Max integration iterations (Int)
+init_eps          : 0.0001d0              #*! EPS tolerance initial value (Real)
+init_h            : 0.0001d0              #*! Stepsize h initial value (Real)
+converge_maxdiff  : 0.01d0                #*! Trajectory convergence tol (Real)
+
+# DEVELOPMENT KEYWORDS
+testrun           : F                     #*! Perform test run (Boolean)
+verbose           : T                     #*! Toggle verbose output (Boolean)
+
+# PLOT
+plot_output       : gif                   #*! Type of plot output (Text)
+plot_title        : auto                  #*! Title for plot (Text)
+plot_type         : sweep3d               #*! Density/map/trajectory/bar (Text)
+axislabels        : T                     #*! Add labels to axes (Boolean)
+spacetime         : F                     #*! Spacetime traj in 2D (Boolean)
+framerate         : 10                    #*! Framerate in fps - agif only (Int)
+plane             : z                     #*! Plane of cross-section - 3D (Text)
+
+# PLOT AXES
+autoscale_x       : F                     #*! Automatic x range (Boolean)
+xmin              : 0.0                   #*! Min for x-axis (Real)
+xmax              : 3.141592653589793238  #*! Max for x-axis (Real)
+xticks            : 1.0                   #*! Tick spacing for x-axis (Real)
+autoscale_y       : F                     #*! Automatic y range (Boolean)
+ymin              : 0.0                   #*! Min for y-axis (Real)
+ymax              : 3.141592653589793238  #*! Max for x-axis (Real)
+yticks            : 1.0                   #*! Tick spacing for y-axis (Real)
+autoscale_z       : F                     #*! Automatic z range (Boolean)
+zmin              : 0.0                   #*! Min for z-axis (Real)
+zmax              : 3.141592653589793238  #*! Max for z-axis (Real)
+zticks            : 1.0                   #*! Tick spacing for z-axis (Real)
+autoscale_t       : T                     #*! Automatic t range (Boolean)
+tmin              : 0.0                   #*! Min for t-axis (Real)
+tmax              : 12.56637061435917295  #*! Max for t-axis (Real)
+tticks            : 1                     #*! Tick spacing for t-axis (Real)
+
+# PLOT APPEARANCE
+colour            : T                     #*! Toggle colour in plots (Boolean)
+linegradient      : T                     #*! Line colour ==> z value (Boolean)
+autorotate        : F                     #*! Gnuplot default rotation (Boolean)
+rot_x             : 45.0                  #*! Rotation about x axis - 1st (Real)
+rot_z             : 300.0                 #*! Rotation about z axis - 2nd (Real)
+colour_key        : F                     #*! Key colour -> z value (Boolean)
+shading           : T                     #*! Shade surfaces/bars/maps (Boolean)
+mesh              : F                     #*! Show mesh on surfaces (Boolean)
+contours          : F                     #*! Plot contours - map (Boolean)
+contour_no        : 10                    #*! Number of contours (Integer)

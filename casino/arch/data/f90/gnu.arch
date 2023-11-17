@@ -1,0 +1,37 @@
+#-! DESCRIPTION: GNU Compiler Collection's gfortran Fortran compiler
+#-! MAINTAINER: Pablo Lopez Rios <pl275@cam.ac.uk>
+#-! DATE: 2.2007
+#-! F90_VERSION: >= 4.8
+#-! COMMAND_CHECK_F90_VERSION:
+#-!  {
+#-!   while read a b line ; do
+#-!    if [ "$a $b" = "gcc version" ] ; then
+#-!     set -- $line ; echo $1 ; break
+#-!    fi
+#-!   done
+#-!  } < <(&F90& -v < /dev/null 2>&1)
+#-! COMMAND_CHECK_F90:
+#-!  if &F90& --version < /dev/null >& /dev/null ; then
+#-!   {
+#-!    while read a b line ; do
+#-!     if [ "$a $b" = "GNU Fortran" ] ; then
+#-!      echo 1 ; break
+#-!     fi
+#-!    done
+#-!   } < <(&F90& --version < /dev/null 2>&1)
+#-!  fi
+
+# Compiler name
+F90        = gfortran
+NEED_ETIME = yes
+
+# Compiler flags
+FFLAGS_opt   = -Ofast -fprotect-parens -fpeel-loops -fcray-pointer -fallow-argument-mismatch
+FFLAGS_debug = -Og -fall-intrinsics -pedantic -Wall -Wextra \
+ -Wno-compare-reals -Wno-unused-dummy-argument -Wno-unused-parameter \
+ -Wno-maybe-uninitialized -fimplicit-none \
+ -fcheck=bounds,do,mem,pointer,recursion -fbacktrace -fcray-pointer -g -pg
+
+# Features
+SUPPORT_OPENMP    = yes
+FFLAGS_OPENMP_yes = -fopenmp

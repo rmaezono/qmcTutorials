@@ -1,0 +1,53 @@
+CRYSTALTOQMC
+============
+
+MDT 4.2000
+
+This directory contains a shell script 'crysgen'. This drives the fortran
+program 'crystaltoqmc' which converts the fort.12, fort.10 and fort.30 files
+produced by CRYSTAL95/CRYSTAL98 into the gwfn.data file required by CASINO.
+
+Note that CRYSTAL2003/2006 use a different method to extract the relevant
+data - see the directories ../crystal03 and ../crystal06.
+
+The directory 'crystal_run_script' contains a shell script to run
+CRYSTAL95/98/03 (see the header to that file for more details). Note that the
+publicly available CRYSTAL 'run' script available from my web site does not
+contain the necessary -qmc option. So if you already use that you might need to
+replace it with the one supplied here.
+
+You will need to change the environment variable definitions in the run and
+crysgen scripts to get the thing to run on your system.
+
+If you want to use your own copy of CRYSTAL95 or CRYSTAL98 to generate
+QMC wave functions, you will need to make some minor modifications to the
+source code (see the accompanying README_CHANGES file). [You should probably
+seek permission from the authors of CRYSTAL before you do this..]
+
+
+To produce gwfn.data from crystal input file 'dna'
+-------------------------------------------------
+
+run -qmc dna   (-qmc flag invokes generation of relevant QMC files in temp)
+cd /temp/mdt   (for example - temp directory is that specified in 'run' script)
+crysgen        (then answer the questions - your gwfn.data will appear)
+rm dna.*       (in temp directory)
+
+NOTE:
+CRYSTALTOQMC will ask you for the size of the Monkhorst-Pack k net in the
+CRYSTAL calculation, and the desired size of supercell in the QMC calc.
+These need not be the same (if not, you are 'plucking') but the former must
+be divisible by the latter.
+
+e.g. 12x12x12 MP net in CRYSTAL will allow you to generate gwfn.data files
+describing a many-body wave function suitable for 1x1x1,2x2x2,3x3x3,4x4x4,
+6x6x6 and 12x12x12 supercell cases.
+
+NOTE 2: For polymer and slab calculations the last one and two numbers
+in the MP net and supercell specifications should be 1 to reflect the fact
+that the system is not periodic in those dimensions.
+
+e.g. polymer 12 1 1 --> 1 1 1, 2 1 1, 3 1 1, 4 1 1, 6 1 1, 12 1 1
+     surface 12 1 1 --> 1 1 1, 2 2 1, 3 3 1, 4 4 1, 6 6 1, 12 12 1
+
+For molecular calculations, just imagine you have a 1x1x1 MP net.

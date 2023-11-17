@@ -1,0 +1,8 @@
+
+CASINO pseudopotentials for CASTEP
+----------------------------------
+
+CASTEP can read CASINO pseudopotential files directly. See the
+notes in CASINO/utils/wfn_converters/castep/README for further instructions.
+
+MDT 12.2004

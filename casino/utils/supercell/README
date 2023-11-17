@@ -1,0 +1,46 @@
+SUPERCELL
+=========
+This utility constructs simulation supercells that maximize the radius
+of the sphere that can be inscribed in the Wigner-Seitz cell of the
+supercell, which should minimize finite-size effects in quantum Monte
+Carlo calculations.
+
+Usage
+=====
+Run supercell and follow the prompts.
+
+Capabilities
+============
+SUPERCELL reads the primitive lattice vectors (2D or 3D) and the
+number of primitive cells in the supercell from standard input,
+constructs the optimal cell and prints out its "S matrix", which can
+then be specified in the "scell_matrix" input block in CASINO.
+
+SUPERCELL also prints all k-point grids that correspond to real wave
+functions, required for the generation of DFT orbitals.  The current
+"best practice" is to run DFT calculations for all such k-point grids
+and pick that whose DFT energy is closest to a reference DFT energy
+with a dense Monkhorst-Pack grid.
+
+To generate a complex wave function, a single k-point grid offset can
+be passed to SUPERCELL, which will generate and print out the k-point
+grid that corresponds to the offset.
+
+Note that k points are given as fractions of reciprocal vectors of the
+primitive lattice.  This is how k points are specified in, e.g.,
+CASTEP.
+
+SUPERCELL works by generating all possible supercells and picking that
+which maximizes the radius of the sphere that can be inscribed in the
+Wigner-Seitz cell of the supercell.  This is a combinatorial problem
+and may take a very long time when the supercell is to contain a
+moderately large number of primitive cells.  SUPERCELL offers the
+ability to constrain the search to diagonal S matrices for speed.
+
+Methodology
+===========
+The finite-size reduction method described above was developed by
+J. Lloyd-Williams and N. Drummond (to be published).
+
+
+PLR 01.2015

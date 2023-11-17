@@ -1,0 +1,26 @@
+How to make this work with ABINIT (until it is included in the official release)
+================================================================================
+
+Download ABINIT 4.4.2 from www.abinit.org.
+
+You need to add the outqmc.F90 file from the present directory to the ABINIT
+subdirectory /Src_3iovars. Modify the gstate.F90 and driver.F90 files in
+/Src_9drive/ so that they look like the ones here (i.e. add the lines surrounded
+by ! CASINO comment lines - just a call to the new outqmc routine and the
+filling-in of an ABINIT variable that was previously left uninitialized).
+Additionally, the object_list file in /Src_3iovars/ must have the line
+outqmc.o added to it (like the example here).
+
+Having done this you should then be able to compile ABINIT with 'make abinis'.
+
+There is an example 'input' file set up for silicon and a corresponding 'files'
+file to run with 'abinis < files >& log' in the io directory here, which should,
+if the modifications have been successful, produce a pwfn.data in the same
+directory.
+
+This routine is not yet fully tested and is classified as 'under development'
+but it ought to work correctly. Bug reports and problems to MDT.
+
+Have fun with ABINIT.
+
+MDT/NDMH 11.2004

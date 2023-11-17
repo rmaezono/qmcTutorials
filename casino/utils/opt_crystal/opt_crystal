@@ -1,0 +1,981 @@
+#!/bin/bash
+################################################
+# Parameter optimizer for the CRYSTAL program. #
+#                                              #
+# v0.1 PLR                                     #
+#                                              #
+# Changes                                      #
+# -------                                      #
+# 1.2013 MDT Updated to work in parallel.      #
+# 1.2014 MDT Updated for CRYSTAL2014           #
+################################################
+set +u
+shopt -s extglob
+
+# Convert old QMC_ARCH+QMC_ID into CASINO_ARCH
+if [ -z "$CASINO_ARCH" ] ; then
+ if [ ! -z "$QMC_ARCH" ] ; then
+  [ -z "$QMC_ID" ] && export CASINO_ARCH=$QMC_ARCH\
+   || export CASINO_ARCH=$QMC_ARCH.$QMC_ID
+ fi
+fi
+
+###########################> Misc functions <###########################
+function echo_breakline {
+ # Print a message with appropriate line-breakup at blanks.
+ # Multiple spaces are reduced to single spaces. There's a simpler
+ # way to do some of the things here, but this is the one that
+ # doesn't perform expansion of e.g. "$", "*", "?".
+ local message="$*" word i=0 l addi mess
+ [ -z "$message" ] && echo
+ while : ; do
+  [ -z "$message" ] && break
+  word="${message%% *}" ; mess="$message" ; message="${message#* }"
+  [ "$mess" = "$message" ] && message=""
+  word="${word// /}" ; l=${#word} ; ((l==0)) && continue
+  if ((l<79)) ; then # normal-sized word
+   addi=$((l+1))
+   ((addi+i>79)) && { echo ; i=0 ; }
+   echo -n "$word " ; i=$((addi+i))
+  else # huge word (>78 characters)
+   ((i>0)) && echo
+   echo "$word" ; i=0
+  fi
+ done
+ ((i>0)) && echo
+ return 0
+}
+
+# Exit with an error message.
+function errstop { echo ; echo_breakline "ERROR: $*" ; echo ; exit 1 ; }
+
+# Output field number $1 of $2-$n
+function field { local i=$1 ; shift ; echo "${@:$i:1}" ; }
+
+# Output first $1 fields of $2-$n
+function first_fields { local i=$1 ; shift ; echo "${@:1:$i}" ; }
+
+# Output number of fields in $*
+function nfield { echo $# ; }
+
+function which_field {
+ # Output the field number of string $1 in $2-$n, or 0 if not present
+ local i=0 str="$1"
+ while (($#>1)) ; do i=$((i+1)) ; shift
+  [ "$str" = "$1" ] && { echo $i ; return ; }
+ done
+ echo 0
+}
+
+function find_string {
+ # Like which_field, but only set return value, no other output
+ local str="$1"
+ while (($#>1)) ; do shift ; [ "$str" = "$1" ] && return 0 ; done
+ return 1
+}
+
+function check_number_N {
+ # Check whether $1 is a positive integer
+ local num="$1" size i=0 c
+ size=${#num} ; ((size<1)) && return 1
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case "$c" in 1|2|3|4|5|6|7|8|9|0) continue ;; esac ; return 1
+ done
+ return 0
+}
+
+function check_number_R {
+ # Check whether $1 is a real number (in Fortran format)
+ local num="$1" size i=0 c isfirst=1 dotfound=0 inexp=0 anyfigure=0
+ size=${#num}
+ while ((i<size)) ; do c=${num:$i:1} ; i=$((i+1))
+  case "$c" in
+  +|-) ((isfirst==0)) && return 1 ; isfirst=0 ;;
+  d|D|e|E) ((inexp==1)) || ((anyfigure==0)) && return 1
+   inexp=1 ; isfirst=1 ; anyfigure=0 ;;
+  .) ((dotfound==1)) || ((inexp==1)) && return 1 ; isfirst=0 ; dotfound=1 ;;
+  1|2|3|4|5|6|7|8|9|0) isfirst=0 ; anyfigure=1 ;;
+  *) return 1 ;;
+  esac
+ done
+ ((anyfigure==0)) && return 1 || return 0
+}
+
+# Output $1 spaces
+function space { (($1>0)) && printf "%${1}s" "" ; }
+
+function compute {
+ # Compute all expressions in $* and return their values in a single line.
+ local output="" item
+ bc_comm="$1" ; shift
+ while (($#>0)) ; do
+  bc_comm="; $1" shift
+ done
+ output=$(echo "$bc_comm" | bc -l 2>/dev/null | tr "\n" " ")
+ echo ${output//\\ /}
+}
+
+function compare_num {
+ # Determine the relation '?' in "$1 ? $2", '?' being one of lt, gt or eq.
+ # Several pairs of number can be spacified, and one lt/gt/eq is printed per
+ # pair.
+ local cmp c output="" first=1 full_line
+ while (($#>1)) ; do
+  if ((first==1)) ; then
+   full_line="a=0 ; if($1<$2)a=1 ; if($1>$2)a=2 ; print a"
+   first=0
+  else
+   full_line="$full_line ; a=0 ; if($1<$2)a=1 ; if($1>$2)a=2 ; print \" \",a"
+  fi
+  shift 2
+ done
+ cmp=$(echo "$full_line" | bc -l 2>/dev/null | tr "\n" " ")
+ for c in $cmp ; do
+  case "$c" in
+  0) output="$output eq" ;;
+  1) output="$output lt" ;;
+  2) output="$output gt" ;;
+  esac
+ done
+ echo $output
+}
+
+# Remove the sign from $1
+function abs { local output=${1#+} ; echo ${output#-} ; }
+
+function minus {
+ # Change the sign of $1
+ local num
+ num=${1#+}
+ case "${num:0:1}" in
+ -) num=${num#-} ;;
+ *) num=-$num ;;
+ esac
+ echo $num
+}
+
+function input_files_dos2unix {
+ # Run dos2unix on input files, if necessary (and possible).
+ local i cr_char is_dos have_dos2unix=0
+ cr_char=$(echo -e "\015")
+ type dos2unix >& /dev/null && [[ "$CASINO_ARCH" != *sun* ]] && have_dos2unix=1
+ for i in * ; do
+  is_dos=$(head -n 50 $i | grep -c "$cr_char$")
+  if ((is_dos>0)) ; then
+   if ((have_dos2unix==1)) ; then
+    echo -n "File '$i' appears to be in DOS format. Converting..."
+    dos2unix -k $i >& /dev/null
+    echo " Done."
+   else
+    errstopd "File '$i' appears to be in DOS format. DOS2UNIX cannot be found.\
+     Please convert this file by hand, or use the -f option to runqmc to\
+     bypass error checking."
+   fi
+  fi
+ done # i
+}
+
+function add_cv {
+ # Add $1 times vector $2 to vector $3 and print on stdout
+ local output="" i=0 c=$1 v=$2 x=$3 a b z op=""
+ while ((i<nparam)) ; do
+  i=$((i+1)) ; a=$(field $i $v) ; b=$(field $i $x)
+  ((i==1)) && op="$a*$c+$b" || op="$op ; $a*$c+$b"
+ done
+ output=$(echo "$op" | bc -l 2>/dev/null | tr "\n" " ")
+ echo ${output//\\ /}
+}
+
+function fortran_to_decimal {
+ # Convert number from x.xxxxxE+nnn to xxx.xxx format
+ local num val exp char sign no_bc
+ num=$1 ; shift ; val=$num ; no_bc=0
+ case "$num" in
+ *E*) char=E ;;
+ *e*) char=e ;;
+ *D*) char=D ;;
+ *d*) char=d ;;
+ *) no_bc=1 ;;
+ esac
+ if ((no_bc==0)) ; then
+  val=${num%$char*} ; exp=${num#*$char} ; exp=${exp#+}
+  sign="" ; [ "${exp:0:1}" = - ] && { sign=- ; exp=${exp:1} ; }
+  while [ "${exp:0:1}" = 0 ] ; do exp=${exp:1} ; done
+  [ -z "$exp" ] && num=$val || num="$val*10^$sign$exp"
+ fi
+ echo $num
+}
+
+function log {
+ # Add $2-$n to the log as n lines. Log-level is $1, which tells how
+ # many spaces to put at the front.
+ local lev=$1 i=0 sp=""
+ case "$loglevel" in
+ 0) return ;;
+ 1) ((lev>2)) && return ;;
+ esac
+ shift ; while ((i<lev)) ; do i=$((i+1)) ; sp="$sp " ; done
+ while (($#>0)) ; do echo "$sp$1" >> $logfile ; shift ; done
+}
+#########################> End misc functions <#########################
+
+###########################> Main functions <###########################
+function print_header {
+ # Print header to stdout
+ echo_breakline "OPT_CRYSTAL v0.1: Script to optimize parameters in CRYSTAL\
+  input files."
+ echo_breakline "Usage: opt_crystal [-help] [-conv <conv>] [-min <min-energy>]\
+  [-log <level>] [-95|-98|-03|-06|-09] [-small|-big|-huge|-enormous] [-np <ncores]\
+  <file>"
+ echo_breakline
+}
+
+function help_system {
+ # Display help on the usage of the utility.
+ echo_breakline "======================="
+ echo_breakline "OPT_CRYSTAL help system"
+ echo_breakline "======================="
+ echo_breakline
+ echo_breakline "This script takes a CRYSTAL input file and optimizes the\
+  parameters in it. Put one of the following symbols before a parameter\
+  in the file to indicate that you wish to optimize it:"
+ echo_breakline
+ echo_breakline "* -> This will flag the parameter as optimizable."
+ echo_breakline "** -> This will additionally require the parameter not\
+  to change sign."
+ echo_breakline "n& -> All parameters with the same n (positive integer)\
+  will be required to be equal."
+ echo_breakline "-n& -> Parameters with this flag will be the negative of the\
+  ones flagged n&."
+ echo_breakline "n&& -> As n&, but forces the sign of the parameter\
+  not to change during the optimization. -n&& also possible."
+ echo_breakline
+ echo_breakline "Notice that the first of all parameters flagged with n& will\
+  set the initial value for the others in the same set. When both n& and n&&\
+  are present, all such parameters will be flagged as n&&."
+ echo_breakline
+ echo_breakline "You can use the -95|-98|-03|-06|-09 and\
+  -small|-big|-huge|-enormous flags, which are passed to the CRYSTAL\
+  runscript."
+ echo_breakline
+ echo_breakline "You can run the CRYSTAL calculations in parallel on ncore\
+  cores by specifying the -np <ncores> flag."
+ echo_breakline
+ echo_breakline "The flag -conv <conv> allows you to set the target precision\
+  for the converged energy. <conv> is an integer representing the number of\
+  figures required, e.g., with <conv>=3 the optimization will stop\
+  once the algorithm fails to reduce the energy by more than 0.1% in any\
+  iteration. It is recommended that you set <conv> to a slightly higher\
+  value than the accuracy you want, as convergence need not be uniform."
+ echo_breakline
+ echo_breakline "When you run OPT_CRYSTAL a log file will be written, where\
+  you can find detailed information about the optimization. The flag -log\
+  <level> allows you to set the verbosity level: 0 for no log, 1 for little\
+  information and 2 for full log [default]."
+ echo_breakline
+ echo_breakline "CRYSTAL has the bad habit of using regular algebra on\
+  singular matrices, thus failing spectacularly and giving nonsensical\
+  answers. This means that when two Gaussian exponents approach each other,\
+  CRYSTAL may give diverging energies, which this script would interpret as\
+  a minimum if they are negative. The -min <min-energy> flag allows you to\
+  define a minimum energy below which all CRYSTAL-reported energies are\
+  understood to be an error. You should set <min-energy> lower than the\
+  minimum answer you expect to get, of course."
+}
+
+function check_env {
+ # Set up environment
+ runscript=$(type -p runcrystal)
+ if [ -z "$runscript" ] || [ ! -x "$runscript" ] ; then
+  runscript="$HOME/CASINO/bin_qmc/runcrystal"
+  [ -x "$runscript" ] || { errstop "Cannot find 'runcrystal' script. Have\
+   tried to find it in the PATH and the default location ~/CASINO/bin_qmc/ .\
+   Please check that you have compiled and configured both CASINO and CRYSTAL\
+   correctly." ; exit ; }
+ fi
+}
+
+function parse_cmd {
+ # Parse argument list and check
+ local vflag_set=0 rflag_set=0 conv_set=0 log_set=0 vflag="" rflag=""
+ local min_E_set=0 
+ subversion=0 
+ parallel=0
+ ncores=1
+ parallel_flag=""
+ (($#==0)) && { help_system ; exit ; }
+ input_file="" ; conv=8 ; loglevel=2 ; min_E=""
+ while (($#>0)) ; do
+  case "$1" in
+  -help|-h) help_system ; exit ;;
+  -95|-98|-03|-06|-09)
+   ((vflag_set==1)) && errstop "Only one version flag should be provided."
+   vflag="$1" ; vflag_set=1 ; shift ;;
+  -small|-big|-huge|-enormous)
+   ((rflag_set==1)) && errstop "Only one of -small, -big, -huge or -enormous\
+    should be provided."
+   rflag="$1" ; rflag_set=1 ; shift ;;
+  -conv)
+   ((conv_set==1)) && errstop "Two instances of -conv found."
+   (($#<1)) && errstop "-conv requires an argument."
+   shift ; conv=$1 ; shift
+   check_number_N $conv || errstop "Argument to -conv must be a positive\
+    integer." ;;
+  -log)
+   ((log_set==1)) && errstop "Two instances of -log found."
+   (($#<1)) && errstop "-log requires an argument."
+   shift ; loglevel=$1 ; shift
+   case "$loglevel" in
+   0|1|2) : ;;
+   *) errstop "Argument to -log must be 0, 1 or 2." ;;
+   esac ;;
+  -np)
+   ((parallel==1)) && errstop "Two instances of -np found."
+   (($#<1)) && errstop "-np requires an argument."
+   shift ; ncores=$1 ; shift
+   check_number_N $ncores || errstop "Argument to -np must be a positive\
+    integer."
+   parallel_flag="-np $ncores" ;;
+  -min)
+   ((min_E_set==1)) && errstop "Two instances of -min found."
+   (($#<1)) && errstop "-min requires an argument."
+   shift ; min_E="$1" ; shift
+   check_number_R $min_E || errstop "Argument to -min must be a real number."
+   min_E="$(fortran_to_decimal $min_E)" ;;
+  *)
+   [ -z "$input_file" ] || errstop "Invalid option $1."
+   input_file="$1" ; shift ;;
+  esac
+ done
+ # Check that file name was supplied
+ [ -z "$input_file" ] && errstop "File name not supplied."
+ # Check rflag in CRYSTAL03
+ if [ -z "$vflag" ] && ((rflag_set==1)) ; then
+  echo_breakline "Warning: $rflag ignored by CRYSTAL 03."
+  rflag=""
+ fi
+ runcrystal="$runscript $vflag $rflag $parallel_flag"
+ # Check for existance of input file
+ [ -e "$input_file" ] || errstop "File $input_file does not exist."
+ [ -d "$input_file" ] && errstop "$input_file is a directory."
+ # Set ftol
+ mainftol=$(compute "10^-$conv")
+}
+
+function analyze_file {
+ # Analyze input file, build parameter list, etc
+ local il=0 ip=0 itp=0 iff nff ff label_string="" cross_refs="" cline
+ local IFS_save="$IFS" space_list ispace
+ isdft=0
+ { while : ; do
+  export IFS=""
+  read line || break
+  export IFS="$IFS_save"
+  rem="$line" ; space_list="" ; ispace=0 ; nff=0
+  while ((${#rem}>0)) ; do
+   if [ "${rem:0:1}" = " " ] ; then
+    ((ispace==-1)) && ispace=0
+    ispace=$((ispace+1))
+   elif [ "${rem:0:1}" = $'\t' ] ; then
+    ((ispace==-1)) && ispace=0
+    ispace=$((ispace+8))
+   elif ((ispace!=-1)) ; then
+    space_list="$space_list $ispace"
+    ispace=-1 ; nff=$((nff+1))
+   fi
+   rem="${rem:1}"
+  done
+  ((ispace==-1)) && ispace=0
+  space_list="$space_list $ispace"
+  il=$((il+1)) ; nff=$(nfield $line) ; iff=0 ; cline=""
+  find_string DFT $line && isdft=1
+  while ((iff<nff)) ; do
+   iff=$((iff+1)) ; ff=$(field $iff $line)
+   case "$ff" in
+   \*\**) # Double asterisk
+    val=${ff#\*\*}
+    [ -z "$val" ] && errstop "Format error in $input_file at line $il. Double\
+     asterisk (**) found without associated value."
+    ip=$((ip+1))
+    check_number_R $val || errstop "Parameter number $ip is not a valid\
+     number: $val"
+    val=$(fortran_to_decimal $val)
+    param[$ip]=$val ; popp[$ip]=0 ; psign[$ip]=1
+    [ "$(compare_num $val 0)" = lt ] && psign[$ip]=-1
+    prepend_param[$ip]='**'
+    cline="$cline$(space $(field $iff $space_list))&$ip&" ;;
+   \**) # Asterisk
+    val=${ff#\*}
+    [ -z "$val" ] && errstop "Format error in $input_file at line $il.\
+     Asterisk (*) found without associated value."
+    ip=$((ip+1))
+    check_number_R $val || errstop "Parameter number $ip is not a valid\
+     number: $val"
+    val=$(fortran_to_decimal $val)
+    param[$ip]=$val ; popp[$ip]=0 ; psign[$ip]=0
+    prepend_param[$ip]='*'
+    cline="$cline$(space $(field $iff $space_list))&$ip&" ;;
+   *\&\&*) # Double ampersand
+    val=${ff#*\&\&}
+    [ -z "$val" ] && errstop "Format error in $input_file at line $il. Double\
+     ampersand (n&&) found without associated value."
+    label=${ff%\&\&*}
+    [ -z "$label" ] || [ "$label" = - ] && errstop "Format error in\
+     $input_file at line $il. Double ampersand (n&&) is missing the label\
+     (n)."
+    chk1="$label" ; label="${label#-}" ; sgn1="" ; sgn2=""
+    [ "$chk1" = "-$label" ] && { sgn1="-" ; sgn2="*(-1)" ; }
+    check_number_N $label || errstop "Format error in $input_file at line $il.\
+     Double ampersand (n&&) must have an integer n as label."
+    tmp=$(which_field $label $label_string)
+    if ((tmp>0)) ; then
+     cp=$(field $tmp $cross_refs)
+     psign[$cp]=1
+     [ "$sgn1" = - ] && popp[$cp]=1
+     cline="$cline$(space $(field $iff $space_list))&$sgn1$cp&"
+    else
+     ip=$((ip+1))
+     check_number_R $val || errstop "Parameter number $ip is not a valid\
+      number: $val"
+     p=$(fortran_to_decimal $val) ; p=$(compute "$p$sgn2")
+     param[$ip]="$p"
+     psign[$ip]=1; [ "$(compare_num $p 0)" = lt ] && psign[$ip]=-1
+     popp[$ip]=0 ; [ "$sgn1" = - ] && popp[$cp]=1
+     prepend_param[$ip]="${label#-}&&"
+     cline="$cline$(space $(field $iff $space_list))&$sgn1$ip&"
+     label_string="$label_string $label" ; cross_refs="$cross_refs $ip"
+    fi ;;
+   *\&*) # Ampersand
+    val=${ff#*\&}
+    [ -z "$val" ] && errstop "Format error in $input_file at line $il.\
+     Ampersand (n&) found without associated value."
+    label=${ff%\&*}
+    [ -z "$label" ] || [ "$label" = - ] && errstop "Format error in\
+     $input_file at line $il. Ampersand (n&) is missing the label (n)."
+    chk1="$label" ; label="${label#-}" ; sgn1="" ; sgn2=""
+    [ "$chk1" = "-$label" ] && { sgn1="-" ; sgn2="*(-1)" ; }
+    check_number_N $label || errstop "Format error in $input_file at line $il.\
+     Ampersand (n&) must have an integer n as label."
+    tmp=$(which_field $label $label_string)
+    if ((tmp>0)) ; then
+     cp=$(field $tmp $cross_refs)
+     [ "$sgn1" = - ] && popp[$cp]=1
+     cline="$cline$(space $(field $iff $space_list))&$sgn1$cp&"
+    else
+     ip=$((ip+1))
+     check_number_R $val || errstop "Parameter number $ip is not a valid\
+      number: $val"
+     p=$(fortran_to_decimal $val) ; p=$(compute "$p$sgn2")
+     param[$ip]="$p" ; psign[$ip]=0
+     popp[$ip]=0 ; [ "$sgn1" = - ] && popp[$cp]=1
+     prepend_param[$ip]="${label#-}&"
+     cline="$cline$(space $(field $iff $space_list))&$sgn1$ip&"
+     label_string="$label_string $label" ; cross_refs="$cross_refs $ip"
+    fi ;;
+   *) cline="$cline$(space $(field $iff $space_list))$ff" ;;
+   esac
+  done
+  store_input[$il]="$cline$(space $(field $((nff+1)) $space_list))"
+ done ; } < $input_file
+ export IFS="$IFS_save"
+ nlines=$il ; nparam=$ip
+ ((nparam==0)) && errstop "The number of optimizable parameters is zero in\
+  $input_file. Use asterisks (*, **) and ampersands (e.g., 1&, -3&&) to flag\
+  optimizable parameters in the file."
+ # Report success
+ echo_breakline "CRYSTAL input file parsed and loaded."
+ ((nparam!=1)) && echo_breakline "There are $nparam variable parameters in\
+  the file." || echo_breakline "There is 1 variable parameter in the file."
+ echo_breakline
+}
+
+function write_file {
+ # Usage: write_file [-r] [<filename>]
+ # Write current set of parameters to <filename> or stdout.  With '-r'
+ # asterisks etc are printed ("resume" file).
+ local il=0 fname="" isresume=0
+ [ "$1" = -r ] && { isresume=1 ; shift ; }
+ fname=/dev/stdout ; (($#>0)) && fname="$1"
+ [ -e "$fname" ] && rm -f $fname >& /dev/null
+ touch "$fname"
+ while ((il<nlines)) ; do
+  il=$((il+1)) ; ip=0 ; line="${store_input[$il]}"
+  while ((ip<nparam)) ; do
+   ip=$((ip+1)) ; pval=$(compute ${param[$ip]})
+   ((isresume==1)) && pval="${prepend_param[$ip]}$pval"
+   line="${line//&$ip&/$pval}"
+   if ((${popp[$ip]}==1)) ; then
+    # The variable just flags whether there'll be any &-i& in the file.
+    mpval=$(compute "${param[$ip]}*(-1)")
+    ((isresume==1)) && mpval="-${prepend_param[$ip]}$mpval"
+    line="${line//&-$ip&/$mpval}"
+   fi
+  done
+  echo "$line" >> "$fname"
+ done
+}
+
+function setup_opt {
+ # Setup temporary dir.
+ local i
+ orig_wdir=$(pwd) ; tempdir=.temp_opt_$$
+ [ -e "$tempdir" ] && rm -rf "$tempdir"
+ output_file="$orig_wdir/$input_file.opt"
+ [ -e "$output_file" ] && output_file=${output_file}_$$
+ resume_file="$orig_wdir/$input_file.opt.resume"
+ [ -e "$resume_file" ] && resume_file=${resume_file}_$$
+ if ((loglevel>0)) ; then
+  logfile=${input_file}_opt.log
+  if [ -e "$logfile" ] ; then
+   logfile=${logfile}_$$
+   [ -e "$logfile" ] && errstop "Log file \"$logfile\" is already present. Run\
+    again and/or delete this file."
+  fi
+  logfile=$orig_wdir/$logfile
+  touch $logfile
+ fi
+ mkdir $tempdir ; cd $tempdir
+ # Print info to log file
+ log 0 "OPT_CRYSTAL" "===========" "" "Setup info:"
+ log 1 "Starting at             : $(date)"\
+  "Running on              : $(hostname)"\
+  "Number of cores         : $ncores"\
+  "Input file name         : $input_file" "Number of parameters    : $nparam"\
+  "Target rel. energy diff.: $mainftol" "Initial parameter values:"
+ i=0 ; while ((i<nparam)) ; do i=$((i+1))
+  case "${psign[$i]}" in
+  1) log 2 "p_$i = ${param[$i]} [constrained positive]" ;;
+  -1) log 2 "p_$i = ${param[$i]} [constrained negative]" ;;
+  *) log 2 "p_$i = ${param[$i]}" ;;
+  esac
+ done
+ log 0 ""
+ nf_eval=0
+}
+
+function do_calc {
+ # Perform calculation, whatever the current set of parameters is, inspect
+ # the output and set 'energy'
+ local line chk1 chk2 iff i s err
+ # Check that all parameters have the correct sign before running.
+ # This prevents spoiling the optimization by a single bad step.
+ i=0 ; while ((i<nparam)) ; do i=$((i+1))
+  s=${psign[$i]} ; err=0
+  case "$s" in
+  1) p=${param[$i]} ; [ "$(compare_num $p 0)" = lt ] && err=1 ;;
+  -1) p=${param[$i]} ; [ "$(compare_num $p 0)" = gt ] && err=1 ;;
+  esac
+  ((err==1)) && { energy="pERROR" ; return ; }
+ done
+ # Run CRYSTAL
+ nf_eval=$((nf_eval+1))
+ rm -f temp
+ write_file temp
+ $runcrystal temp
+ [ ! -e temp.o ] && { energy="ERROR"; return ; }
+ chk1=$(grep -c 'SCF ENDED - CONVERGENCE ON' temp.o)
+ chk2=$(grep -c 'SCF ENDED -CONVERGENCE ON' temp.o)
+ ((chk1+chk2==0)) && { energy="ERROR" ; return ; }
+ if ((isdft==0)) ; then
+  line=$(grep "::: TOTAL   ENERGY" temp.o) ; iff=4
+ else
+  case "$vflag" in
+  "")
+   if ((subversion==0)) ; then
+    chk1=$(grep -c 'C R Y S T A L   200Y' temp.o)
+    subversion=1 ; ((chk1>1)) && subversion=2
+   fi
+   case "$subversion" in
+   1) line=$(grep "SCF ENDED - CONVERGENCE ON ENERGY" temp.o) ; iff=9 ;;
+   2) line=$(grep "TOTAL ENERGY(DFT)(AU)" temp.o) ; iff=5 ;;
+   esac ;;
+  -95|-98) line=$(grep "DFT ENERGY" temp.o) ; iff=$(nfield $line) ;;
+  esac
+ fi
+ energy=$(field $iff $line)
+ [ -z "$energy" ] && energy=iERROR || energy=$(fortran_to_decimal $energy)
+ [ ! -z "$min_E" ] && [ "$(compare_num $energy $min_E)" = lt ]\
+  && energy="mERROR:$energy"
+ rm temp temp.o temp.w
+}
+
+function unroll_params {
+ # Take vector param[*] and put it as a single string
+ local vec="" i=0
+ while ((i<nparam)) ; do
+  i=$((i+1)) ; vec="$vec ${param[$i]}"
+ done
+ echo $vec
+}
+
+function roll_params {
+ # Take $* and vectorize into param[*]
+ local i=0
+ while ((i<nparam)) ; do
+  i=$((i+1)) ; param[$i]=$1 ; shift
+ done
+}
+
+function assess_dr {
+ # Give a good guess for initial step to take (5% parameter change on
+ # average in the first iteration, decreasing exponentially as we go on)
+ local i=0 n=0 dir="$*" a p dr="" factor temp
+ if ((mainiter<main_maxiter_2)); then
+  factor=$(compute "e (0.6931472*(-9*($mainiter-1)/($main_maxiter_2-1)))")
+ else
+  factor=0.002
+ fi
+ while ((i<nparam)) ; do
+  i=$((i+1)) ; a=$(field $i $dir) ; a=$(abs $a) ; p=$(abs ${param[$i]})
+  temp=$(compare_num $a 0 $p 0)
+  [ "$(field 1 $temp)" = eq ] || [ "$(field 2 $temp)" = eq ] && continue
+  n=$((n+1))
+  [ -z "$dr" ] && dr="0.05*$factor*($p/$a" || dr="$dr + $p/$a"
+ done
+ ((n==0)) && dr=0.01 || dr=$(compute "$dr)/$n")
+ echo $dr
+}
+
+function minimize_along {
+ # Minimize the energy along the line given by vector $1.
+ local dir i x0 xl xr y0 yl yr pvec pvec_init tmp dr going a b x v w e u
+ local fx fv fw fu etemp tol1 tol2 x_xm absx_xm absx fa fb fa_fx fb_fx abse
+ local tol2_ba_2 r q p absp qe_2 abs_qe_2 qax qbx dogolden d ua bu absd dd
+ local havered temp
+ local tol=0.0000001 ztol=0.0000000001 cgold=0.381966 ftol
+ local maxiter_bkt1=50 maxiter_bkt2=50 maxiter=20
+ # Start with poor ftol (1e3 worse), require more precision later
+ if ((mainiter<main_maxiter_2)) ; then
+  ftol=$(compute "e (2.302595*(-$conv+3-3*($mainiter-1)/($main_maxiter_2-1)))")
+ else
+  ftol=$mainftol
+ fi
+ dir=$1 ; pvec_init=$(unroll_params)
+ # Stage 1: generate points until we bracket a minimum.
+ log 2 "F-tol = $ftol" "Stage 1: bracketing."
+ x0=0 ; y0=$ecurrent ; i=0
+ dr=$(assess_dr $dir) ; log 3 "Assessed dr = $dr" "Right-bracketing..."
+ while : ; do i=$((i+1))
+  xr=$(compute "$x0+$dr") ; pvec=$(add_cv $xr "$dir" "$pvec_init")
+  roll_params $pvec ; do_calc ; yr=$energy
+  log 4 "x = $xr, E = $energy"
+  case "$yr" in
+  pERROR) dr=$(compute ".3*$dr")
+   log 4 "Parameters out of bounds. Retrying with dr=$dr." ; continue ;;
+  mERROR*) roll_params $pvec_init ; log 4 "Energy too low." ; return 1 ;;
+  *ERROR*) roll_params $pvec_init ; log 4 "CRYSTAL abort." ; return 1 ;;
+  esac
+  tmp=$(compare_num $y0 $yr)
+  case "$tmp" in
+  lt) going="left" ; break ;;
+  gt) going="right" ; xl=$x0 ; yl=$y0 ; x0=$xr ; y0=$yr
+   log 4 "x0 is left bracket." ; break ;;
+  eq) dr=$(compute "2*$dr") ; log 4 "Equality. Setting dr=$dr" ;;
+  esac
+  ((i>=maxiter_bkt1)) && { roll_params $pvec_init ;\
+   log 4 "Maxiter exceeded." ; return 1 ; }
+ done
+ case "$going" in
+ left)  log 3 "Left-bracketing..." ;;
+ right) log 3 "Right-bracketing..." ;;
+ esac
+ i=0
+ while : ; do
+  i=$((i+1))
+  case "$going" in
+  left)
+   xl=$(compute "$x0-$dr") ; pvec=$(add_cv $xl "$dir" "$pvec_init")
+   roll_params $pvec ; do_calc ; yl=$energy
+   log 4 "x = $xl, E = $energy"
+   case "$yl" in
+   pERROR) dr=$(compute ".3*$dr")
+    log 4 "Parameters out of bounds. Retrying with dr=$dr." ; continue ;;
+   mERROR*) roll_params $pvec_init ; log 4 "Energy too low." ; return 1 ;;
+   *ERROR*) roll_params $pvec_init ; log 4 "CRYSTAL abort." ; return 1 ;;
+   esac
+   tmp=$(compare_num $y0 $yl)
+   case "$tmp" in
+   lt) break ;;
+   gt) xr=$x0 ; yr=$y0 ; x0=$xl ; y0=$yl ; dr=$(compute "2*$dr")
+    log 4 "Slopes down. Shifting and setting dr=$dr.. " ;;
+   eq) dr=$(compute "2*$dr") ; log 4 "Equality. Setting dr=$dr" ;;
+   esac ;;
+  right)
+   xr=$(compute "$x0+$dr") ; pvec=$(add_cv $xr "$dir" "$pvec_init")
+   roll_params $pvec ; do_calc ; yr=$energy
+   log 4 "x = $xr, E = $energy"
+   case "$yr" in
+   pERROR) dr=$(compute ".3*$dr")
+    log 4 "Parameters out of bounds. Retrying with dr=$dr." ; continue ;;
+   mERROR*) roll_params $pvec_init ; log 4 "Energy too low." ; return 1 ;;
+   *ERROR*) roll_params $pvec_init ; log 4 "CRYSTAL abort." ; return 1 ;;
+   esac
+   tmp=$(compare_num $y0 $yr)
+   case "$tmp" in
+   lt) break ;;
+   gt) xl=$x0 ; yl=$y0 ; x0=$xr ; y0=$yr ; dr=$(compute "2*$dr")
+    log 4 "Slopes down. Shifting and setting dr=$dr.. " ;;
+   eq) dr=$(compute "2*$dr") ; log 4 "Equality. Setting dr=$dr" ;;
+   esac ;;
+  esac
+  ((i>=maxiter_bkt2)) && { roll_params $pvec_init ;\
+   log 4 "Maxiter exceeded." ; return 1 ; }
+ done
+ log 3 "Bracketed range: $xl -> $xr"
+ # Stage 2: apply an iterative strategy (Brent) to reduce the bracketing
+ # interval.
+ log 2 "Stage 2: convergence."
+ a=$xl  ; b=$xr  ; x=$x0  ; v=$x   ; w=$x ; e=0
+ fa=$yl ; fb=$yr ; fx=$y0 ; fv=$fx ; fw=$fx
+ havered=0
+ i=0 ; while : ; do i=$((i+1))
+  x_xm=$(compute "y = ($a + $b)/2 ; $x - y")
+  absx_xm=$(abs $x_xm) ; absx=$(abs $x)
+  temp=$(compute "tol1=$tol*$absx+$ztol ; tol2=2*y ; tol2m=z-($b - $a)/2 ;\
+   print tol1,\" \",tol2,\" \",tol2m")
+  tol1=$(field 1 $temp) ; tol2=$(field 2 $temp) ; tol2_ba_2=$(field 3 $temp)
+  # Check for convergence
+  temp=$(compare_num $absx_xm $tol2_ba_2 "$fa - $fx" $ftol "$fb - $fx" $ftol\
+   "$fw - $fx" $ftol "$fv - $fw" $ftol "$fw - $fx" "$fv - $fw")
+  [ "$(field 1 $temp)" != gt ] && { log 3 "X-converged." ; break ; }
+  if ((havered>1)) && [ "$(field 2 $temp)" != gt ] &&\
+   [ "$(field 3 $temp)" != gt ] && [ "$(field 4 $temp)" != gt ] &&\
+   [ "$(field 5 $temp)" != gt ] && [ "$(field 6 $temp)" != gt ] ; then
+   # F-convergence: if the best point is within ftol from the brackets,
+   # the last two f-reductions are less than ftol and the last f-reduction
+   # is smaller than the second last, we consider the function converged.
+   log 3 "F-converged." ; break
+  fi
+  # Do another iteration
+  dogolden=1 ; abse=$(abs $e)
+  if [ "$(compare_num $abse $tol1)" = gt ] ; then
+   temp=$(compute "r=($x - $w)*($fx - $fv) ; q=($x - $v)*($fx - $fw) ;\
+    p=($x - $v)*q-($x - $w)*r ; q=2*(q-r) ; print p,\" \",q,\" \",r")
+   p=$(field 1 $temp) ; q=$(field 2 $temp) ; r=$(field 3 $temp)
+   [ "$(compare_num $q 0)" = gt ] && p=$(minus $p)
+   q=$(abs $q) ; etemp=$e ; e=$d ; absp=$(abs $p)
+   temp=$(compute "$q*$etemp/2 ; $q*($a - $x) ; $q*($b - $x)")
+   qe_2=$(field 1 $temp) ; qax=$(field 2 $temp) ; qbx=$(field 3 $temp)
+   abs_qe_2=$(abs $qe_2)
+   temp=$(compare_num $absp $abs_qe_2 $p $qax $p $qbx)
+   if [ "$(field 1 $temp)" = lt ] && [ "$(field 2 $temp)" = gt ] && \
+    [ "$(field 3 $temp)" = lt ] ; then
+    log 3 "Step: parabolic move."
+    dogolden=0
+    temp=$(compute "d=$p/$q ; u=$x+d ; ua=u- $a ; bu=$b-u ;\
+     print d,\" \",u,\" \",ua,\" \",bu")
+    d=$(field 1 $temp) ; u=$(field 2 $temp) ; ua=$(field 3 $temp)
+    bu=$(field 4 $temp)
+    temp=$(compare_num $ua $tol2 $bu $tol2)
+    if [ "$(field 1 $temp)" = lt ] || [ "$(field 2 $temp)" = lt ] ; then
+     d=$tol1 ; [ "$(compare_num $x_xm 0)" = gt ] && d=$(minus $d)
+    fi
+   fi
+  fi
+  if ((dogolden==1)) ; then
+   log 3 "Step: golden search."
+   case "$(compare_num $x_xm 0)" in
+   lt) temp=$(compute "bx=$b - $x ; d=$cgold*bx ; print bx,\" \",d") ;;
+   *)  temp=$(compute "ax=$a - $x ; d=$cgold*ax ; print ax,\" \",d") ;;
+   esac
+   e=$(field 1 $temp) ; d=$(field 2 $temp)
+  fi
+  absd=$(abs $d)
+  case "$(compare_num $absd $tol1)" in
+  lt) dd=$d ; d=$tol1 ; [ "$(compare_num $dd 0)" = gt ] && d=$(minus $d) ;;
+  *)  u=$(compute "$x + $d") ;;
+  esac
+  pvec=$(add_cv $u "$dir" "$pvec_init") ; roll_params $pvec
+  do_calc ; fu=$energy
+  log 4 "x = $u , E = $energy"
+  case "$fu" in
+  mERROR*)
+   pvec=$(add_cv $x "$dir" "$pvec_init") ; roll_params $pvec ; ecurrent=$fx
+   log 4 "Energy too low." ; return ;;
+  *ERROR*)
+   pvec=$(add_cv $x "$dir" "$pvec_init") ; roll_params $pvec ; ecurrent=$fx
+   log 4 "CRYSTAL abort." ; return ;;
+  esac
+  case "$(compare_num $fu $fx)" in
+  gt)
+   log 4 "No improvement."
+   case "$(compare_num $u $x)" in
+   lt) a=$u ; fa=$fu ;;
+   *)  b=$u ; fb=$fu ;;
+   esac
+   temp=$(compare_num $fu $fw $w $x $fu $fv $v $x $v $w)
+   if [ "$(field 1 $temp)" != gt ] || [ "$(field 2 $temp)" = eq ] ; then
+    v=$w ; fv=$fw ; w=$u ; fw=$fu
+   elif [ "$(field 3 $temp)" != gt ] || [ "$(field 4 $temp)" = eq ] ||\
+    [ "$(field 5 $temp)" = eq ] ; then
+    v=$u ; fv=$fu
+   fi ;;
+  *)
+   log 4 "New best value."
+   havered=$((havered+1))
+   case "$(compare_num $u $x)" in
+   lt) b=$x ; fb=$fx ;;
+   *)  a=$x ; fa=$fx ;;
+   esac
+   v=$w ; fv=$fw ; w=$x ; fw=$fx ; x=$u ; fx=$fu ;;
+  esac
+  ((i>=maxiter)) && { log 3 "Maxiter exceeded." ; break ; }
+ done
+ pvec=$(add_cv $x "$dir" "$pvec_init") ; roll_params $pvec ; ecurrent=$fx
+ log 2 "Optimization succeeded: E = $ecurrent"
+ log 2 "Current parameters:"
+ i=0 ; while ((i<nparam)) ; do i=$((i+1))
+  log 3 "p_$i = ${param[$i]}"
+ done
+}
+
+function minimize {
+ # Perform minimization process
+ local i j converged dir param0 f0 nfail max_deltaf imax fn paramn
+ local param_ex fex upd_dir upd_point criterion
+ local maxiter=$((2*$nparam))
+ ((maxiter<20)) && maxiter=20
+ main_maxiter_2=$((maxiter/2))
+ echo_breakline "Optimization started"
+ echo_breakline ""
+ echo_breakline "A log is being written to $logfile."
+ echo_breakline "Press CTRL-Z and type 'bg' to put the job in the background."
+ log 0 "Optimization start" "==================" "" "ITERATION 0" ""
+ # Get first point
+ do_calc
+ case "$energy" in
+ pERROR|iERROR)
+  log 1 "CRYSTAL abort. Bug."
+  errstop "Initial energy could not be computed due to a bug in this\
+   script. Please contact PLR to fix this ($energy)." ;;
+ mERROR*)
+  log 1 "Energy too low."
+  errstop "Initial energy of ${energy#mERROR:} is lower than user-specified\
+   threshold of $min_E.  Try providing a lower threshold." ;;
+ *ERROR*)
+  log 1 "CRYSTAL abort."
+  errstop "Initial energy could not be computed, most likely due to bad
+   initial parameters. Try provide a better initial input file." ;;
+ esac
+ energy0=$energy ; ecurrent=$energy
+ log 1 "E = $energy"
+ # Generate initial set of directions for Powell's method (unit vectors)
+ i=0 ; ii=$((nparam+1))
+ while ((i<nparam)) ; do
+  i=$((i+1)) ; ii=$((ii-1)) ; dir="" ; j=0
+  while ((j<nparam)) ; do
+   j=$((j+1)) ; k=0 ; ((j==i)) && k=1
+   dir="$dir $k"
+  done
+  direction[$ii]=$dir
+ done
+ log 1 "Unit vectors generated." ""
+ # Start loop over Powell iterations
+ mainiter=0 ; converged=0
+ while : ; do
+  mainiter=$((mainiter+1))
+  log 0 "ITERATION $mainiter" ""
+  # Loop over directions in the set
+  param0=$(unroll_params) ; f0=$ecurrent
+  i=0 ; nfail=0 ; max_deltaf=0 ; imax=0
+  while ((i<nparam)) ; do
+   # Minimize along current direction.
+   i=$((i+1)) ; fprev=$ecurrent
+   log 1 "Iteration $mainiter, direction $i"
+   param_backup=$(unroll_params)
+   if ! minimize_along "${direction[$i]}" ; then
+    log 2 "Line minimization failed. Data discarded."
+    nfail=$((nfail+1))
+   else
+    write_file $output_file
+    write_file -r $resume_file
+    deltaf=$(compute "$fprev - $ecurrent")
+    if [ "$(compare_num $deltaf $max_deltaf)" != lt ] ; then
+     max_deltaf=$deltaf ; imax=$i
+     log 2 "Best direction so far, dE = $deltaf"
+    fi
+   fi
+   log 0 ""
+  done
+  # Check for failure
+  if ((nfail==nparam)) ; then
+   log 0 "Last iteration unsuccessful. Quitting." ""
+   converged=1 ; break
+  fi
+  # Check for convergence
+  fn=$ecurrent ; absf0=$(abs $f0) ; absfn=$(abs $fn)
+  criterion=$(compute "2*($f0 - $fn) - $mainftol*($absf0 + $absfn)")
+  if [ "$(compare_num $criterion 0)" != gt ] ; then
+   log 0 "Optimization complete." ""
+   converged=1 ; break
+  fi
+  # Substitute old direction by new one
+  log 1 "Updating directions."
+  fn=$ecurrent ; paramn=$(unroll_params) ; param_backup="$paramn"
+  param_ex=$(add_cv -1 "$param0" "$paramn")
+  param_ex=$(add_cv 1 "$paramn" "$param_ex")
+  roll_params $param_ex ; do_calc ; fex=$energy ; roll_params $paramn
+  log 2 "At extrapolated point, E = $energy"
+  upd_point=0
+  case "$fex" in
+  *ERROR*) upd_dir=0 ;;
+  *) upd_dir=0
+   if [ "$(compare_num $fex $f0)" = lt ] ; then
+    criterion=$(compute "2*($f0 -2*$fn + $fex)*($f0 - $fn - $max_deltaf)^2 -\
+     $max_deltaf*($f0 - $fex)^2")
+    [ "$(compare_num $criterion 0)" = lt ] && upd_dir=1
+    [ "$(compare_num $fex $fn)" = lt ] && upd_point=1
+   fi ;;
+  esac
+  if ((upd_dir==1)) ; then
+   dir=$(add_cv -1 "$param0" "$paramn")
+   ((imax!=nparam)) && direction[$imax]=${direction[$nparam]}
+   log 2 "Substituting vector $imax by new one."
+   log 1 "Global direction"
+   direction[$nparam]=$dir
+   param_backup=$(unroll_params)
+   minimize_along "${direction[$nparam]}" && { write_file $output_file ;\
+    write_file -r $resume_file ; }
+  else
+   log 2 "Not changing any direction."
+   if ((upd_point==1)) ; then
+    log 2 "Moving to extrapolated point."
+    roll_params $param_ex ; ecurrent=$fex
+   fi
+  fi
+  log 0 ""
+  log 1 "After iteration $mainiter, E = $ecurrent." ""
+  ((mainiter>=maxiter)) && { log 0 "" "Maxiter exceeded." "" ; break ; }
+ done
+ log 0 "Total number of CRYSTAL runs: $nf_eval"
+ log 0 "Final E = $ecurrent"
+}
+
+function finish_off {
+ # Remove temporary directory and write set of params
+ cd $orig_wdir ; rm -rf $tempdir
+ write_file $output_file
+ write_file -r $resume_file
+ log 0 "" "Job finished at $(date)."
+ exit
+}
+
+function abort {
+ # Stop optimization and write last good set of params
+ log 0 "" "*** ABORTED BY SIGNAL ***"\
+  "" "Writing best parameters so far to $output_file." ""
+ roll_params $param_backup ; finish_off
+}
+
+#########################> End main functions <#########################
+
+# Main code
+print_header
+check_env
+parse_cmd "$@"
+input_files_dos2unix
+analyze_file
+setup_opt
+trap abort INT QUIT TERM ; trap "" HUP
+minimize
+finish_off

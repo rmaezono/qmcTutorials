@@ -1,0 +1,60 @@
+REBLOCKING UTILITY
+------------------
+
+You have some set of random data with a mean and a standard error. The means
+are easy to calculate but the standard error depends on the block size.
+Reblock will compute the standard error for a range of block sizes and
+also compute the mean values of the total energy and its components.
+
+Requires as input a vmc.hist or dmc.hist file as produced by CASINO VMC and DMC
+calculations.
+
+Reblock will also plot graphs of standard error vs. block size (visualize using
+the plot_reblock script).
+
+Note that CASINO itself will compute reblocked error bars on the fly for the
+total energy and its components, which should agree with the error bars
+computed by the reblock utility. However, the utility allows a more
+detailed statistical analysis, facilitates visualization of data, allows
+the computation of reblocked error bars on other expectation values stored
+in the hist files (dipole moments, forces..).
+
+Normal interactive use
+----------------------
+
+(1) Get a vmc.hist or dmc.hist file.
+
+(2) Type 'reblock' - program will detect vmc.hist or dmc.hist and act
+    appropriately - it will object if both are present.
+
+(3) Answer the questions.
+
+Non-interactive use
+-------------------
+If you don't want the reblock utility to ask you any questions, then create a
+'reblock.in' file containing the data it would normally ask for.
+
+For VMC, this will contain 3 integers on the same line. These are :
+
+units : 1=Ha/molecule, 2=eV/molecule, 3=Ha/atom, 4=eV/atom, 5=kcal/mol (finite)
+        1=Ha/primcell, 2=eV/primcell, 3=Ha/atom, 4=eV/atom            (periodic)
+        1=Ha/electron, 2=eV/electron, (3=Ex.u/exciton)               (e and e-h)
+
+block length : as it says
+
+interaction type : 1=Ewald, 2=MPC (only relevant if both present in same file)
+
+For DMC, you need 4 integers
+
+units : 1=Ha/molecule, 2=eV/molecule, 3=Ha/atom, 4=eV/atom, 5=kcal/mol (finite)
+        1=Ha/primcell, 2=eV/primcell, 3=Ha/atom, 4=eV/atom            (periodic)
+        1=Ha/electron, 2=eV/electron, (3=Ex.u/exciton)               (e and e-h)
+
+nstart : compute stats from which line (if 0, then it starts at nequil+1)
+
+nave  : how many lines to average over ('0' to include all remaining data)
+
+block length : as it says
+
+
+MDT 4.2000

@@ -1,0 +1,47 @@
+#!/bin/bash
+# Visualize the reblock.plot file (std error in total energy vs. block size)
+# using the xmgrace or gnuplot packages.
+
+[ ! -e reblock.plot ] && { echo "This utility is used to plot the reblock.plot file, but no such file exists." ; exit 1 ; }
+
+[ -z "$DISPLAY" ] && { echo "Your session seems not to be associated with an\
+ X server." ; exit ; }
+
+if [ -z "$PLOTTER" ] ; then # Guess plotter
+ if type xmgrace >& /dev/null ; then
+  PLOTTER=xmgrace
+ elif type gnuplot >& /dev/null ; then
+  PLOTTER=gnuplot
+ else
+  echo "Could not find a compatible plotting program in path (currently I know about xmgrace or gnuplot)"
+  exit
+ fi
+elif [ ! -x "$PLOTTER" ] ; then # Check plotter and warn
+ ! type "$PLOTTER" >& /dev/null && echo "Warning: PLOTTER=$PLOTTER but such\
+ program appears not to be present."
+fi
+
+if [[ $PLOTTER == *gnuplot* ]] ; then # gnuplot
+
+ gnubatch=".gnubatch" # temporary gnuplot batch file.
+ plotopts="-persist $gnubatch"
+ rm -f $gnubatch >& /dev/null
+ touch $gnubatch
+
+ cat > $gnubatch <<EOF
+set title 'Reblocking analysis of total energy' font ',14'
+set autoscale
+set datafile fortran
+set format y '%12.6g'
+set xlabel 'Reblocking transformation number' font ',9'
+set ylabel 'Reblocked standard error in mean energy (a.u.)' font ',9'
+plot 'reblock.plot' with yerrorbars
+EOF
+
+elif [ "${PLOTTER//xmgrace}" != "$PLOTTER" ] ; then # xmgrace
+
+plotopts="-free -noask -settype xydy reblock.plot -pexec 'XAXIS LABEL \"Reblocking transformation number\"; YAXIS LABEL \"Reblocked standard error in mean energy \(a.u.\)\"; TITLE \"Reblocking analysis of total energy\" ; page background fill off ; s0 symbol 1 ; s0 symbol fill pattern 1 ; s0 symbol size 0.5 ; s0 line type 0 ; world ymin 0'"
+
+fi # which PLOTTER
+
+eval $PLOTTER $plotopts ; [[ $PLOTTER == *gnuplot* ]] && rm -f $gnubatch

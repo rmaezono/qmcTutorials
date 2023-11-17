@@ -1,0 +1,29 @@
+PLOT_MPC
+========
+
+MDT 5.2006
+
+This routine allows you to produce real space plots of the quantities stored
+in Fourier space in the mpc.data file, namely :
+
+1. the SCF density calculated from the input trial wave function
+2. 1/r (NOT CURRENTLY IMPLEMENTED)
+
+Control of the plot is performed through the 'plot_expval' block in
+input (this is ignored during a normal CASINO run).
+
+The structure of this block is as follows :
+
+ LINE 1: dimensionality of plot ndim 1/2/3, OR EQUIVALENTLY, line/plane/volume
+ LINE 2: No. of points along each of the ndim directions
+ LINE 3: xyz coords of point A
+ LINE 4: xyz coords of point B
+ LINE 5: xyz coords of point C (if reqd.)
+ LINE 6: xyz coords of point D (if reqd.).
+
+assuming the geometrical region on which the function is plotted is a
+line AB / plane AB-AC / volume AB-AC-AD. The data will be plotted in a
+format suitable for xmgr/grace in the file 'lineplot.dat' or in a format
+suitable for gnuplot in '2Dplot.dat' or '3Dplot.dat'. Visualize the latter
+using the plot_2D CASINO utility which calls gnuplot with all the
+right options.
