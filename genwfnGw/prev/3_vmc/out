@@ -1,0 +1,3687 @@
+ ------------------------------------------------------------------------------
+
+                   #####
+                  ##   ##    ##     ####   ##  #   ##   ####
+                  ##        ####   ##      ##  ##  ##  ##  ##
+                  ##       ##  ##   ####   ##  ### ##  ##  ##
+                  ##       ######      ##  ##  ## ###  ##  ##
+                  ##   ##  ##  ##  ##  ##  ##  ##  ##  ##  ##
+                   #####   ##  ##   ####   ##  ##   #   ####
+
+                     The Cambridge Quantum Monte Carlo Code
+                             CASINO version unknown
+
+      Main Authors : R.J.Needs, M.D.Towler, N.D.Drummond and P.Lopez Rios
+
+            Theory of Condensed Matter Group, Cavendish Laboratory,
+                University of Cambridge, Cambridge, CB3 OHE, UK.
+
+           CASINO web page: www.tcm.phy.cam.ac.uk/~mdt26/casino2.html
+
+                      Current contact: mdt26 at cam.ac.uk
+
+         No redistribution or modification without explicit permission.
+
+ ------------------------------------------------------------------------------
+ Started 2012/03/12 18:43:03.774
+
+ Running in parallel on 4 processors.
+
+ General input parameters
+ ========================
+ NEU (num up spin electrons)              :  5
+ NED (num down spin electrons)            :  5
+ RUNTYPE (type of run)                    :  vmc
+ PSI_S  (form for [anti]symmetrizing wfn) :  slater
+ ATOM_BASIS_TYPE (atom-centred orb basis) :  gaussian
+ INTERACTION (interaction type)           :  coulomb
+ TESTRUN (read input data,print and stop) :  F
+ PERIODIC                                 :  F
+ COMPLEX_WF (complex Slater wave fn.)     :  F
+ NEIGHPRINT (neighbour analysis)          :  0
+ USE_JASTROW (use Jastrow factor)         :  T
+ BACKFLOW (use backflow corrections)      :  F
+ DBARRC (DBAR recalculation period)       :  100000
+ USE_ORBMODS (use orbitals modifications) :  F
+ CUSP_CORRECTION                          :  T
+ MOLGSCREENING                            :  F
+ NON_LOCAL_GRID (NL integration grid)     :  4
+ E_OFFSET (energy offset)                 :  0.0000
+ GAUTOL  (Gaussian evaluation tolerance)  :  7.0
+ SPARSE                                   :  F
+ EVAL_DIPOLE_MOMENT                       :  F
+ CHECKPOINT (checkpointing level)         :  1
+ CHECKPOINT_NCPU (chkpnt group size)      :  4
+ CON_LOC (Dir to read/write config.*)     :  ./
+ RELATIVISTIC                             :  F
+
+ VMC input parameters
+ ====================
+ NEWRUN (start new run)                   :  T
+ VMC_METHOD (choice of VMC algorithm)     :  1
+ DTVMC (VMC timestep)                     :  1.0000E-01
+ OPT_DTVMC (VMC timestep optimization)    :  1
+ VMC_NSTEP (num VMC steps)                :  100000
+ VMC_NCONFIG_WRITE (num configs to write) :  0
+ VMC_NBLOCK (num VMC blocks)              :  100
+ VMC_EQUIL_NSTEP (num equil steps)        :  10000
+ VMC_DECORR_PERIOD (length of inner loop) :  10
+ VMC_AVE_PERIOD (hist reduction factor)   :  1000
+ MAKEMOVIE                                :  F
+ FORCES                                   :  F
+
+ Particles
+ =========
+ Particle name                 Charge        Mass         Spin   Type
+ -------------------------------------------------------------------------
+ 1: Spin-up electron          -1.00000       1.0000000     0.5   Fermion
+ 2: Spin-down electron        -1.00000       1.0000000    -0.5   Fermion
+ -------------------------------------------------------------------------
+
+ Number of diffusion types : 1
+
+ Single-particle groupings
+ -------------------------
+ Spin dep. 0 : (1,2) [F] [E]
+ Spin dep. 1 : (1) (2)
+
+ NB, partitions defining spin-[F]amilies and [E]quivalent particles flagged.
+
+ Particle-pair groupings
+ -----------------------
+ Spin-pair dep. 0 : (1-1,1-2,2-2)
+ Spin-pair dep. 1 : (1-1,2-2) (1-2)
+ Spin-pair dep. 2 : (1-1) (1-2) (2-2)
+
+ Initialize random number generator
+ ==================================
+ Generator                                 :  RANLUX
+ RANLUX luxury level                       :  3
+ p value                                   :  223
+
+ Initialized from default seed on node 0   :  314159265
+
+ Reading correlation.data
+ ========================
+ Header:
+   No title given.
+ Version of correlation.data : 1
+ A Jastrow factor is present in correlation.data.
+
+ Reading parameters.casl
+ =======================
+ File parameters.casl not present.
+
+ No multideterminant/excitation data supplied.
+ Using ground state defined in xwfn.data file.
+
+ Reading Gaussian wave function and associated data
+ ==================================================
+
+ Title :  H2O HF/STO-3G wfn for QMC
+
+ Generating code                           :  Gaussian 03, Revision C or later
+ Method                                    :  RHF
+ DFT functional                            :  none
+ Periodicity                               :  0 (molecule)
+ Spin restricted?                          :  Yes
+
+ Total number of electrons                 :  10
+
+ Basis set information
+
+ Number of atoms                           :  3
+ Number of shells                          :  4
+ Number of basis fns                       :  7
+ Number of primitives                      :  12
+ Highest ang momentum                      :  2
+
+ Gaussian basis sets:
+ ------------------------------------------------------------------
+   Atom  x(au)  y(au)  z(au)    No. Type  Exponent    Coefficients
+ ------------------------------------------------------------------
+   1 O     0.000    0.000    0.209
+                             1-   1  s
+                                         1.307E+02     4.252E+00
+                                         2.381E+01     4.112E+00
+                                         6.444E+00     1.282E+00
+                                  2sp
+                                         5.033E+00-2.394E-01 1.675E+00
+                                         1.170E+00 3.202E-01 1.054E+00
+                                         3.804E-01 2.417E-01 1.669E-01
+   2 H     0.000    1.481   -0.838
+                             6-   6  s
+                                         3.425E+00     2.769E-01
+                                         6.239E-01     2.678E-01
+                                         1.689E-01     8.347E-02
+   3 H     0.000   -1.481   -0.838
+ ------------------------------------------------------------------
+ Single determinant :
+
+ Det 1 spin 1           : ground state
+ Det 1 spin 2           : ground state
+ Det 1 coefficient      : 1.00000000
+
+ Pseudopotentials
+ ================
+ No pseudopotential for O - treating as all-electron.
+ No pseudopotential for H - treating as all-electron.
+
+ Geometry derived from information in gwfn.data
+ ==============================================
+
+ Simulation cell : Finite (atomic/molecular geometry)
+
+ Atom Atno  Type              Position (Cartesian au)
+ -------------------------------------------------------------
+    1   8   1         0.00000000     0.00000000     0.20940410
+    2   1   2         0.00000000     1.48149973    -0.83761639
+    3   1   2         0.00000000    -1.48149973    -0.83761639
+
+ Molecule does not appear to have inversion symmetry.
+
+ Neighbour analysis of the atoms in the molecule
+ -----------------------------------------------
+   Atom   N     R(Ang)     R(au)    Neighbours
+   1 O    2     0.9600     1.8141   3 H    0 0 0   2 H    0 0 0
+
+   2 H    1     0.9600     1.8141   1 O    0 0 0
+
+   3 H    1     0.9600     1.8141   1 O    0 0 0
+
+ Gaussian cusp correction
+ ========================
+ Activated.
+
+ Expectation values
+ ==================
+ None requested.
+
+ Interactions
+ ============
+ Interaction type: Coulomb
+ System is aperiodic. Using 1/r only.
+
+ Nuclear repulsion energy (au)
+ =============================
+ EIONION from file  : 9.157115980300
+ Calculated EIONION : 9.157115996230
+
+ Calculated and input nuclear repulsion energies agree.
+
+ Jastrow factor
+ ==============
+ Reading Jastrow factor from correlation.data file.
+
+ Title: H2O
+
+ Truncation order                   :  2
+ Local energy is discontinuous at cutoffs.
+
+ U term:
+  SET 1
+   Spherical harmonic l             :  0
+   Spherical harmonic m             :  0
+   Expansion order (N_u)            :  4
+   Spin dependence                  :  1
+   Cutoff             (optimizable) :  5.138596677594790E+00
+   alpha_0,1          (optimizable) : -2.777424669054355E-03
+   alpha_2,1          (optimizable) : -4.711205364341375E-04
+   alpha_3,1          (optimizable) :  2.302668385378155E-05
+   alpha_4,1          (optimizable) :  2.164908499293491E-05
+   alpha_0,2          (optimizable) : -5.167138483893189E-03
+   alpha_2,2          (optimizable) : -2.115010701563341E-03
+   alpha_3,2          (optimizable) :  2.084282497160297E-04
+   alpha_4,2          (optimizable) :  2.192173873294270E-04
+   No. of parameters in set         :  8
+   (In addition to the cutoff length.)
+
+ Chi term:
+  Number of sets                    :  2
+  SET 1:
+   Spherical harmonic l             :  0
+   Spherical harmonic m             :  0
+   Number of atoms in set           :  1
+   The atoms are:
+    1
+   Electron-nucleus cusp not imposed in Jastrow
+   Expansion order (N_chi)          :  4
+   Spin dependence                  :  0
+   Cutoff             (optimizable) :  4.153169306070190E+00
+   beta_0,1,1         (optimizable) :  9.974352350695409E-05
+   beta_2,1,1         (optimizable) : -1.311593746281616E-02
+   beta_3,1,1         (optimizable) : -3.177440360758122E-03
+   beta_4,1,1         (optimizable) : -1.290196501638038E-03
+   No. of parameters in set         :  4
+   (In addition to the cutoff length.)
+  SET 2:
+   Spherical harmonic l             :  0
+   Spherical harmonic m             :  0
+   Number of atoms in set           :  2
+   The atoms are:
+    2    3
+   Electron-nucleus cusp not imposed in Jastrow
+   Expansion order (N_chi)          :  4
+   Spin dependence                  :  0
+   Cutoff             (optimizable) :  4.911554220203330E+00
+   beta_0,1,2         (optimizable) : -1.949704908435371E-03
+   beta_2,1,2         (optimizable) : -1.682472833501176E-03
+   beta_3,1,2         (optimizable) : -7.508827633564561E-04
+   beta_4,1,2         (optimizable) : -4.023817705698292E-04
+   No. of parameters in set         :  4
+   (In addition to the cutoff length.)
+
+ F term:
+  Number of sets                    :  2
+  SET 1:
+   Number of atoms in set           :  1
+   The atoms are:
+    1
+   No constraints applied to avoid duplicating u.
+   No constraints applied to avoid duplicating chi.
+   Expansion order (N_f_eN)         :  2
+   Expansion order (N_f_ee)         :  2
+   Spin dependence                       :  0
+   Cutoff             (optimizable) :  3.093716991787740E+00
+   gamma_1,1,0,1,1    (optimizable) :  4.556717158317495E-05
+   gamma_2,1,0,1,1    (optimizable) : -3.374744863048950E-04
+   gamma_2,2,0,1,1    (optimizable) : -1.174446504635049E-03
+   gamma_0,0,2,1,1    (optimizable) : -8.089099580229108E-04
+   gamma_1,0,2,1,1    (optimizable) : -6.444151518837792E-05
+   gamma_1,1,2,1,1    (optimizable) :  1.841314215746878E-04
+   gamma_2,1,2,1,1    (optimizable) :  2.617620871608502E-05
+   gamma_2,2,2,1,1    (optimizable) :  7.603253003785912E-05
+   No. of parameters in set         :  8
+   (In addition to the cutoff length.)
+  SET 2:
+   Number of atoms in set           :  2
+   The atoms are:
+    2    3
+   No constraints applied to avoid duplicating u.
+   No constraints applied to avoid duplicating chi.
+   Expansion order (N_f_eN)         :  2
+   Expansion order (N_f_ee)         :  2
+   Spin dependence                       :  0
+   Cutoff             (optimizable) :  3.115751970091160E+00
+   gamma_1,1,0,1,2    (optimizable) : -1.446487375666020E-04
+   gamma_2,1,0,1,2    (optimizable) : -1.107687841977275E-04
+   gamma_2,2,0,1,2    (optimizable) : -2.015903734632615E-04
+   gamma_0,0,2,1,2    (optimizable) : -4.906258944472953E-04
+   gamma_1,0,2,1,2    (optimizable) : -6.711704884056205E-05
+   gamma_1,1,2,1,2    (optimizable) :  4.333347483167322E-05
+   gamma_2,1,2,1,2    (optimizable) : -2.098482312716002E-05
+   gamma_2,2,2,1,2    (optimizable) :  1.408322955542247E-04
+   No. of parameters in set         :  8
+   (In addition to the cutoff length.)
+
+ Finished reading Jastrow factor from correlation.data.
+
+ Imposed symmetry and no-cusp constraints on gamma array.
+ Checked that gamma array satisfies its constraints.
+ Polynomials constructed.
+ Checked that cusp and cutoff conditions are satisfied.
+
+ Finished Jastrow setup.
+
+
+ Setup complete.
+
+ ====================================
+ PERFORMING A SINGLE VMC CALCULATION.
+ ====================================
+
+
+ BEGIN VMC CALCULATION
+ =====================
+
+ No of up/down spin electrons initially associated with each ion:
+ ----------------------------------------------------------------
+ Ion,    # up-spin, # down-spin
+ 1            4          4
+ 2            0          1
+ 3            1          0
+ [Use edist_by_ion/edist_by_iontype in input to change this]
+
+
+ Running VMC equilibration (10000 moves).
+  Performing timestep optimization.
+  Optimized DTVMC:  1.1729E-01
+ Done. [total CPU time: 1s]
+
+ Kinetic energy check performed.
+  Slater determinants - gradient: optimal, Laplacian: optimal.
+  Jastrow factor - gradient: optimal, Laplacian: optimal.
+ End of report.
+
+ Starting VMC.
+
+ =========================================================================
+ In block : 1
+
+ Acceptance ratio <level 1>        (%)  =  52.3233
+ Acceptance ratio <levels 1-2>     (%)  =  49.6600
+ Diffusion constant           (Bohr^2)  = 3.5243E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.802214982070
+
+  Kinetic energy KEI (used in Total) (au) =          81.837174988800
+
+  Kinetic energy TI                  (au) =          78.053695809203
+
+  Kinetic energy FISQ                (au) =          74.270216629605
+
+  Potential energy                   (au) =        -166.796505967100
+
+  e-e interaction                    (au) =          36.443864466630
+
+  e-n interaction                    (au) =        -203.240370433729
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.615267950643
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 2
+
+ Acceptance ratio <level 1>        (%)  =  52.4225
+ Acceptance ratio <levels 1-2>     (%)  =  49.7940
+ Diffusion constant           (Bohr^2)  = 3.5237E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.641004311774
+
+  Kinetic energy KEI (used in Total) (au) =          73.100455538686
+
+  Kinetic energy TI                  (au) =          73.316615745395
+
+  Kinetic energy FISQ                (au) =          73.532775952105
+
+  Potential energy                   (au) =        -157.898575846689
+
+  e-e interaction                    (au) =          36.163328394685
+
+  e-n interaction                    (au) =        -194.061904241374
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.456633549007
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 3
+
+ Acceptance ratio <level 1>        (%)  =  52.5200
+ Acceptance ratio <levels 1-2>     (%)  =  49.8348
+ Diffusion constant           (Bohr^2)  = 3.5335E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.699985894443
+
+  Kinetic energy KEI (used in Total) (au) =          70.649021079250
+
+  Kinetic energy TI                  (au) =          72.706939722877
+
+  Kinetic energy FISQ                (au) =          74.764858366505
+
+  Potential energy                   (au) =        -155.506122969922
+
+  e-e interaction                    (au) =          35.810646312116
+
+  e-n interaction                    (au) =        -191.316769282038
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.782434037301
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 4
+
+ Acceptance ratio <level 1>        (%)  =  52.5468
+ Acceptance ratio <levels 1-2>     (%)  =  49.8585
+ Diffusion constant           (Bohr^2)  = 3.5714E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.606220911475
+
+  Kinetic energy KEI (used in Total) (au) =          70.048492143794
+
+  Kinetic energy TI                  (au) =          71.961867395679
+
+  Kinetic energy FISQ                (au) =          73.875242647565
+
+  Potential energy                   (au) =        -154.811829051499
+
+  e-e interaction                    (au) =          35.778387922616
+
+  e-n interaction                    (au) =        -190.590216974115
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.292266645236
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 5
+
+ Acceptance ratio <level 1>        (%)  =  52.5898
+ Acceptance ratio <levels 1-2>     (%)  =  49.8838
+ Diffusion constant           (Bohr^2)  = 3.5545E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.631722449487
+
+  Kinetic energy KEI (used in Total) (au) =          67.707133353778
+
+  Kinetic energy TI                  (au) =          71.357231793271
+
+  Kinetic energy FISQ                (au) =          75.007330232764
+
+  Potential energy                   (au) =        -152.495971799494
+
+  e-e interaction                    (au) =          35.753303736920
+
+  e-n interaction                    (au) =        -188.249275536414
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.980656105841
+
+
+ Time taken in block    : : :        1.4000
+
+
+ =========================================================================
+ In block : 6
+
+ Acceptance ratio <level 1>        (%)  =  52.3642
+ Acceptance ratio <levels 1-2>     (%)  =  49.6758
+ Diffusion constant           (Bohr^2)  = 3.5269E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.740405929705
+
+  Kinetic energy KEI (used in Total) (au) =          70.598955265568
+
+  Kinetic energy TI                  (au) =          72.541702388737
+
+  Kinetic energy FISQ                (au) =          74.484449511907
+
+  Potential energy                   (au) =        -155.496477191502
+
+  e-e interaction                    (au) =          35.624057850516
+
+  e-n interaction                    (au) =        -191.120535042018
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           7.992026308084
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 7
+
+ Acceptance ratio <level 1>        (%)  =  52.4673
+ Acceptance ratio <levels 1-2>     (%)  =  49.7620
+ Diffusion constant           (Bohr^2)  = 3.5375E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.815258855430
+
+  Kinetic energy KEI (used in Total) (au) =          74.751489678805
+
+  Kinetic energy TI                  (au) =          75.500488419368
+
+  Kinetic energy FISQ                (au) =          76.249487159932
+
+  Potential energy                   (au) =        -159.723864530465
+
+  e-e interaction                    (au) =          36.276491319448
+
+  e-n interaction                    (au) =        -196.000355849913
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.398607226504
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 8
+
+ Acceptance ratio <level 1>        (%)  =  52.3593
+ Acceptance ratio <levels 1-2>     (%)  =  49.6838
+ Diffusion constant           (Bohr^2)  = 3.5284E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.828808813158
+
+  Kinetic energy KEI (used in Total) (au) =          73.253491980666
+
+  Kinetic energy TI                  (au) =          73.618495502580
+
+  Kinetic energy FISQ                (au) =          73.983499024494
+
+  Potential energy                   (au) =        -158.239416790053
+
+  e-e interaction                    (au) =          36.033372332410
+
+  e-n interaction                    (au) =        -194.272789122464
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.242659804642
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 9
+
+ Acceptance ratio <level 1>        (%)  =  52.4478
+ Acceptance ratio <levels 1-2>     (%)  =  49.7573
+ Diffusion constant           (Bohr^2)  = 3.5146E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.849882694899
+
+  Kinetic energy KEI (used in Total) (au) =          74.633399101280
+
+  Kinetic energy TI                  (au) =          74.384595387159
+
+  Kinetic energy FISQ                (au) =          74.135791673038
+
+  Potential energy                   (au) =        -159.640397792409
+
+  e-e interaction                    (au) =          35.808167333285
+
+  e-n interaction                    (au) =        -195.448565125694
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.757236462407
+
+
+ Time taken in block    : : :        1.4000
+
+
+ =========================================================================
+ In block : 10
+
+ Acceptance ratio <level 1>        (%)  =  52.5660
+ Acceptance ratio <levels 1-2>     (%)  =  49.8948
+ Diffusion constant           (Bohr^2)  = 3.5533E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.786548639018
+
+  Kinetic energy KEI (used in Total) (au) =          76.511866202592
+
+  Kinetic energy TI                  (au) =          75.913476264162
+
+  Kinetic energy FISQ                (au) =          75.315086325733
+
+  Potential energy                   (au) =        -161.455530837840
+
+  e-e interaction                    (au) =          36.110876484019
+
+  e-n interaction                    (au) =        -197.566407321859
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.742258770863
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 11
+
+ Acceptance ratio <level 1>        (%)  =  52.3258
+ Acceptance ratio <levels 1-2>     (%)  =  49.6745
+ Diffusion constant           (Bohr^2)  = 3.5294E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.841041299349
+
+  Kinetic energy KEI (used in Total) (au) =          74.764562152544
+
+  Kinetic energy TI                  (au) =          74.036441509062
+
+  Kinetic energy FISQ                (au) =          73.308320865580
+
+  Potential energy                   (au) =        -159.762719448123
+
+  e-e interaction                    (au) =          36.080734985953
+
+  e-n interaction                    (au) =        -195.843454434076
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.424655877721
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 12
+
+ Acceptance ratio <level 1>        (%)  =  52.4563
+ Acceptance ratio <levels 1-2>     (%)  =  49.7300
+ Diffusion constant           (Bohr^2)  = 3.5271E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.563724334303
+
+  Kinetic energy KEI (used in Total) (au) =          79.603950332234
+
+  Kinetic energy TI                  (au) =          77.015972668738
+
+  Kinetic energy FISQ                (au) =          74.427995005242
+
+  Potential energy                   (au) =        -164.324790662767
+
+  e-e interaction                    (au) =          36.221461133253
+
+  e-n interaction                    (au) =        -200.546251796020
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.349683823200
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 13
+
+ Acceptance ratio <level 1>        (%)  =  52.5415
+ Acceptance ratio <levels 1-2>     (%)  =  49.7700
+ Diffusion constant           (Bohr^2)  = 3.5402E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.844584809501
+
+  Kinetic energy KEI (used in Total) (au) =          79.416122034189
+
+  Kinetic energy TI                  (au) =          77.234404746932
+
+  Kinetic energy FISQ                (au) =          75.052687459676
+
+  Potential energy                   (au) =        -164.417822839920
+
+  e-e interaction                    (au) =          36.130333585735
+
+  e-n interaction                    (au) =        -200.548156425655
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.272145586304
+
+
+ Time taken in block    : : :        1.4000
+
+
+ =========================================================================
+ In block : 14
+
+ Acceptance ratio <level 1>        (%)  =  52.2583
+ Acceptance ratio <levels 1-2>     (%)  =  49.5913
+ Diffusion constant           (Bohr^2)  = 3.5375E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.679834437298
+
+  Kinetic energy KEI (used in Total) (au) =          79.162162072306
+
+  Kinetic energy TI                  (au) =          77.046357659864
+
+  Kinetic energy FISQ                (au) =          74.930553247423
+
+  Potential energy                   (au) =        -163.999112505834
+
+  e-e interaction                    (au) =          36.310731622557
+
+  e-n interaction                    (au) =        -200.309844128391
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.496627587492
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 15
+
+ Acceptance ratio <level 1>        (%)  =  52.4950
+ Acceptance ratio <levels 1-2>     (%)  =  49.7970
+ Diffusion constant           (Bohr^2)  = 3.5448E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.752749570675
+
+  Kinetic energy KEI (used in Total) (au) =          79.440877395505
+
+  Kinetic energy TI                  (au) =          76.697973934549
+
+  Kinetic energy FISQ                (au) =          73.955070473593
+
+  Potential energy                   (au) =        -164.350742962410
+
+  e-e interaction                    (au) =          36.113776275202
+
+  e-n interaction                    (au) =        -200.464519237612
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.005041146082
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 16
+
+ Acceptance ratio <level 1>        (%)  =  52.3900
+ Acceptance ratio <levels 1-2>     (%)  =  49.7185
+ Diffusion constant           (Bohr^2)  = 3.5011E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.636434884442
+
+  Kinetic energy KEI (used in Total) (au) =          78.959559914669
+
+  Kinetic energy TI                  (au) =          76.888690455731
+
+  Kinetic energy FISQ                (au) =          74.817820996793
+
+  Potential energy                   (au) =        -163.753110795340
+
+  e-e interaction                    (au) =          35.887714042793
+
+  e-n interaction                    (au) =        -199.640824838134
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.858744397172
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 17
+
+ Acceptance ratio <level 1>        (%)  =  52.3808
+ Acceptance ratio <levels 1-2>     (%)  =  49.6973
+ Diffusion constant           (Bohr^2)  = 3.5575E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -76.131352922229
+
+  Kinetic energy KEI (used in Total) (au) =          78.958803355363
+
+  Kinetic energy TI                  (au) =          76.894916590571
+
+  Kinetic energy FISQ                (au) =          74.831029825779
+
+  Potential energy                   (au) =        -164.247272273822
+
+  e-e interaction                    (au) =          35.899843815364
+
+  e-n interaction                    (au) =        -200.147116089187
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.891680921716
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 18
+
+ Acceptance ratio <level 1>        (%)  =  52.5540
+ Acceptance ratio <levels 1-2>     (%)  =  49.8473
+ Diffusion constant           (Bohr^2)  = 3.5508E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.730797643569
+
+  Kinetic energy KEI (used in Total) (au) =          68.182209307091
+
+  Kinetic energy TI                  (au) =          72.178905767369
+
+  Kinetic energy FISQ                (au) =          76.175602227647
+
+  Potential energy                   (au) =        -153.070122946890
+
+  e-e interaction                    (au) =          35.936185289103
+
+  e-n interaction                    (au) =        -189.006308235993
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.722072165298
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 19
+
+ Acceptance ratio <level 1>        (%)  =  52.3458
+ Acceptance ratio <levels 1-2>     (%)  =  49.6735
+ Diffusion constant           (Bohr^2)  = 3.5343E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.564750519362
+
+  Kinetic energy KEI (used in Total) (au) =          71.058442359097
+
+  Kinetic energy TI                  (au) =          72.496624290604
+
+  Kinetic energy FISQ                (au) =          73.934806222110
+
+  Potential energy                   (au) =        -155.780308874689
+
+  e-e interaction                    (au) =          35.952182604348
+
+  e-n interaction                    (au) =        -191.732491479037
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.493847892579
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 20
+
+ Acceptance ratio <level 1>        (%)  =  52.4035
+ Acceptance ratio <levels 1-2>     (%)  =  49.7550
+ Diffusion constant           (Bohr^2)  = 3.5373E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.918977263326
+
+  Kinetic energy KEI (used in Total) (au) =          81.685664711415
+
+  Kinetic energy TI                  (au) =          78.340911737675
+
+  Kinetic energy FISQ                (au) =          74.996158763936
+
+  Potential energy                   (au) =        -166.761757970971
+
+  e-e interaction                    (au) =          35.940684031160
+
+  e-n interaction                    (au) =        -202.702442002131
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.404152405416
+
+
+ Time taken in block    : : :        1.4100
+
+
+ =========================================================================
+ In block : 21
+
+ Acceptance ratio <level 1>        (%)  =  52.2985
+ Acceptance ratio <levels 1-2>     (%)  =  49.6208
+ Diffusion constant           (Bohr^2)  = 3.5337E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.744621617895
+
+  Kinetic energy KEI (used in Total) (au) =          74.483976900835
+
+  Kinetic energy TI                  (au) =          74.325528151810
+
+  Kinetic energy FISQ                (au) =          74.167079402785
+
+  Potential energy                   (au) =        -159.385714514960
+
+  e-e interaction                    (au) =          36.071740373339
+
+  e-n interaction                    (au) =        -195.457454888299
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.971523262214
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 22
+
+ Acceptance ratio <level 1>        (%)  =  52.3140
+ Acceptance ratio <levels 1-2>     (%)  =  49.6623
+ Diffusion constant           (Bohr^2)  = 3.5228E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.987902937003
+
+  Kinetic energy KEI (used in Total) (au) =          71.550728090222
+
+  Kinetic energy TI                  (au) =          73.192058189109
+
+  Kinetic energy FISQ                (au) =          74.833388287996
+
+  Potential energy                   (au) =        -156.695747023456
+
+  e-e interaction                    (au) =          36.156593542847
+
+  e-n interaction                    (au) =        -192.852340566303
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.265523655509
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 23
+
+ Acceptance ratio <level 1>        (%)  =  52.4040
+ Acceptance ratio <levels 1-2>     (%)  =  49.7633
+ Diffusion constant           (Bohr^2)  = 3.5031E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.685661718322
+
+  Kinetic energy KEI (used in Total) (au) =          74.360878095109
+
+  Kinetic energy TI                  (au) =          73.877529630418
+
+  Kinetic energy FISQ                (au) =          73.394181165727
+
+  Potential energy                   (au) =        -159.203655809661
+
+  e-e interaction                    (au) =          36.040495669864
+
+  e-n interaction                    (au) =        -195.244151479526
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.458259492436
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 24
+
+ Acceptance ratio <level 1>        (%)  =  52.6680
+ Acceptance ratio <levels 1-2>     (%)  =  49.9723
+ Diffusion constant           (Bohr^2)  = 3.5722E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.625939262092
+
+  Kinetic energy KEI (used in Total) (au) =          66.775720353930
+
+  Kinetic energy TI                  (au) =          70.645100444902
+
+  Kinetic energy FISQ                (au) =          74.514480535875
+
+  Potential energy                   (au) =        -151.558775612251
+
+  e-e interaction                    (au) =          35.853671671020
+
+  e-n interaction                    (au) =        -187.412447283272
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.486385577209
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 25
+
+ Acceptance ratio <level 1>        (%)  =  52.4935
+ Acceptance ratio <levels 1-2>     (%)  =  49.8058
+ Diffusion constant           (Bohr^2)  = 3.5445E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.592758810210
+
+  Kinetic energy KEI (used in Total) (au) =          74.145769317449
+
+  Kinetic energy TI                  (au) =          74.213283935691
+
+  Kinetic energy FISQ                (au) =          74.280798553933
+
+  Potential energy                   (au) =        -158.895644123888
+
+  e-e interaction                    (au) =          35.823529500764
+
+  e-n interaction                    (au) =        -194.719173624653
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.884188857335
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 26
+
+ Acceptance ratio <level 1>        (%)  =  52.4323
+ Acceptance ratio <levels 1-2>     (%)  =  49.7918
+ Diffusion constant           (Bohr^2)  = 3.5099E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.844680091963
+
+  Kinetic energy KEI (used in Total) (au) =          76.345169904032
+
+  Kinetic energy TI                  (au) =          76.113376505505
+
+  Kinetic energy FISQ                (au) =          75.881583106977
+
+  Potential energy                   (au) =        -161.346965992225
+
+  e-e interaction                    (au) =          36.159832483502
+
+  e-n interaction                    (au) =        -197.506798475726
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.897990509189
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 27
+
+ Acceptance ratio <level 1>        (%)  =  52.5862
+ Acceptance ratio <levels 1-2>     (%)  =  49.9018
+ Diffusion constant           (Bohr^2)  = 3.5647E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.152632818516
+
+  Kinetic energy KEI (used in Total) (au) =          74.476195178288
+
+  Kinetic energy TI                  (au) =          74.651904325314
+
+  Kinetic energy FISQ                (au) =          74.827613472339
+
+  Potential energy                   (au) =        -158.785943993035
+
+  e-e interaction                    (au) =          36.136779492555
+
+  e-n interaction                    (au) =        -194.922723485590
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.821418866098
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 28
+
+ Acceptance ratio <level 1>        (%)  =  52.4715
+ Acceptance ratio <levels 1-2>     (%)  =  49.7455
+ Diffusion constant           (Bohr^2)  = 3.5553E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.806293188584
+
+  Kinetic energy KEI (used in Total) (au) =          77.866341323043
+
+  Kinetic energy TI                  (au) =          76.438598475275
+
+  Kinetic energy FISQ                (au) =          75.010855627507
+
+  Potential energy                   (au) =        -162.829750507858
+
+  e-e interaction                    (au) =          36.020778103453
+
+  e-n interaction                    (au) =        -198.850528611311
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.498058303077
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 29
+
+ Acceptance ratio <level 1>        (%)  =  52.4920
+ Acceptance ratio <levels 1-2>     (%)  =  49.7748
+ Diffusion constant           (Bohr^2)  = 3.5400E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.785073702985
+
+  Kinetic energy KEI (used in Total) (au) =          75.873775707763
+
+  Kinetic energy TI                  (au) =          74.898666479145
+
+  Kinetic energy FISQ                (au) =          73.923557250527
+
+  Potential energy                   (au) =        -160.815965406978
+
+  e-e interaction                    (au) =          35.992887701855
+
+  e-n interaction                    (au) =        -196.808853108833
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.610322838919
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 30
+
+ Acceptance ratio <level 1>        (%)  =  52.6150
+ Acceptance ratio <levels 1-2>     (%)  =  49.9338
+ Diffusion constant           (Bohr^2)  = 3.5715E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.639035887875
+
+  Kinetic energy KEI (used in Total) (au) =          70.957943122673
+
+  Kinetic energy TI                  (au) =          73.186026944844
+
+  Kinetic energy FISQ                (au) =          75.414110767015
+
+  Potential energy                   (au) =        -155.754095006778
+
+  e-e interaction                    (au) =          35.975511099245
+
+  e-n interaction                    (au) =        -191.729606106023
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.779698147622
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 31
+
+ Acceptance ratio <level 1>        (%)  =  52.3130
+ Acceptance ratio <levels 1-2>     (%)  =  49.6165
+ Diffusion constant           (Bohr^2)  = 3.5477E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.338917889678
+
+  Kinetic energy KEI (used in Total) (au) =          78.352371119467
+
+  Kinetic energy TI                  (au) =          77.412138340883
+
+  Kinetic energy FISQ                (au) =          76.471905562298
+
+  Potential energy                   (au) =        -162.848405005376
+
+  e-e interaction                    (au) =          36.010927058490
+
+  e-n interaction                    (au) =        -198.859332063865
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.115460086039
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 32
+
+ Acceptance ratio <level 1>        (%)  =  52.4525
+ Acceptance ratio <levels 1-2>     (%)  =  49.7638
+ Diffusion constant           (Bohr^2)  = 3.5439E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.733107133892
+
+  Kinetic energy KEI (used in Total) (au) =          70.459865229446
+
+  Kinetic energy TI                  (au) =          72.948927199470
+
+  Kinetic energy FISQ                (au) =          75.437989169494
+
+  Potential energy                   (au) =        -155.350088359567
+
+  e-e interaction                    (au) =          36.194046584663
+
+  e-n interaction                    (au) =        -191.544134944230
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.628738829179
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 33
+
+ Acceptance ratio <level 1>        (%)  =  52.4765
+ Acceptance ratio <levels 1-2>     (%)  =  49.8188
+ Diffusion constant           (Bohr^2)  = 3.5412E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.834501474838
+
+  Kinetic energy KEI (used in Total) (au) =          78.732163013982
+
+  Kinetic energy TI                  (au) =          76.187820420273
+
+  Kinetic energy FISQ                (au) =          73.643477826565
+
+  Potential energy                   (au) =        -163.723780485050
+
+  e-e interaction                    (au) =          35.754525780149
+
+  e-n interaction                    (au) =        -199.478306265199
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           7.122772746582
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 34
+
+ Acceptance ratio <level 1>        (%)  =  52.4665
+ Acceptance ratio <levels 1-2>     (%)  =  49.7898
+ Diffusion constant           (Bohr^2)  = 3.5514E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.619378777795
+
+  Kinetic energy KEI (used in Total) (au) =          75.202389064969
+
+  Kinetic energy TI                  (au) =          75.077942539561
+
+  Kinetic energy FISQ                (au) =          74.953496014154
+
+  Potential energy                   (au) =        -159.978883838994
+
+  e-e interaction                    (au) =          35.973632330701
+
+  e-n interaction                    (au) =        -195.952516169695
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.283250572370
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 35
+
+ Acceptance ratio <level 1>        (%)  =  52.3813
+ Acceptance ratio <levels 1-2>     (%)  =  49.7023
+ Diffusion constant           (Bohr^2)  = 3.5332E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.802724419579
+
+  Kinetic energy KEI (used in Total) (au) =          73.972160057235
+
+  Kinetic energy TI                  (au) =          74.240464532638
+
+  Kinetic energy FISQ                (au) =          74.508769008041
+
+  Potential energy                   (au) =        -158.932000473044
+
+  e-e interaction                    (au) =          36.121453736854
+
+  e-n interaction                    (au) =        -195.053454209898
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.233564010677
+
+
+ Time taken in block    : : :        1.4100
+
+
+ =========================================================================
+ In block : 36
+
+ Acceptance ratio <level 1>        (%)  =  52.4153
+ Acceptance ratio <levels 1-2>     (%)  =  49.7458
+ Diffusion constant           (Bohr^2)  = 3.5392E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.980245245744
+
+  Kinetic energy KEI (used in Total) (au) =          72.013286728256
+
+  Kinetic energy TI                  (au) =          72.885063913376
+
+  Kinetic energy FISQ                (au) =          73.756841098496
+
+  Potential energy                   (au) =        -157.150647970229
+
+  e-e interaction                    (au) =          35.925816844968
+
+  e-n interaction                    (au) =        -193.076464815197
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.458199851708
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 37
+
+ Acceptance ratio <level 1>        (%)  =  52.3990
+ Acceptance ratio <levels 1-2>     (%)  =  49.7410
+ Diffusion constant           (Bohr^2)  = 3.5480E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.731039656313
+
+  Kinetic energy KEI (used in Total) (au) =          79.172389997175
+
+  Kinetic energy TI                  (au) =          76.470466542231
+
+  Kinetic energy FISQ                (au) =          73.768543087287
+
+  Potential energy                   (au) =        -164.060545649718
+
+  e-e interaction                    (au) =          35.840004368521
+
+  e-n interaction                    (au) =        -199.900550018239
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.165211074765
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 38
+
+ Acceptance ratio <level 1>        (%)  =  52.4370
+ Acceptance ratio <levels 1-2>     (%)  =  49.7575
+ Diffusion constant           (Bohr^2)  = 3.5541E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.796356331615
+
+  Kinetic energy KEI (used in Total) (au) =          67.770713143913
+
+  Kinetic energy TI                  (au) =          71.398928915183
+
+  Kinetic energy FISQ                (au) =          75.027144686453
+
+  Potential energy                   (au) =        -152.724185471758
+
+  e-e interaction                    (au) =          35.892731013972
+
+  e-n interaction                    (au) =        -188.616916485729
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.073728313381
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 39
+
+ Acceptance ratio <level 1>        (%)  =  52.6743
+ Acceptance ratio <levels 1-2>     (%)  =  50.0063
+ Diffusion constant           (Bohr^2)  = 3.5318E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.529934307612
+
+  Kinetic energy KEI (used in Total) (au) =          70.983422937821
+
+  Kinetic energy TI                  (au) =          75.471275195292
+
+  Kinetic energy FISQ                (au) =          79.959127452763
+
+  Potential energy                   (au) =        -155.670473241662
+
+  e-e interaction                    (au) =          35.613677774665
+
+  e-n interaction                    (au) =        -191.284151016327
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           7.280930902758
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 40
+
+ Acceptance ratio <level 1>        (%)  =  52.3023
+ Acceptance ratio <levels 1-2>     (%)  =  49.5805
+ Diffusion constant           (Bohr^2)  = 3.5339E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.761112692442
+
+  Kinetic energy KEI (used in Total) (au) =          78.878122423166
+
+  Kinetic energy TI                  (au) =          76.714948065971
+
+  Kinetic energy FISQ                (au) =          74.551773708777
+
+  Potential energy                   (au) =        -163.796351111838
+
+  e-e interaction                    (au) =          36.149680042831
+
+  e-n interaction                    (au) =        -199.946031154669
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.679121907576
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 41
+
+ Acceptance ratio <level 1>        (%)  =  52.3688
+ Acceptance ratio <levels 1-2>     (%)  =  49.6988
+ Diffusion constant           (Bohr^2)  = 3.5875E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.418978969435
+
+  Kinetic energy KEI (used in Total) (au) =          70.982537746323
+
+  Kinetic energy TI                  (au) =          74.368533149406
+
+  Kinetic energy FISQ                (au) =          77.754528552489
+
+  Potential energy                   (au) =        -155.558632711988
+
+  e-e interaction                    (au) =          35.690954397198
+
+  e-n interaction                    (au) =        -191.249587109186
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.575744118174
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 42
+
+ Acceptance ratio <level 1>        (%)  =  52.4785
+ Acceptance ratio <levels 1-2>     (%)  =  49.7973
+ Diffusion constant           (Bohr^2)  = 3.5349E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.584486680327
+
+  Kinetic energy KEI (used in Total) (au) =          80.819450819649
+
+  Kinetic energy TI                  (au) =          77.790145074693
+
+  Kinetic energy FISQ                (au) =          74.760839329737
+
+  Potential energy                   (au) =        -165.561053496206
+
+  e-e interaction                    (au) =          35.894329974092
+
+  e-n interaction                    (au) =        -201.455383470298
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.543957286545
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 43
+
+ Acceptance ratio <level 1>        (%)  =  52.6260
+ Acceptance ratio <levels 1-2>     (%)  =  49.9153
+ Diffusion constant           (Bohr^2)  = 3.5642E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.612367971306
+
+  Kinetic energy KEI (used in Total) (au) =          74.306159852953
+
+  Kinetic energy TI                  (au) =          74.218707197020
+
+  Kinetic energy FISQ                (au) =          74.131254541087
+
+  Potential energy                   (au) =        -159.075643820489
+
+  e-e interaction                    (au) =          35.907308935323
+
+  e-n interaction                    (au) =        -194.982952755812
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.885759155476
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 44
+
+ Acceptance ratio <level 1>        (%)  =  52.2110
+ Acceptance ratio <levels 1-2>     (%)  =  49.5658
+ Diffusion constant           (Bohr^2)  = 3.5373E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.869668248844
+
+  Kinetic energy KEI (used in Total) (au) =          72.738544627940
+
+  Kinetic energy TI                  (au) =          74.389861108618
+
+  Kinetic energy FISQ                (au) =          76.041177589296
+
+  Potential energy                   (au) =        -157.765328873014
+
+  e-e interaction                    (au) =          36.186880157206
+
+  e-n interaction                    (au) =        -193.952209030221
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.868800098502
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 45
+
+ Acceptance ratio <level 1>        (%)  =  52.4400
+ Acceptance ratio <levels 1-2>     (%)  =  49.8028
+ Diffusion constant           (Bohr^2)  = 3.5355E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.384741422893
+
+  Kinetic energy KEI (used in Total) (au) =          72.406397959769
+
+  Kinetic energy TI                  (au) =          73.571544678724
+
+  Kinetic energy FISQ                (au) =          74.736691397679
+
+  Potential energy                   (au) =        -156.948255378892
+
+  e-e interaction                    (au) =          36.029949498536
+
+  e-n interaction                    (au) =        -192.978204877428
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.254723807646
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 46
+
+ Acceptance ratio <level 1>        (%)  =  52.4853
+ Acceptance ratio <levels 1-2>     (%)  =  49.7620
+ Diffusion constant           (Bohr^2)  = 3.5414E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.458535633057
+
+  Kinetic energy KEI (used in Total) (au) =          77.059290612543
+
+  Kinetic energy TI                  (au) =          76.588259237608
+
+  Kinetic energy FISQ                (au) =          76.117227862672
+
+  Potential energy                   (au) =        -161.674942241830
+
+  e-e interaction                    (au) =          35.936183239724
+
+  e-n interaction                    (au) =        -197.611125481555
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.960689870030
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 47
+
+ Acceptance ratio <level 1>        (%)  =  52.4315
+ Acceptance ratio <levels 1-2>     (%)  =  49.8080
+ Diffusion constant           (Bohr^2)  = 3.5366E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.638818886239
+
+  Kinetic energy KEI (used in Total) (au) =          73.423803867918
+
+  Kinetic energy TI                  (au) =          73.624056616354
+
+  Kinetic energy FISQ                (au) =          73.824309364789
+
+  Potential energy                   (au) =        -158.219738750387
+
+  e-e interaction                    (au) =          36.254455195961
+
+  e-n interaction                    (au) =        -194.474193946348
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.231100395166
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 48
+
+ Acceptance ratio <level 1>        (%)  =  52.4110
+ Acceptance ratio <levels 1-2>     (%)  =  49.7360
+ Diffusion constant           (Bohr^2)  = 3.5361E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.635135237079
+
+  Kinetic energy KEI (used in Total) (au) =          70.542167880816
+
+  Kinetic energy TI                  (au) =          72.395170750604
+
+  Kinetic energy FISQ                (au) =          74.248173620392
+
+  Potential energy                   (au) =        -155.334419114126
+
+  e-e interaction                    (au) =          35.826131375068
+
+  e-n interaction                    (au) =        -191.160550489193
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.939341024411
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 49
+
+ Acceptance ratio <level 1>        (%)  =  52.4223
+ Acceptance ratio <levels 1-2>     (%)  =  49.7643
+ Diffusion constant           (Bohr^2)  = 3.5448E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.334797563693
+
+  Kinetic energy KEI (used in Total) (au) =          69.987006981735
+
+  Kinetic energy TI                  (au) =          72.691379488366
+
+  Kinetic energy FISQ                (au) =          75.395751994996
+
+  Potential energy                   (au) =        -154.478920541658
+
+  e-e interaction                    (au) =          36.035310545455
+
+  e-n interaction                    (au) =        -190.514231087113
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.293976765669
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 50
+
+ Acceptance ratio <level 1>        (%)  =  52.4510
+ Acceptance ratio <levels 1-2>     (%)  =  49.7488
+ Diffusion constant           (Bohr^2)  = 3.5648E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.566778575066
+
+  Kinetic energy KEI (used in Total) (au) =          78.231233556036
+
+  Kinetic energy TI                  (au) =          76.100603703047
+
+  Kinetic energy FISQ                (au) =          73.969973850058
+
+  Potential energy                   (au) =        -162.955128127332
+
+  e-e interaction                    (au) =          36.162746800020
+
+  e-n interaction                    (au) =        -199.117874927352
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.700973832376
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 51
+
+ Acceptance ratio <level 1>        (%)  =  52.4825
+ Acceptance ratio <levels 1-2>     (%)  =  49.7888
+ Diffusion constant           (Bohr^2)  = 3.5291E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.725201112734
+
+  Kinetic energy KEI (used in Total) (au) =          74.576757984970
+
+  Kinetic energy TI                  (au) =          73.943245002285
+
+  Kinetic energy FISQ                (au) =          73.309732019599
+
+  Potential energy                   (au) =        -159.459075093935
+
+  e-e interaction                    (au) =          35.889272916665
+
+  e-n interaction                    (au) =        -195.348348010600
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.387612240234
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 52
+
+ Acceptance ratio <level 1>        (%)  =  52.3678
+ Acceptance ratio <levels 1-2>     (%)  =  49.7115
+ Diffusion constant           (Bohr^2)  = 3.5345E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.810984116153
+
+  Kinetic energy KEI (used in Total) (au) =          74.350204418619
+
+  Kinetic energy TI                  (au) =          73.639061682338
+
+  Kinetic energy FISQ                (au) =          72.927918946058
+
+  Potential energy                   (au) =        -159.318304531001
+
+  e-e interaction                    (au) =          36.179815467938
+
+  e-n interaction                    (au) =        -195.498119998939
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.724723835860
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 53
+
+ Acceptance ratio <level 1>        (%)  =  52.2795
+ Acceptance ratio <levels 1-2>     (%)  =  49.6743
+ Diffusion constant           (Bohr^2)  = 3.5679E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.504377397390
+
+  Kinetic energy KEI (used in Total) (au) =          69.727964860832
+
+  Kinetic energy TI                  (au) =          72.454943776723
+
+  Kinetic energy FISQ                (au) =          75.181922692614
+
+  Potential energy                   (au) =        -154.389458254452
+
+  e-e interaction                    (au) =          36.248662769592
+
+  e-n interaction                    (au) =        -190.638121024043
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.822810627647
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 54
+
+ Acceptance ratio <level 1>        (%)  =  52.5445
+ Acceptance ratio <levels 1-2>     (%)  =  49.9038
+ Diffusion constant           (Bohr^2)  = 3.5922E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.527786729598
+
+  Kinetic energy KEI (used in Total) (au) =          71.055813243994
+
+  Kinetic energy TI                  (au) =          72.361531556019
+
+  Kinetic energy FISQ                (au) =          73.667249868044
+
+  Potential energy                   (au) =        -155.740715969822
+
+  e-e interaction                    (au) =          35.961288462799
+
+  e-n interaction                    (au) =        -191.702004432621
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.797595267697
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 55
+
+ Acceptance ratio <level 1>        (%)  =  52.3290
+ Acceptance ratio <levels 1-2>     (%)  =  49.6325
+ Diffusion constant           (Bohr^2)  = 3.5326E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.321657083756
+
+  Kinetic energy KEI (used in Total) (au) =          72.762482312595
+
+  Kinetic energy TI                  (au) =          74.501176142667
+
+  Kinetic energy FISQ                (au) =          76.239869972739
+
+  Potential energy                   (au) =        -157.241255392581
+
+  e-e interaction                    (au) =          36.134371574178
+
+  e-n interaction                    (au) =        -193.375626966759
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.512792508763
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 56
+
+ Acceptance ratio <level 1>        (%)  =  52.4365
+ Acceptance ratio <levels 1-2>     (%)  =  49.7650
+ Diffusion constant           (Bohr^2)  = 3.5143E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.821159473201
+
+  Kinetic energy KEI (used in Total) (au) =          73.661160719960
+
+  Kinetic energy TI                  (au) =          74.104224303584
+
+  Kinetic energy FISQ                (au) =          74.547287887207
+
+  Potential energy                   (au) =        -158.639436189390
+
+  e-e interaction                    (au) =          36.030946299987
+
+  e-n interaction                    (au) =        -194.670382489378
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.449745077429
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 57
+
+ Acceptance ratio <level 1>        (%)  =  52.3613
+ Acceptance ratio <levels 1-2>     (%)  =  49.6973
+ Diffusion constant           (Bohr^2)  = 3.5250E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -76.296795362554
+
+  Kinetic energy KEI (used in Total) (au) =          81.688381465816
+
+  Kinetic energy TI                  (au) =          77.735858970140
+
+  Kinetic energy FISQ                (au) =          73.783336474465
+
+  Potential energy                   (au) =        -167.142292824600
+
+  e-e interaction                    (au) =          36.248788782865
+
+  e-n interaction                    (au) =        -203.391081607465
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.527252288158
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 58
+
+ Acceptance ratio <level 1>        (%)  =  52.3640
+ Acceptance ratio <levels 1-2>     (%)  =  49.6315
+ Diffusion constant           (Bohr^2)  = 3.5233E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.164007663243
+
+  Kinetic energy KEI (used in Total) (au) =          72.962683671565
+
+  Kinetic energy TI                  (au) =          74.117051723285
+
+  Kinetic energy FISQ                (au) =          75.271419775006
+
+  Potential energy                   (au) =        -157.283807331038
+
+  e-e interaction                    (au) =          36.314894255475
+
+  e-n interaction                    (au) =        -193.598701586513
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.110955117467
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 59
+
+ Acceptance ratio <level 1>        (%)  =  52.4065
+ Acceptance ratio <levels 1-2>     (%)  =  49.7660
+ Diffusion constant           (Bohr^2)  = 3.5120E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.732734423308
+
+  Kinetic energy KEI (used in Total) (au) =          75.548797120247
+
+  Kinetic energy TI                  (au) =          74.564451530261
+
+  Kinetic energy FISQ                (au) =          73.580105940275
+
+  Potential energy                   (au) =        -160.438647539785
+
+  e-e interaction                    (au) =          36.135212563218
+
+  e-n interaction                    (au) =        -196.573860103003
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.917401793940
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 60
+
+ Acceptance ratio <level 1>        (%)  =  52.4173
+ Acceptance ratio <levels 1-2>     (%)  =  49.7643
+ Diffusion constant           (Bohr^2)  = 3.5938E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.510311247364
+
+  Kinetic energy KEI (used in Total) (au) =          90.078261967495
+
+  Kinetic energy TI                  (au) =          81.752145444793
+
+  Kinetic energy FISQ                (au) =          73.426028922091
+
+  Potential energy                   (au) =        -174.745689211089
+
+  e-e interaction                    (au) =          36.262528922157
+
+  e-n interaction                    (au) =        -211.008218133247
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.012593742992
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 61
+
+ Acceptance ratio <level 1>        (%)  =  52.2873
+ Acceptance ratio <levels 1-2>     (%)  =  49.6113
+ Diffusion constant           (Bohr^2)  = 3.4876E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.748269630709
+
+  Kinetic energy KEI (used in Total) (au) =          83.161513971748
+
+  Kinetic energy TI                  (au) =          78.958487719430
+
+  Kinetic energy FISQ                (au) =          74.755461467113
+
+  Potential energy                   (au) =        -168.066899598687
+
+  e-e interaction                    (au) =          36.385583916727
+
+  e-n interaction                    (au) =        -204.452483515414
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.644197935839
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 62
+
+ Acceptance ratio <level 1>        (%)  =  52.4670
+ Acceptance ratio <levels 1-2>     (%)  =  49.7365
+ Diffusion constant           (Bohr^2)  = 3.5350E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.850145136100
+
+  Kinetic energy KEI (used in Total) (au) =          74.800945911206
+
+  Kinetic energy TI                  (au) =          74.471252064708
+
+  Kinetic energy FISQ                (au) =          74.141558218210
+
+  Potential energy                   (au) =        -159.808207043535
+
+  e-e interaction                    (au) =          35.869874834238
+
+  e-n interaction                    (au) =        -195.678081877774
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.212192067479
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 63
+
+ Acceptance ratio <level 1>        (%)  =  52.4810
+ Acceptance ratio <levels 1-2>     (%)  =  49.7670
+ Diffusion constant           (Bohr^2)  = 3.5565E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.882558134609
+
+  Kinetic energy KEI (used in Total) (au) =          89.010817414205
+
+  Kinetic energy TI                  (au) =          82.074092061893
+
+  Kinetic energy FISQ                (au) =          75.137366709582
+
+  Potential energy                   (au) =        -174.050491545044
+
+  e-e interaction                    (au) =          35.958124764291
+
+  e-n interaction                    (au) =        -210.008616309335
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.629660021271
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 64
+
+ Acceptance ratio <level 1>        (%)  =  52.4228
+ Acceptance ratio <levels 1-2>     (%)  =  49.7498
+ Diffusion constant           (Bohr^2)  = 3.5198E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.613291365116
+
+  Kinetic energy KEI (used in Total) (au) =          71.939594182839
+
+  Kinetic energy TI                  (au) =          72.965361995067
+
+  Kinetic energy FISQ                (au) =          73.991129807294
+
+  Potential energy                   (au) =        -156.710001544185
+
+  e-e interaction                    (au) =          36.025244629124
+
+  e-n interaction                    (au) =        -192.735246173309
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.361015268734
+
+
+ Time taken in block    : : :        1.4500
+
+
+ =========================================================================
+ In block : 65
+
+ Acceptance ratio <level 1>        (%)  =  52.5528
+ Acceptance ratio <levels 1-2>     (%)  =  49.8728
+ Diffusion constant           (Bohr^2)  = 3.5706E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.520976970312
+
+  Kinetic energy KEI (used in Total) (au) =          78.211732073482
+
+  Kinetic energy TI                  (au) =          75.945150495878
+
+  Kinetic energy FISQ                (au) =          73.678568918274
+
+  Potential energy                   (au) =        -162.889825040025
+
+  e-e interaction                    (au) =          35.894698573146
+
+  e-n interaction                    (au) =        -198.784523613171
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.867008726182
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 66
+
+ Acceptance ratio <level 1>        (%)  =  52.4890
+ Acceptance ratio <levels 1-2>     (%)  =  49.7608
+ Diffusion constant           (Bohr^2)  = 3.5321E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.705187717305
+
+  Kinetic energy KEI (used in Total) (au) =          82.030475985486
+
+  Kinetic energy TI                  (au) =          78.723295526749
+
+  Kinetic energy FISQ                (au) =          75.416115068012
+
+  Potential energy                   (au) =        -166.892779699021
+
+  e-e interaction                    (au) =          36.225832439491
+
+  e-n interaction                    (au) =        -203.118612138512
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.518382221909
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 67
+
+ Acceptance ratio <level 1>        (%)  =  52.3660
+ Acceptance ratio <levels 1-2>     (%)  =  49.6900
+ Diffusion constant           (Bohr^2)  = 3.5351E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.549155479150
+
+  Kinetic energy KEI (used in Total) (au) =          75.580544089153
+
+  Kinetic energy TI                  (au) =          75.966663365975
+
+  Kinetic energy FISQ                (au) =          76.352782642796
+
+  Potential energy                   (au) =        -160.286815564532
+
+  e-e interaction                    (au) =          36.048492836078
+
+  e-n interaction                    (au) =        -196.335308400610
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.925996902942
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 68
+
+ Acceptance ratio <level 1>        (%)  =  52.6108
+ Acceptance ratio <levels 1-2>     (%)  =  49.9570
+ Diffusion constant           (Bohr^2)  = 3.5522E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -76.010148654978
+
+  Kinetic energy KEI (used in Total) (au) =          68.497913252179
+
+  Kinetic energy TI                  (au) =          71.634910021882
+
+  Kinetic energy FISQ                (au) =          74.771906791585
+
+  Potential energy                   (au) =        -153.665177903387
+
+  e-e interaction                    (au) =          35.811398011125
+
+  e-n interaction                    (au) =        -189.476575914512
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.673585339042
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 69
+
+ Acceptance ratio <level 1>        (%)  =  52.5877
+ Acceptance ratio <levels 1-2>     (%)  =  49.8713
+ Diffusion constant           (Bohr^2)  = 3.5155E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.924686313372
+
+  Kinetic energy KEI (used in Total) (au) =          80.098137500773
+
+  Kinetic energy TI                  (au) =          77.545465838619
+
+  Kinetic energy FISQ                (au) =          74.992794176464
+
+  Potential energy                   (au) =        -165.179939810376
+
+  e-e interaction                    (au) =          35.957563159355
+
+  e-n interaction                    (au) =        -201.137502969730
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.118796103119
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 70
+
+ Acceptance ratio <level 1>        (%)  =  52.4970
+ Acceptance ratio <levels 1-2>     (%)  =  49.7965
+ Diffusion constant           (Bohr^2)  = 3.5165E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.331671522785
+
+  Kinetic energy KEI (used in Total) (au) =          72.102096149798
+
+  Kinetic energy TI                  (au) =          73.148584914857
+
+  Kinetic energy FISQ                (au) =          74.195073679916
+
+  Potential energy                   (au) =        -156.590883668813
+
+  e-e interaction                    (au) =          35.950833964296
+
+  e-n interaction                    (au) =        -192.541717633109
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.773847946665
+
+
+ Time taken in block    : : :        1.4000
+
+
+ =========================================================================
+ In block : 71
+
+ Acceptance ratio <level 1>        (%)  =  52.3642
+ Acceptance ratio <levels 1-2>     (%)  =  49.6983
+ Diffusion constant           (Bohr^2)  = 3.5301E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.396512053533
+
+  Kinetic energy KEI (used in Total) (au) =          73.660623055673
+
+  Kinetic energy TI                  (au) =          73.559311484365
+
+  Kinetic energy FISQ                (au) =          73.457999913056
+
+  Potential energy                   (au) =        -158.214251105436
+
+  e-e interaction                    (au) =          35.854741426477
+
+  e-n interaction                    (au) =        -194.068992531913
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.227489812498
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 72
+
+ Acceptance ratio <level 1>        (%)  =  52.5248
+ Acceptance ratio <levels 1-2>     (%)  =  49.8573
+ Diffusion constant           (Bohr^2)  = 3.5429E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.580114656640
+
+  Kinetic energy KEI (used in Total) (au) =          67.291917285786
+
+  Kinetic energy TI                  (au) =          70.832363738763
+
+  Kinetic energy FISQ                (au) =          74.372810191739
+
+  Potential energy                   (au) =        -152.029147938656
+
+  e-e interaction                    (au) =          35.704992405779
+
+  e-n interaction                    (au) =        -187.734140344435
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.109898003970
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 73
+
+ Acceptance ratio <level 1>        (%)  =  52.3948
+ Acceptance ratio <levels 1-2>     (%)  =  49.6475
+ Diffusion constant           (Bohr^2)  = 3.5284E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -76.142687629012
+
+  Kinetic energy KEI (used in Total) (au) =          80.494415427558
+
+  Kinetic energy TI                  (au) =          77.318832543113
+
+  Kinetic energy FISQ                (au) =          74.143249658668
+
+  Potential energy                   (au) =        -165.794219052800
+
+  e-e interaction                    (au) =          36.078951438955
+
+  e-n interaction                    (au) =        -201.873170491756
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.346431977575
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 74
+
+ Acceptance ratio <level 1>        (%)  =  52.4905
+ Acceptance ratio <levels 1-2>     (%)  =  49.8543
+ Diffusion constant           (Bohr^2)  = 3.5804E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -76.118923383797
+
+  Kinetic energy KEI (used in Total) (au) =          76.169208565236
+
+  Kinetic energy TI                  (au) =          74.936159919943
+
+  Kinetic energy FISQ                (au) =          73.703111274651
+
+  Potential energy                   (au) =        -161.445247945263
+
+  e-e interaction                    (au) =          36.056089369136
+
+  e-n interaction                    (au) =        -197.501337314398
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.336729087675
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 75
+
+ Acceptance ratio <level 1>        (%)  =  52.3378
+ Acceptance ratio <levels 1-2>     (%)  =  49.6633
+ Diffusion constant           (Bohr^2)  = 3.5489E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.965948819741
+
+  Kinetic energy KEI (used in Total) (au) =         100.715065447412
+
+  Kinetic energy TI                  (au) =          87.640477120323
+
+  Kinetic energy FISQ                (au) =          74.565888793233
+
+  Potential energy                   (au) =        -185.838130263382
+
+  e-e interaction                    (au) =          36.226611325293
+
+  e-n interaction                    (au) =        -222.064741588675
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.635509283499
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 76
+
+ Acceptance ratio <level 1>        (%)  =  52.4015
+ Acceptance ratio <levels 1-2>     (%)  =  49.7645
+ Diffusion constant           (Bohr^2)  = 3.5399E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.903496601932
+
+  Kinetic energy KEI (used in Total) (au) =          72.297596452230
+
+  Kinetic energy TI                  (au) =          73.190036286217
+
+  Kinetic energy FISQ                (au) =          74.082476120203
+
+  Potential energy                   (au) =        -157.358209050392
+
+  e-e interaction                    (au) =          36.020841272690
+
+  e-n interaction                    (au) =        -193.379050323082
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.861165235263
+
+
+ Time taken in block    : : :        1.4000
+
+
+ =========================================================================
+ In block : 77
+
+ Acceptance ratio <level 1>        (%)  =  52.4910
+ Acceptance ratio <levels 1-2>     (%)  =  49.8398
+ Diffusion constant           (Bohr^2)  = 3.5394E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.822871800143
+
+  Kinetic energy KEI (used in Total) (au) =          71.939452953670
+
+  Kinetic energy TI                  (au) =          72.630586177106
+
+  Kinetic energy FISQ                (au) =          73.321719400542
+
+  Potential energy                   (au) =        -156.919440750043
+
+  e-e interaction                    (au) =          36.045633741087
+
+  e-n interaction                    (au) =        -192.965074491130
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.991451583389
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 78
+
+ Acceptance ratio <level 1>        (%)  =  52.4683
+ Acceptance ratio <levels 1-2>     (%)  =  49.8015
+ Diffusion constant           (Bohr^2)  = 3.5551E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.766332025589
+
+  Kinetic energy KEI (used in Total) (au) =          72.591273600102
+
+  Kinetic energy TI                  (au) =          73.771665565761
+
+  Kinetic energy FISQ                (au) =          74.952057531419
+
+  Potential energy                   (au) =        -157.514721621921
+
+  e-e interaction                    (au) =          35.682268703603
+
+  e-n interaction                    (au) =        -193.196990325524
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.805869825728
+
+
+ Time taken in block    : : :        1.4100
+
+
+ =========================================================================
+ In block : 79
+
+ Acceptance ratio <level 1>        (%)  =  52.4232
+ Acceptance ratio <levels 1-2>     (%)  =  49.7315
+ Diffusion constant           (Bohr^2)  = 3.5058E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.156701111723
+
+  Kinetic energy KEI (used in Total) (au) =          66.208551690889
+
+  Kinetic energy TI                  (au) =          69.711253158755
+
+  Kinetic energy FISQ                (au) =          73.213954626622
+
+  Potential energy                   (au) =        -150.522368798842
+
+  e-e interaction                    (au) =          35.840301630499
+
+  e-n interaction                    (au) =        -186.362670429341
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.166149993256
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 80
+
+ Acceptance ratio <level 1>        (%)  =  52.5165
+ Acceptance ratio <levels 1-2>     (%)  =  49.8888
+ Diffusion constant           (Bohr^2)  = 3.5441E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.191588368230
+
+  Kinetic energy KEI (used in Total) (au) =          73.162890734385
+
+  Kinetic energy TI                  (au) =          73.514822022046
+
+  Kinetic energy FISQ                (au) =          73.866753309707
+
+  Potential energy                   (au) =        -157.511595098844
+
+  e-e interaction                    (au) =          35.974570863918
+
+  e-n interaction                    (au) =        -193.486165962762
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.334618541415
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 81
+
+ Acceptance ratio <level 1>        (%)  =  52.3008
+ Acceptance ratio <levels 1-2>     (%)  =  49.6585
+ Diffusion constant           (Bohr^2)  = 3.5333E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.974115030573
+
+  Kinetic energy KEI (used in Total) (au) =          84.243530547475
+
+  Kinetic energy TI                  (au) =          78.381424677978
+
+  Kinetic energy FISQ                (au) =          72.519318808481
+
+  Potential energy                   (au) =        -169.374761574278
+
+  e-e interaction                    (au) =          36.176774628903
+
+  e-n interaction                    (au) =        -205.551536203181
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.421768181583
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 82
+
+ Acceptance ratio <level 1>        (%)  =  52.2750
+ Acceptance ratio <levels 1-2>     (%)  =  49.5735
+ Diffusion constant           (Bohr^2)  = 3.5625E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.533062078675
+
+  Kinetic energy KEI (used in Total) (au) =          78.481774885403
+
+  Kinetic energy TI                  (au) =          75.793620892376
+
+  Kinetic energy FISQ                (au) =          73.105466899349
+
+  Potential energy                   (au) =        -163.171952960308
+
+  e-e interaction                    (au) =          36.232823502671
+
+  e-n interaction                    (au) =        -199.404776462979
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           7.031568254092
+
+
+ Time taken in block    : : :        1.4200
+
+
+ =========================================================================
+ In block : 83
+
+ Acceptance ratio <level 1>        (%)  =  52.4613
+ Acceptance ratio <levels 1-2>     (%)  =  49.7638
+ Diffusion constant           (Bohr^2)  = 3.5200E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.727803770491
+
+  Kinetic energy KEI (used in Total) (au) =          71.708532862269
+
+  Kinetic energy TI                  (au) =          73.441582291600
+
+  Kinetic energy FISQ                (au) =          75.174631720931
+
+  Potential energy                   (au) =        -156.593452628991
+
+  e-e interaction                    (au) =          35.937225744777
+
+  e-n interaction                    (au) =        -192.530678373768
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.867167033593
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 84
+
+ Acceptance ratio <level 1>        (%)  =  52.3445
+ Acceptance ratio <levels 1-2>     (%)  =  49.6698
+ Diffusion constant           (Bohr^2)  = 3.5259E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.999590110792
+
+  Kinetic energy KEI (used in Total) (au) =          82.354402739820
+
+  Kinetic energy TI                  (au) =          78.753319335589
+
+  Kinetic energy FISQ                (au) =          75.152235931358
+
+  Potential energy                   (au) =        -167.511108846842
+
+  e-e interaction                    (au) =          35.956307596790
+
+  e-n interaction                    (au) =        -203.467416443632
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.575769084421
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 85
+
+ Acceptance ratio <level 1>        (%)  =  52.3965
+ Acceptance ratio <levels 1-2>     (%)  =  49.7300
+ Diffusion constant           (Bohr^2)  = 3.5396E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.759496109125
+
+  Kinetic energy KEI (used in Total) (au) =          74.365253073388
+
+  Kinetic energy TI                  (au) =          74.264268755749
+
+  Kinetic energy FISQ                (au) =          74.163284438109
+
+  Potential energy                   (au) =        -159.281865178743
+
+  e-e interaction                    (au) =          36.063861243490
+
+  e-n interaction                    (au) =        -195.345726422233
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.476126599720
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 86
+
+ Acceptance ratio <level 1>        (%)  =  52.4303
+ Acceptance ratio <levels 1-2>     (%)  =  49.7420
+ Diffusion constant           (Bohr^2)  = 3.5430E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.848034866751
+
+  Kinetic energy KEI (used in Total) (au) =          78.347259296408
+
+  Kinetic energy TI                  (au) =          76.390086558292
+
+  Kinetic energy FISQ                (au) =          74.432913820176
+
+  Potential energy                   (au) =        -163.352410159389
+
+  e-e interaction                    (au) =          35.966402429946
+
+  e-n interaction                    (au) =        -199.318812589335
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.776561392579
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 87
+
+ Acceptance ratio <level 1>        (%)  =  52.3740
+ Acceptance ratio <levels 1-2>     (%)  =  49.6693
+ Diffusion constant           (Bohr^2)  = 3.5121E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.621489327535
+
+  Kinetic energy KEI (used in Total) (au) =          71.886808086609
+
+  Kinetic energy TI                  (au) =          73.731804802511
+
+  Kinetic energy FISQ                (au) =          75.576801518414
+
+  Potential energy                   (au) =        -156.665413410374
+
+  e-e interaction                    (au) =          36.039304803895
+
+  e-n interaction                    (au) =        -192.704718214269
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.601199019802
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 88
+
+ Acceptance ratio <level 1>        (%)  =  52.3955
+ Acceptance ratio <levels 1-2>     (%)  =  49.7420
+ Diffusion constant           (Bohr^2)  = 3.5485E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.509583604199
+
+  Kinetic energy KEI (used in Total) (au) =          80.114873115039
+
+  Kinetic energy TI                  (au) =          76.678533636485
+
+  Kinetic energy FISQ                (au) =          73.242194157931
+
+  Potential energy                   (au) =        -164.781572715468
+
+  e-e interaction                    (au) =          35.903882531079
+
+  e-n interaction                    (au) =        -200.685455246547
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.597003510265
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 89
+
+ Acceptance ratio <level 1>        (%)  =  52.5160
+ Acceptance ratio <levels 1-2>     (%)  =  49.8510
+ Diffusion constant           (Bohr^2)  = 3.5440E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.259156142269
+
+  Kinetic energy KEI (used in Total) (au) =          69.937472624720
+
+  Kinetic energy TI                  (au) =          71.853107169314
+
+  Kinetic energy FISQ                (au) =          73.768741713908
+
+  Potential energy                   (au) =        -154.353744763218
+
+  e-e interaction                    (au) =          36.031660986165
+
+  e-n interaction                    (au) =        -190.385405749383
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.033453310736
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 90
+
+ Acceptance ratio <level 1>        (%)  =  52.6023
+ Acceptance ratio <levels 1-2>     (%)  =  49.9288
+ Diffusion constant           (Bohr^2)  = 3.5341E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.589961016218
+
+  Kinetic energy KEI (used in Total) (au) =          68.573565854902
+
+  Kinetic energy TI                  (au) =          71.772839670888
+
+  Kinetic energy FISQ                (au) =          74.972113486875
+
+  Potential energy                   (au) =        -153.320642867350
+
+  e-e interaction                    (au) =          35.738687871110
+
+  e-n interaction                    (au) =        -189.059330738460
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.940783420147
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 91
+
+ Acceptance ratio <level 1>        (%)  =  52.3385
+ Acceptance ratio <levels 1-2>     (%)  =  49.6955
+ Diffusion constant           (Bohr^2)  = 3.5592E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.583010554716
+
+  Kinetic energy KEI (used in Total) (au) =          75.117790184277
+
+  Kinetic energy TI                  (au) =          76.746306672122
+
+  Kinetic energy FISQ                (au) =          78.374823159966
+
+  Potential energy                   (au) =        -159.857916735224
+
+  e-e interaction                    (au) =          36.256930495151
+
+  e-n interaction                    (au) =        -196.114847230374
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.140891472008
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 92
+
+ Acceptance ratio <level 1>        (%)  =  52.4150
+ Acceptance ratio <levels 1-2>     (%)  =  49.7290
+ Diffusion constant           (Bohr^2)  = 3.5515E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.886773562377
+
+  Kinetic energy KEI (used in Total) (au) =          72.835266687973
+
+  Kinetic energy TI                  (au) =          73.003744952937
+
+  Kinetic energy FISQ                (au) =          73.172223217901
+
+  Potential energy                   (au) =        -157.879156246579
+
+  e-e interaction                    (au) =          36.052320242434
+
+  e-n interaction                    (au) =        -193.931476489014
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.209610451396
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 93
+
+ Acceptance ratio <level 1>        (%)  =  52.5015
+ Acceptance ratio <levels 1-2>     (%)  =  49.8203
+ Diffusion constant           (Bohr^2)  = 3.5929E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.824776712938
+
+  Kinetic energy KEI (used in Total) (au) =          76.024829352830
+
+  Kinetic energy TI                  (au) =          75.899607919673
+
+  Kinetic energy FISQ                (au) =          75.774386486516
+
+  Potential energy                   (au) =        -161.006722061998
+
+  e-e interaction                    (au) =          35.844921047705
+
+  e-n interaction                    (au) =        -196.851643109703
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.627408948346
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 94
+
+ Acceptance ratio <level 1>        (%)  =  52.4230
+ Acceptance ratio <levels 1-2>     (%)  =  49.7623
+ Diffusion constant           (Bohr^2)  = 3.4991E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.956641970209
+
+  Kinetic energy KEI (used in Total) (au) =          81.318698172487
+
+  Kinetic energy TI                  (au) =          77.880782822410
+
+  Kinetic energy FISQ                (au) =          74.442867472334
+
+  Potential energy                   (au) =        -166.432456138926
+
+  e-e interaction                    (au) =          35.877426750009
+
+  e-n interaction                    (au) =        -202.309882888934
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.491024112232
+
+
+ Time taken in block    : : :        1.3700
+
+
+ =========================================================================
+ In block : 95
+
+ Acceptance ratio <level 1>        (%)  =  52.4668
+ Acceptance ratio <levels 1-2>     (%)  =  49.8345
+ Diffusion constant           (Bohr^2)  = 3.5707E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.727086866624
+
+  Kinetic energy KEI (used in Total) (au) =          73.549910597898
+
+  Kinetic energy TI                  (au) =          73.890984000949
+
+  Kinetic energy FISQ                (au) =          74.232057404000
+
+  Potential energy                   (au) =        -158.434113460752
+
+  e-e interaction                    (au) =          35.826509352840
+
+  e-n interaction                    (au) =        -194.260622813592
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.908260905581
+
+
+ Time taken in block    : : :        1.3900
+
+
+ =========================================================================
+ In block : 96
+
+ Acceptance ratio <level 1>        (%)  =  52.4853
+ Acceptance ratio <levels 1-2>     (%)  =  49.7510
+ Diffusion constant           (Bohr^2)  = 3.5553E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.461155973996
+
+  Kinetic energy KEI (used in Total) (au) =          70.618809093530
+
+  Kinetic energy TI                  (au) =          71.987162383605
+
+  Kinetic energy FISQ                (au) =          73.355515673681
+
+  Potential energy                   (au) =        -155.237081063756
+
+  e-e interaction                    (au) =          35.810351757693
+
+  e-n interaction                    (au) =        -191.047432821449
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.195990545174
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 97
+
+ Acceptance ratio <level 1>        (%)  =  52.2428
+ Acceptance ratio <levels 1-2>     (%)  =  49.5930
+ Diffusion constant           (Bohr^2)  = 3.5218E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.577820079027
+
+  Kinetic energy KEI (used in Total) (au) =          79.436910974068
+
+  Kinetic energy TI                  (au) =          76.358526655026
+
+  Kinetic energy FISQ                (au) =          73.280142335984
+
+  Potential energy                   (au) =        -164.171847049324
+
+  e-e interaction                    (au) =          36.086906508085
+
+  e-n interaction                    (au) =        -200.258753557409
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.689766991979
+
+
+ Time taken in block    : : :        1.3800
+
+
+ =========================================================================
+ In block : 98
+
+ Acceptance ratio <level 1>        (%)  =  52.4455
+ Acceptance ratio <levels 1-2>     (%)  =  49.8015
+ Diffusion constant           (Bohr^2)  = 3.5222E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.421603841797
+
+  Kinetic energy KEI (used in Total) (au) =          74.175909482178
+
+  Kinetic energy TI                  (au) =          74.721557297659
+
+  Kinetic energy FISQ                (au) =          75.267205113140
+
+  Potential energy                   (au) =        -158.754629320205
+
+  e-e interaction                    (au) =          36.013231585189
+
+  e-n interaction                    (au) =        -194.767860905394
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.808776235552
+
+
+ Time taken in block    : : :        1.4000
+
+
+ =========================================================================
+ In block : 99
+
+ Acceptance ratio <level 1>        (%)  =  52.3860
+ Acceptance ratio <levels 1-2>     (%)  =  49.6703
+ Diffusion constant           (Bohr^2)  = 3.5462E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.787778831314
+
+  Kinetic energy KEI (used in Total) (au) =          71.356774594327
+
+  Kinetic energy TI                  (au) =          73.701722879403
+
+  Kinetic energy FISQ                (au) =          76.046671164480
+
+  Potential energy                   (au) =        -156.301669421871
+
+  e-e interaction                    (au) =          36.072617716659
+
+  e-n interaction                    (au) =        -192.374287138530
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           5.699817120274
+
+
+ Time taken in block    : : :        1.4100
+
+
+ =========================================================================
+ In block : 100
+
+ Acceptance ratio <level 1>        (%)  =  52.2580
+ Acceptance ratio <levels 1-2>     (%)  =  49.5895
+ Diffusion constant           (Bohr^2)  = 3.5201E-02
+ Correlation time              (steps)  = -1.0000E+00 +- -1.0000E+00
+ Efficiency               (au^-2 s^-1)  = Infinity
+
+  Block average energies (au)
+
+  Total energy                       (au) =         -75.455938466531
+
+  Kinetic energy KEI (used in Total) (au) =          69.013691247583
+
+  Kinetic energy TI                  (au) =          71.219745446660
+
+  Kinetic energy FISQ                (au) =          73.425799645736
+
+  Potential energy                   (au) =        -153.626745710344
+
+  e-e interaction                    (au) =          35.966777762289
+
+  e-n interaction                    (au) =        -189.593523472633
+
+  Constant energy contributions      (au) =           9.157115996230
+
+  Maximum distance from origin       (au) =           6.498203851428
+
+
+ Time taken in block    : : :        1.3700
+
+ =========================================================================
+ Reblocked VMC energy:      -75.686636892186 +/-        0.022510003390
+ Bad reblock convergence. Too few data points? Standard error in standard
+ error larger than 10%.
+
+ Reblock data for energy:
+      mean:    -75.686636892186 +/-       0.022510003390
+    stderr:      0.022510003390 +/-       0.004642451345
+    errfac:      1.014911394174 +/-       0.209314795994
+    N_corr:      1.030045138024 +/-       0.424871942848
+   ------------------------------------------------------
+    Block len      Std error   Err in error
+            1   2.217928E-02   1.576213E-03
+            2   2.312433E-02   2.335910E-03
+            4   2.422991E-02   3.497287E-03
+            8   2.251000E-02   4.642451E-03  *** BEST ***
+           16   1.576791E-02   4.778902E-03
+           32   2.377092E-02   1.123486E-02
+   ------------------------------------------------------
+
+ =========================================================================
+
+
+ Total CASINO CPU time  : : :      183.6500
+ Total CASINO real time : : :      185.4420
+
+
+ Subroutine timers deactivated (use TIMING_INFO input keyword)
+
+ =========================================================================
+ Ends 2012/03/12 18:46:09.210

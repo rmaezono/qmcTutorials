@@ -1,0 +1,14 @@
+*scf
+ SCF Done:  E(RHF) =  -74.9607025105     A.U. after    7 cycles
+
+*optWF
+VMC #1: E    = -75.56(4) ; var  = 70(1) (correlation.out.0)
+VMC #2: E    = -74.94(4) ; var  = 63.1(4) (correlation.out.1)
+VMC #3: E    = -75.57(3) ; var  = 60.1(8) (correlation.out.2)
+VMC #4: E    = -75.70(3) ; var  = 57.3(4) (correlation.out.3)
+
+*VMC
+ Reblocked VMC energy:      -75.686636892186 +/-        0.022510003390
+*DMC
+ Total energ         =      -76.311864440160 +/-        0.013022006156
+
