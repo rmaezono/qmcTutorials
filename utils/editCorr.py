@@ -31,80 +31,76 @@ lines.append(" END U TERM")
 extract = False
 typeAndAtoms = dict()
 with open("out", "r") as fin:
-   for line in fin.readlines():
-       if (
-           "Atom Atno  Type  Position (fractional)            Position (Cartesian au)"
-           in line
-       ):
-           extract = True
-           continue
-       elif (
-           "------------------------------------------------------------------------------"
-           in line
-       ):
-           continue
-       elif line.isspace():
-           extract = False
-           continue
-       elif not extract:
-           continue
-       w = line.split()
-       type = int(w[2])
-       atom = int(w[0])
-       if type not in typeAndAtoms:
-           typeAndAtoms[type] = []
-       typeAndAtoms[type].append(atom)
+    for line in fin.readlines():
+        #print(line)
+        if "Atom Atno  Type" in line:
+            extract = True
+            continue
+        elif "----" in line:
+            continue
+        elif line.isspace():
+            extract = False
+            continue
+        elif not extract:
+            continue
+        w = line.split()
+        #print(w)
+        type = int(w[2])
+        atom = int(w[0])
+        if type not in typeAndAtoms:
+            typeAndAtoms[type] = []
+        typeAndAtoms[type].append(atom)
 
 lines.append(" START CHI TERM")
 lines.append(" Number of sets")
 lines.append(f"{len(typeAndAtoms):3}")
 for type, atoms in typeAndAtoms.items():
-   lines.append(f" START SET{type:2}")
-   lines.append(" Spherical harmonic l,m")
-   lines.append("  0 0")
-   lines.append(" Number of atoms in set")
-   lines.append(f"{len(atoms):5}")
-   lines.append(" Labels of the atoms in this set")
-   for j, atom in enumerate(atoms):
-       if j % 10 == 0:
-           lines.append("")
-       lines[-1] += f"{atom:5}"
-   lines.append(" Impose electron-nucleus cusp (0=NO; 1=YES)")
-   lines.append("   0")
-   lines.append(" Expansion order N_chi")
-   lines.append("   6")
-   lines.append(" Spin dep (0->u=d; 1->u/=d)")
-   lines.append("   1")
-   lines.append(" Cutoff (a.u.)     ;  Optimizable (0=NO; 1=YES)")
-   lines.append("   0                0")
-   lines.append(" Parameter values  ;  Optimizable (0=NO; 1=YES)")
-   lines.append(f" END SET{type:2}")
+    lines.append(f" START SET{type:2}")
+    lines.append(" Spherical harmonic l,m")
+    lines.append("  0 0")
+    lines.append(" Number of atoms in set")
+    lines.append(f"{len(atoms):5}")
+    lines.append(" Labels of the atoms in this set")
+    for j, atom in enumerate(atoms):
+        if j % 10 == 0:
+            lines.append("")
+        lines[-1] += f"{atom:5}"
+    lines.append(" Impose electron-nucleus cusp (0=NO; 1=YES)")
+    lines.append("   0")
+    lines.append(" Expansion order N_chi")
+    lines.append("   6")
+    lines.append(" Spin dep (0->u=d; 1->u/=d)")
+    lines.append("   1")
+    lines.append(" Cutoff (a.u.)     ;  Optimizable (0=NO; 1=YES)")
+    lines.append("   0                0")
+    lines.append(" Parameter values  ;  Optimizable (0=NO; 1=YES)")
+    lines.append(f" END SET{type:2}")
 lines.append(" END CHI TERM")
 
 lines.append(" START F TERM")
 lines.append(" Number of sets")
 lines.append(f"{len(typeAndAtoms):3}")
 for type, atoms in typeAndAtoms.items():
-   lines.append(f" START SET{type:2}")
-   lines.append(" Number of atoms in set")
-   lines.append(f"{len(atoms):5}")
-   lines.append(" Labels of the atoms in this set")
-   for j, atom in enumerate(atoms):
-       if j % 10 == 0:
-           lines.append("")
-       lines[-1] += f"{atom:5}"
-   lines.append(" Prevent duplication of u term (0=NO; 1=YES)\n   1")
-   lines.append(" Prevent duplication of chi term (0=NO; 1=YES)\n   1")
-   lines.append(" Electron-nucleus expansion order N_f_eN\n   2")
-   lines.append(" Electron-electron expansion order N_f_ee\n   2")
-   lines.append(" Spin dep (0->uu=dd=ud; 1->uu=dd/=ud; 2->uu/=dd/=ud)\n   1")
-   lines.append(
-       " Cutoff (a.u.)     ;  Optimizable (0=NO; 1=YES)\n   0                0"
-   )
-   lines.append(" Parameter values  ;  Optimizable (0=NO; 1=YES)")
-   lines.append(f" END SET{type:2}")
+    lines.append(f" START SET{type:2}")
+    lines.append(" Number of atoms in set")
+    lines.append(f"{len(atoms):5}")
+    lines.append(" Labels of the atoms in this set")
+    for j, atom in enumerate(atoms):
+        if j % 10 == 0:
+            lines.append("")
+        lines[-1] += f"{atom:5}"
+    lines.append(" Prevent duplication of u term (0=NO; 1=YES)\n   1")
+    lines.append(" Prevent duplication of chi term (0=NO; 1=YES)\n   1")
+    lines.append(" Electron-nucleus expansion order N_f_eN\n   2")
+    lines.append(" Electron-electron expansion order N_f_ee\n   2")
+    lines.append(" Spin dep (0->uu=dd=ud; 1->uu=dd/=ud; 2->uu/=dd/=ud)\n   1")
+    lines.append(
+        " Cutoff (a.u.)     ;  Optimizable (0=NO; 1=YES)\n   0                0"
+    )
+    lines.append(" Parameter values  ;  Optimizable (0=NO; 1=YES)")
+    lines.append(f" END SET{type:2}")
 lines.append(" END F TERM")
 lines.append(" END JASTROW")
 
 for line in lines:
-   print(line)
+    print(line)
