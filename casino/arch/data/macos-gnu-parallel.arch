@@ -7,7 +7,7 @@
 # Includes
 include $(INCBASE)/os/macos.arch
 include $(INCBASE)/f90/gnu.arch
-include $(INCBASE)/cxx/gnu.arch
+include $(INCBASE)/cxx/gnuMac.arch
 
 # Type definition
 TYPE = parallel

@@ -22,7 +22,7 @@
 #-!  fi
 
 # Compiler name
-CXX = g++
+CXX = g++-13
 
 # Compiler flags
 CXXFLAGS_opt   = -O3
