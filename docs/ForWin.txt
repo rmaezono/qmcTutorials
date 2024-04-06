@@ -1,0 +1,75 @@
+2.1  WSLのインストール
+
+    管理者モードでPowerShellを立ち上げて
+    
+    > wsl --install --no-distribution
+    
+    インストール後にPCを再起動。
+    
+2.2  Ubuntuの入手
+
+    タスクバーからMicrosoftストアにて、
+    Ubuntuをインストール。
+    インストール後に初回立ち上げて、
+    Ubuntu用のユーザ名とパスワードを設定。
+    一旦、Ubuntuを終了。
+    
+2.3  作業ディレクトリの準備
+    再度、Ubuntuを立ち上げて、
+    ホームディレクトリから
+    
+    % ls /mnt/c/Users/
+    
+    にてPCユーザ名を確認したのち(rmaezとして以降例示)、
+    
+    % cd
+    % mkdir /mnt/c/Users/rmaez/work
+    
+    % cd
+    % ln -s /mnt/c/Users/rmaez/work
+    % ln -s /mnt/c/Users/rmaez/Downloads
+    
+    一旦、Ubuntuを終了。
+    
+2.3  WSLの管理者実行を終了
+
+    PowerShellを通常ユーザモードで立ち上げて
+    
+    > wsl --shutdown
+
+    そうしたら、再度、Ubuntuを立ち上げる。
+    
+2.4  .bash_profileファイルへの追記
+
+    % cd
+    % echo 'export CASINO_ARCH=linuxpc-gcc-parallel' >> .bash_profile
+    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/[改行しないで次行に繋げる]            
+        casino/bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
+    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
+
+2.5  教材ファイルの入手
+
+    % cd
+    % cd work
+    % git clone https://github.com/rmaezono/qmcTutorials.git
+
+2.6  CASINOのインストール
+
+    % cd
+    % cd work/qmcTutorials/casino
+    % sudo apt update
+    % sudo apt install libopenmpi-dev openmpi-bin gfortran
+    % make -j 4 opt
+    % sudo apt install gnuplot-x11
+    % sudo apt install grace
+
+【計算時間の目安】
+12.7.2
+MacBookPro2016/IntelCorei7(3.3GHz)
+    141.9 sec. (2core)
+    139.7 sec. (2core/openblas)
+    
+    AMD Ryzen 5 5500U (6core)/2.10GHz/Windows11 Home/Cygwin
+    222.5 sec. (2core/Cygwin)
+    160.0 sec. (2core/WSL-Ubuntu)
+    137.0 sec. (2core/Cygwin)

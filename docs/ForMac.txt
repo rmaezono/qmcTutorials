@@ -1,0 +1,60 @@
+1.1  archファイルの設定確認
+
+    ..../casino/arch/data/f90/gnu.arch
+    の内容は、
+
+    % cat gnu.arch
+        ...
+        FFLAGS_opt   = -Ofast -fprotect-parens -fpeel-loops -fcray-pointer \
+        -fallow-argument-mismatch
+        ...
+
+    と「FFLAGS\_opt」の行に「-fallow-argument-mismatch」が
+    追記されていることが必要(配布版で対応ずみ;2024/04/05確認)
+
+    続いて、
+    ..../casino/arch/data/cxx/gnu.arch
+    については、
+    % cat gnu.arch
+        ...
+        CXX = g++-13
+
+    となっていること(配布版で対応ずみ;2024/04/05確認)
+
+1.2  .bash_profileファイルへの追記
+
+    % cd
+    % echo 'export CASINO_ARCH=macos-gnu-parallel' >> .bash_profile
+    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/casino/[改行しないで次行に繋げる]
+        bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
+    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
+    % echo 'export PLOTTER=/opt/homebrew/bin/xmgrace' >> .bash_profile
+
+    を実施。
+
+    % cd
+    % cat .bash_profile
+
+    として上記が追記されているか確認。
+    
+    % exit
+
+    として再度ターミナルを立ち上げる。
+    
+1.3  教材ファイルのインストール
+
+    % cd
+    % cd work
+    % git clone https://github.com/rmaezono/qmcTutorials.git
+
+    として教材ファイル一式を入手。
+    
+1.4  CASINOのインストール
+
+    % cd
+    % cd work/qmcTutorials/casino
+    % brew install open-mpi
+    % make -j 4 opt
+
+    open-mpiだけでいけることを確認済み。
+    openblasを使っても、さほど計算時間減らない。
