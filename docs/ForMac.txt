@@ -41,19 +41,25 @@
 
     として再度ターミナルを立ち上げる。
     
-1.3  教材ファイルのインストール
+1.3  教材ファイルと必要な環境のインストール
 
     % cd
     % cd work
     % git clone https://github.com/rmaezono/qmcTutorials.git
 
     として教材ファイル一式を入手。
+
+    % brew install open-mpi
+    % brew install emacs
+    % brew install gnuplot
+    % brew install grace
+    % brew install --cask xquartz
     
 1.4  CASINOのインストール
 
     % cd
     % cd work/qmcTutorials/casino
-    % brew install open-mpi
+
     % make -j 4 opt
 
     open-mpiだけでいけることを確認済み。
