@@ -1,27 +1,24 @@
-1.1  archファイルの設定確認
+-  教材ファイルの入手
 
-    ..../casino/arch/data/f90/gnu.arch
-    の内容は、
+    % cd
+    % cd work
+    % git clone https://github.com/rmaezono/qmcTutorials.git
 
-    % cat gnu.arch
-        ...
-        FFLAGS_opt   = -Ofast -fprotect-parens -fpeel-loops -fcray-pointer \
-        -fallow-argument-mismatch
-        ...
+    として教材ファイル一式を入手。
 
-    と「FFLAGS\_opt」の行に「-fallow-argument-mismatch」が
-    追記されていることが必要(配布版で対応ずみ;2024/04/05確認)
+    以降、適宜、
+    ~/work/qmcTutorials/docs/ForMac.txt 
+    を参照。
 
-    続いて、
-    ..../casino/arch/data/cxx/gnu.arch
-    については、
-    % cat gnu.arch
-        ...
-        CXX = g++-13
+-  必要な環境のインストール
 
-    となっていること(配布版で対応ずみ;2024/04/05確認)
+    % brew install open-mpi
+    % brew install emacs
+    % brew install gnuplot
+    % brew install grace
+    % brew install --cask xquartz
 
-1.2  .bash_profileファイルへの追記
+-  .bash_profileファイルへの追記
 
     % cd
     % echo 'export CASINO_ARCH=macos-gnu-parallel' >> .bash_profile
@@ -41,26 +38,21 @@
 
     として再度ターミナルを立ち上げる。
     
-1.3  教材ファイルと必要な環境のインストール
-
-    % cd
-    % cd work
-    % git clone https://github.com/rmaezono/qmcTutorials.git
-
-    として教材ファイル一式を入手。
-
-    % brew install open-mpi
-    % brew install emacs
-    % brew install gnuplot
-    % brew install grace
-    % brew install --cask xquartz
-    
-1.4  CASINOのインストール
+-  CASINOのインストール
 
     % cd
     % cd work/qmcTutorials/casino
 
     % make -j 4 opt
+    
+【計算時間の目安】
+    MacBookPro2016/IntelCorei7(3.3GHz)
+        141.9 sec. (2core)
+        139.7 sec. (2core/openblas)
+    
+    AMD Ryzen 5 5500U (6core)/2.10GHz/Windows11 Home/Cygwin
+        222.5 sec. (2core/Cygwin)
+        160.0 sec. (2core/WSL-Ubuntu)
+        137.0 sec. (2core/Cygwin)
 
-    open-mpiだけでいけることを確認済み。
-    openblasを使っても、さほど計算時間減らない。
+
