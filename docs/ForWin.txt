@@ -53,9 +53,8 @@
 
     % cd
     % echo 'export CASINO_ARCH=linuxpc-gcc-parallel' >> .bash_profile
-    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/[改行しないで次行に繋げる]            
-        casino/bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
-    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
+    % echo 'export PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
+    % echo 'export PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
 
 
 - CASINOのインストール
@@ -63,6 +62,8 @@
     % cd
     % cd work/qmcTutorials/casino
     % sudo apt update
+    % sudo apt install make
+    % sudo apt install g++
     % sudo apt install libopenmpi-dev openmpi-bin gfortran
     % make -j 4 opt
     % sudo apt install gnuplot-x11

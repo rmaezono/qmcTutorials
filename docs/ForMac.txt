@@ -22,9 +22,8 @@
 
     % cd
     % echo 'export CASINO_ARCH=macos-gnu-parallel' >> .bash_profile
-    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/casino/[改行しないで次行に繋げる]
-        bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
-    % echo 'PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
+    % echo 'export PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
+    % echo 'export PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
     % echo 'export PLOTTER=/opt/homebrew/bin/xmgrace' >> .bash_profile
 
     を実施。
