@@ -24,6 +24,7 @@
     % echo 'export CASINO_ARCH=macos-gnu-parallel' >> .bash_profile
     % echo 'export PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc/$CASINO_ARCH/opt' >> .bash_profile
     % echo 'export PATH="$PATH":$HOME/work/qmcTutorials/casino/bin_qmc' >> .bash_profile
+    % echo 'export PATH="$PATH":$HOME/work/q-e/bin' >> .bash_profile
     % echo 'export PLOTTER=/opt/homebrew/bin/xmgrace' >> .bash_profile
 
     を実施。
@@ -43,6 +44,9 @@
     % cd work/qmcTutorials/casino
 
     % make -j 4 opt
+    
+-  QuantumEspressoのインストール
+    % ./configure FC=mpif90 CC=mpicc CPP=cpp-14 FFLAGS="-I/usr/local/include/ -fallow-argument-mismatch"
     
 【計算時間の目安】
     MacBookPro2016/IntelCorei7(3.3GHz)
