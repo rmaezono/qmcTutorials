@@ -1,8 +1,8 @@
 #!/bin/bash
 # Automatically-generated wrapper for 'make_new_mpc' utility.
 # Generation info:
-# - when    : 20:30:25, 08/ 9/2023
-# - where   : meiwaku23pc07.local
+# - when    : 16:13:20, 04/ 8/2024
+# - where   : meiwaku24pc07
 # - CASINO_ARCH: macos-gnu-parallel
 # - ENVIRONMENT_COMMAND: export MPI=OpenMPI TCM_IFORT_VER=11.1-011
 
@@ -50,10 +50,10 @@ fpath="$(cd "$fpath0" ; pwd)/utils/$CASINO_ARCH"
 # Get expected arch path
 farchpath="$(cd "$fpath0/.." ; pwd)/arch"
 # "Remembered" path/name of binary
-rpath="/Users/maezono/work/setupMaezono/casino/bin_qmc/utils/$CASINO_ARCH"
+rpath="/Users/maezono/work/qmcTutorials/casino/bin_qmc/utils/$CASINO_ARCH"
 rname="make_new_mpc"
 # "Remembered" arch path
-rarchpath="/Users/maezono/work/setupMaezono/casino/arch"
+rarchpath="/Users/maezono/work/qmcTutorials/casino/arch"
 # "Remembered" environment command
 renvcmd='export MPI=OpenMPI TCM_IFORT_VER=11.1-011'
 # Check binary path exists
