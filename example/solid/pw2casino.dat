@@ -1,0 +1,7 @@
+&inputpp
+blip_convert=.true.
+blip_multiplicity=1.d0
+blip_binary=.true.
+blip_single_prec=.false.
+n_points_for_test=0
+/
